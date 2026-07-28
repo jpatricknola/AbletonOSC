@@ -100,6 +100,14 @@ class Manager(ControlSurface):
                 abletonosc.ViewHandler(self),
                 abletonosc.SceneHandler(self),
                 abletonosc.MidiMapHandler(self),
+                #--------------------------------------------------------------------------------
+                # Seshat extensions — see SESHAT.md. Each registers addresses of its
+                # own; none overrides another handler's, so position in this list is
+                # not load-bearing.
+                #--------------------------------------------------------------------------------
+                abletonosc.BrowserHandler(self),
+                abletonosc.ReturnTrackHandler(self),
+                abletonosc.SongStructureHandler(self),
             ]
 
     def clear_api(self):
@@ -130,6 +138,9 @@ class Manager(ControlSurface):
             importlib.reload(abletonosc.song)
             importlib.reload(abletonosc.track)
             importlib.reload(abletonosc.view)
+            importlib.reload(abletonosc.browser)
+            importlib.reload(abletonosc.return_track)
+            importlib.reload(abletonosc.song_structure)
             importlib.reload(abletonosc)
         except Exception as e:
             exc = traceback.format_exc()
