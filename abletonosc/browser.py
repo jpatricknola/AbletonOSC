@@ -169,6 +169,11 @@ class BrowserHandler(AbletonOSCHandler):
                     "query /live/browser/get/items to get a valid uri" % uri)
 
         try:
+            before = list(track.devices)
+        except Exception:
+            before = []
+
+        try:
             #--------------------------------------------------------------------------------
             # browser.load_item() always loads onto the selected track, so the
             # selection and the load happen together here rather than being
@@ -180,7 +185,7 @@ class BrowserHandler(AbletonOSCHandler):
             self.logger.error("Browser: failed to load %s: %s" % (uri, e))
             return (track_index, uri, "error", "Could not load '%s': %s" % (item.name, e))
 
-        name, index = self._loaded_device(track, item)
+        name, index = self._loaded_device(track, item, before)
         return (track_index, uri, "ok", name, index)
 
     def _preview_item(self, params: Tuple[Any] = ()) -> Tuple:
@@ -347,21 +352,26 @@ class BrowserHandler(AbletonOSCHandler):
 
         return None
 
-    def _loaded_device(self, track, item) -> Tuple[str, int]:
+    def _loaded_device(self, track, item, before=()) -> Tuple[str, int]:
         """
         Read back the track's device list so the reply positively confirms what
         landed, rather than echoing what we asked for.
+
+        `before` is the chain's device list as it stood immediately prior to
+        the load, used to disambiguate a track that already carried a
+        same-named device — otherwise a name match finds the pre-existing
+        device instead of the one just loaded.
 
         Returns (name, index), where index is the device's position in
         `track.devices` — what the caller needs to select it — or -1 when the
         device isn't on the chain to be indexed.
         """
         try:
-            names = [device.name for device in track.devices]
+            devices = list(track.devices)
         except Exception:
             return (item.name, -1)
 
-        if not names:
+        if not devices:
             #--------------------------------------------------------------------------------
             # Some VST/AU plugins instantiate asynchronously and aren't on the
             # track yet. Fall back to the browser item's own name, and -1 for the
@@ -370,15 +380,22 @@ class BrowserHandler(AbletonOSCHandler):
             return (item.name, -1)
 
         #--------------------------------------------------------------------------------
-        # load_item() does not always append at the end — an instrument lands
-        # before any existing audio effects — so prefer a name match, and take
-        # its position rather than assuming the tail.
+        # Prefer a device object that wasn't on the chain before the load: that
+        # is the one that was just loaded, even when the chain already held a
+        # same-named device. Fall back to a name match (covers `before` being
+        # unavailable) and finally to the tail, since load_item() does not
+        # always append at the end — an instrument lands before any existing
+        # audio effects.
         #--------------------------------------------------------------------------------
-        for index, name in enumerate(names):
-            if name == item.name:
-                return (name, index)
+        for index, device in enumerate(devices):
+            if device not in before:
+                return (device.name, index)
 
-        return (names[-1], len(names) - 1)
+        for index, device in enumerate(devices):
+            if device.name == item.name:
+                return (device.name, index)
+
+        return (devices[-1].name, len(devices) - 1)
 
 
 def _children_of(item) -> list:
