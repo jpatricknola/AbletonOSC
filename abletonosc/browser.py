@@ -17,8 +17,14 @@ from .handler import AbletonOSCHandler
 #     -> [category, filter, "error", message]
 #
 #   /live/browser/load_item   [track_index, uri]
-#     -> [track_index, uri, "ok", loaded_device_name]
+#     -> [track_index, uri, "ok", loaded_device_name, loaded_device_index]
 #     -> [track_index, uri, "error", message]
+#
+# `loaded_device_index` is the device's position in `track.devices` — the index
+# /live/view/set/selected_device and the /live/device/* addresses take — so the
+# caller can steer Live's view onto what it just loaded without a second query.
+# It is -1 when the device is not on the chain yet, which some VST/AU plugins do
+# by instantiating asynchronously.
 #
 #   /live/browser/export      [dest_path]
 #     -> [dest_path, "ok", total_items]
@@ -174,7 +180,8 @@ class BrowserHandler(AbletonOSCHandler):
             self.logger.error("Browser: failed to load %s: %s" % (uri, e))
             return (track_index, uri, "error", "Could not load '%s': %s" % (item.name, e))
 
-        return (track_index, uri, "ok", self._loaded_device_name(track, item))
+        name, index = self._loaded_device(track, item)
+        return (track_index, uri, "ok", name, index)
 
     def _preview_item(self, params: Tuple[Any] = ()) -> Tuple:
         uri = str(params[0]) if len(params) > 0 else ""
@@ -340,32 +347,38 @@ class BrowserHandler(AbletonOSCHandler):
 
         return None
 
-    def _loaded_device_name(self, track, item) -> str:
+    def _loaded_device(self, track, item) -> Tuple[str, int]:
         """
         Read back the track's device list so the reply positively confirms what
         landed, rather than echoing what we asked for.
+
+        Returns (name, index), where index is the device's position in
+        `track.devices` — what the caller needs to select it — or -1 when the
+        device isn't on the chain to be indexed.
         """
         try:
             names = [device.name for device in track.devices]
         except Exception:
-            return item.name
+            return (item.name, -1)
 
         if not names:
             #--------------------------------------------------------------------------------
             # Some VST/AU plugins instantiate asynchronously and aren't on the
-            # track yet. Fall back to the browser item's own name.
+            # track yet. Fall back to the browser item's own name, and -1 for the
+            # index: there is nothing to point at.
             #--------------------------------------------------------------------------------
-            return item.name
+            return (item.name, -1)
 
         #--------------------------------------------------------------------------------
         # load_item() does not always append at the end — an instrument lands
-        # before any existing audio effects — so prefer a name match.
+        # before any existing audio effects — so prefer a name match, and take
+        # its position rather than assuming the tail.
         #--------------------------------------------------------------------------------
-        for name in names:
+        for index, name in enumerate(names):
             if name == item.name:
-                return name
+                return (name, index)
 
-        return names[-1]
+        return (names[-1], len(names) - 1)
 
 
 def _children_of(item) -> list:

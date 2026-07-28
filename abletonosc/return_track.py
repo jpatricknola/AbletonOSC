@@ -23,8 +23,14 @@ from .handler import AbletonOSCHandler
 #   /live/return_track/get/volume   [index]           -> [index, "ok", volume]
 #                                                     -> [index, "error", message]
 #   /live/return_track/set/volume   [index, value]    -> (no reply)
+#   /live/return_track/select       [index]           -> (no reply)
 #   /live/master/get/volume         []                -> [volume]
 #   /live/master/set/volume         [value]           -> (no reply)
+#
+# `select` is the same gap one level up: upstream's
+# /live/view/set/selected_track resolves through `song.tracks`, so it can never
+# reach a return. `song.view.selected_track` itself accepts any track, returns
+# included, so this only needs the lookup upstream lacks.
 #
 # Listeners, so a return fader or the master fader moved in Live's UI reaches
 # Seshat without waiting for the next refresh:
@@ -57,7 +63,10 @@ from .handler import AbletonOSCHandler
 #
 # Setters stay silent. Each one is guarded by its matching getter immediately
 # before it on the Elixir side, so the bad-index case is already reported by the
-# time a setter is sent, and nothing ever waits on a setter's reply.
+# time a setter is sent, and nothing ever waits on a setter's reply. `select` is
+# silent for a stronger reason: it is view steering that follows a tool which has
+# already succeeded, and steering must never fail — or delay — the thing it
+# follows.
 #
 # Volume is 0.0-1.0 on Live's fader scale, read and written through
 # `mixer_device.volume.value` — the same reason upstream's TrackHandler
@@ -76,6 +85,7 @@ class ReturnTrackHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/return_track/set/name", self._set_name)
         self.osc_server.add_handler("/live/return_track/get/volume", self._get_volume)
         self.osc_server.add_handler("/live/return_track/set/volume", self._set_volume)
+        self.osc_server.add_handler("/live/return_track/select", self._select)
         self.osc_server.add_handler("/live/master/get/volume", self._get_master_volume)
         self.osc_server.add_handler("/live/master/set/volume", self._set_master_volume)
         self.osc_server.add_handler("/live/return_track/start_listen/name",
@@ -134,6 +144,23 @@ class ReturnTrackHandler(AbletonOSCHandler):
             return None
 
         track.mixer_device.volume.value = value
+
+    def _select(self, params: Tuple[Any] = ()) -> None:
+        """
+        Select a return track in Live's UI.
+
+        `song.view.selected_track` takes any track object, so the only thing
+        upstream is missing is the lookup: its /live/view/set/selected_track
+        indexes `song.tracks`, where returns do not appear.
+        """
+        index, track, error = self._return_track(params, "select")
+        if error is not None:
+            return None
+
+        try:
+            self.song.view.selected_track = track
+        except Exception as e:
+            self.logger.error("Return track: could not select return %d: %s" % (index, e))
 
     #--------------------------------------------------------------------------------
     # Return track listeners

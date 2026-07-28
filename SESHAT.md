@@ -90,6 +90,19 @@ ongoing cost — merging upstream releases — is close to zero.
   g_bar=4, g_half=5, g_quarter=6, g_eighth=7, g_sixteenth=8, g_thirtysecond=9`.
   So sixteenths is `8`.
 
+- **`view.py` — `/live/view/show_view` and `/live/view/set/detail_clip`.** The
+  first Seshat addresses to live in an upstream file rather than in a handler of
+  our own: they belong to the View API by every other measure, and splitting them
+  into a fourth module would put two `ViewHandler`s in `manager.py`. Upstream can
+  *select* a track, scene, clip or device but cannot bring the pane those live in
+  into view — `Application.View.show_view` and `song.view.detail_clip` have no
+  OSC address at all. Seshat's view steering (every mutating tool ends by showing
+  what it changed) needs both: selecting a clip nobody can see is not
+  confirmation that anything happened. Both are **silent**, like upstream's
+  setters — an unknown view name or an empty clip slot is logged to `Log.txt` and
+  nothing goes on the wire, because a steering send must never fail or delay the
+  tool it follows.
+
 ### Seshat's own handlers
 
 Three modules that upstream has no equivalent of. Each carries its own header
@@ -98,10 +111,20 @@ comment explaining what it adds and why. They are registered at the end of
 
 - **`abletonosc/browser.py`** — `/live/browser/*`. Upstream exposes no browser
   API at all. Indexing, search, load-onto-track, bulk export to JSON, and
-  preview.
+  preview. `load_item`'s ok reply carries the loaded device's **index** as well
+  as its name — `[track_index, uri, "ok", name, device_index]`, where
+  `device_index` is the position in `track.devices` that
+  `/live/view/set/selected_device` and the `/live/device/*` addresses take, and
+  `-1` when the device isn't on the chain yet (asynchronously instantiating
+  VST/AU plugins). Without it, steering the view onto a freshly loaded device
+  would cost a second round trip to re-read the whole chain.
 - **`abletonosc/return_track.py`** — `/live/return_track/*` and `/live/master/*`.
   Upstream's track addresses resolve through `song.tracks` only, so return
-  tracks and the master are unreachable.
+  tracks and the master are unreachable. `/live/return_track/select` is the same
+  gap one level up: `/live/view/set/selected_track` indexes `song.tracks` too, so
+  no upstream address can select a return. `song.view.selected_track` itself
+  accepts any track, so that handler is the lookup and nothing more — and it is
+  silent, for the same reason as the two view addresses above.
 - **`abletonosc/song_structure.py`** — `/live/song/{start,stop}_listen/tracks`
   and `.../return_tracks`. Upstream can only listen to *scalar* song properties,
   so nothing fires when tracks are added, deleted or reordered by hand.
