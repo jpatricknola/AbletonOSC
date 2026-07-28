@@ -24,9 +24,25 @@ from .handler import AbletonOSCHandler
 #     -> [dest_path, "ok", total_items]
 #     -> [dest_path, "error", message]
 #
+#   /live/browser/preview_item  [uri]
+#     -> [uri, "ok", name]
+#     -> [uri, "error", message]
+#
+#   /live/browser/stop_preview  []
+#     -> ["ok"]
+#     -> ["error", message]
+#
 # All endpoints always reply on the address they were called on, including on
 # every error path — OSC is fire-and-forget UDP, so a client waiting for a
-# matching reply would otherwise hang until its timeout.
+# matching reply would otherwise hang until its timeout. stop_preview takes no
+# argument and so has no failure to report, but it still replies "ok" rather
+# than staying silent the way an index-less getter's bare value would: nothing
+# else confirms that the preview stopped.
+#
+# Preview audibility depends on Live's cue routing — the preview bus is the cue
+# output, so a set with cue routed nowhere previews silently. That is a property
+# of the user's set, not an error this handler can detect, so a preview of a
+# preset with no audible result still replies "ok".
 #--------------------------------------------------------------------------------
 
 CATEGORIES = (
@@ -77,6 +93,8 @@ class BrowserHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/browser/get/items", self._get_items)
         self.osc_server.add_handler("/live/browser/load_item", self._load_item)
         self.osc_server.add_handler("/live/browser/export", self._export)
+        self.osc_server.add_handler("/live/browser/preview_item", self._preview_item)
+        self.osc_server.add_handler("/live/browser/stop_preview", self._stop_preview)
 
     #--------------------------------------------------------------------------------
     # Endpoints
@@ -157,6 +175,43 @@ class BrowserHandler(AbletonOSCHandler):
             return (track_index, uri, "error", "Could not load '%s': %s" % (item.name, e))
 
         return (track_index, uri, "ok", self._loaded_device_name(track, item))
+
+    def _preview_item(self, params: Tuple[Any] = ()) -> Tuple:
+        uri = str(params[0]) if len(params) > 0 else ""
+        if not uri:
+            return ("", "error", "preview_item requires [uri]")
+
+        try:
+            item = self._find_item(uri)
+        except Exception as e:
+            self.logger.error("Browser: failed to search for uri %s: %s" % (uri, e))
+            return (uri, "error", "Could not search the browser: %s" % e)
+
+        if item is None:
+            return (uri, "error",
+                    "No browser item found with uri '%s' — "
+                    "query /live/browser/get/items to get a valid uri" % uri)
+
+        try:
+            #--------------------------------------------------------------------------------
+            # Unlike load_item, this touches neither the selected track nor the set:
+            # the preview plays on Live's cue bus and leaves the session alone.
+            #--------------------------------------------------------------------------------
+            Live.Application.get_application().browser.preview_item(item)
+        except Exception as e:
+            self.logger.error("Browser: failed to preview %s: %s" % (uri, e))
+            return (uri, "error", "Could not preview '%s': %s" % (item.name, e))
+
+        return (uri, "ok", item.name)
+
+    def _stop_preview(self, params: Tuple[Any] = ()) -> Tuple:
+        try:
+            Live.Application.get_application().browser.stop_preview()
+        except Exception as e:
+            self.logger.error("Browser: failed to stop preview: %s" % e)
+            return ("error", "Could not stop the preview: %s" % e)
+
+        return ("ok",)
 
     def _export(self, params: Tuple[Any] = ()) -> Tuple:
         dest_path = str(params[0]) if len(params) > 0 else ""
