@@ -113,6 +113,12 @@ upstream PRs #204 and #192, with Seshat's own URI resolution and reply envelope.
 
 Read this before merging anything from upstream.
 
+Remotes are local config, so a fresh checkout of this repo (including the
+submodule checkout `git submodule update --init` creates in Seshat) has only
+`origin`. Merging or cherry-picking from upstream needs, once per clone:
+
+    git remote add upstream https://github.com/ideoforms/AbletonOSC.git
+
 - **PRs #182 / #185 rename `/live/clip_slot/duplicate_clip_to` to
   `duplicate_to`, with no alias.** Seshat's `duplicate_clip` tool depends on the
   old name. Merging either PR silently breaks it — silently, because OSC is
