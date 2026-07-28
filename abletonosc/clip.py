@@ -66,8 +66,20 @@ class ClipHandler(AbletonOSCHandler):
         methods = [
             "fire",
             "stop",
-            "duplicate_loop", 
-            "remove_notes_by_id"
+            "duplicate_loop",
+            "remove_notes_by_id",
+            #--------------------------------------------------------------------------------
+            # quantize(quantization_grid, amount).
+            #
+            # The grid is Live's GridQuantization enum, NOT RecordingQuantization:
+            #   0 no_grid    1 g_8_bars   2 g_4_bars   3 g_2_bars   4 g_bar
+            #   5 g_half     6 g_quarter  7 g_eighth   8 g_sixteenth
+            #   9 g_thirtysecond
+            # so sixteenths is 8. There are no triplet grids — swing comes from the
+            # song's swing_amount, which quantize honours. Amount is a float on
+            # 0.0-1.0 (Live's UI shows it as a percentage).
+            #--------------------------------------------------------------------------------
+            "quantize"
         ]
         properties_r = [
             "end_time",
