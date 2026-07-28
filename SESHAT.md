@@ -116,8 +116,14 @@ comment explaining what it adds and why. They are registered at the end of
   `device_index` is the position in `track.devices` that
   `/live/view/set/selected_device` and the `/live/device/*` addresses take, and
   `-1` when the device isn't on the chain yet (asynchronously instantiating
-  VST/AU plugins). Without it, steering the view onto a freshly loaded device
-  would cost a second round trip to re-read the whole chain.
+  VST/AU plugins). `load_item` does not always append at the end (an
+  instrument lands *before* existing audio effects), and a same-named device
+  can already be on the chain, so `_loaded_device` disambiguates by diffing
+  the post-load chain against a snapshot taken immediately before the load —
+  the device that's new — falling back to a name match, then the last device,
+  when diffing doesn't resolve it. Without the index, steering the view onto a
+  freshly loaded device would cost a second round trip to re-read the whole
+  chain.
 - **`abletonosc/return_track.py`** — `/live/return_track/*` and `/live/master/*`.
   Upstream's track addresses resolve through `song.tracks` only, so return
   tracks and the master are unreachable. `/live/return_track/select` is the same
