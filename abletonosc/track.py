@@ -289,6 +289,11 @@ class TrackHandler(AbletonOSCHandler):
         # _start_mixer_listen calls through here unconditionally to make re-listening
         # idempotent, and a first subscribe is not a missing-listener error.
         #--------------------------------------------------------------------------------
+        # No target: the base class resolves the DeviceParameter out of
+        # listener_objects, and re-deriving it from the track we were handed would
+        # touch the very object the fix exists to stop trusting — after a renumber
+        # that track may not be the one the callback was registered on, and if it
+        # has been deleted the attribute access raises before _stop_listen runs.
         listener_params = self._mixer_listener_params(prop, params)
         if ("value", listener_params) in self.listener_functions:
-            self._stop_listen(getattr(target.mixer_device, prop), "value", listener_params)
+            self._stop_listen(None, "value", listener_params)

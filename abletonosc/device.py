@@ -94,6 +94,21 @@ class DeviceHandler(AbletonOSCHandler):
             param_index = int(params[0])
             return param_index, device.parameters[param_index].str_for_value(device.parameters[param_index].value)
         
+        #--------------------------------------------------------------------------------
+        # A parameter listener is not bound to the device: it is bound to a
+        # DeviceParameter, whose change notification is add_value_listener. So it is
+        # registered under the base class's bookkeeping as the property "value", with
+        # the whole (track, device, parameter) path forming the params half of the key
+        # — the same shape track.py's mixer listeners and return_track.py use, and
+        # what lets _stop_listen and _clear_listeners handle it with no special case.
+        #
+        # Upstream keyed it 'device_parameter_value' and never populated
+        # listener_objects, so _clear_listeners (which iterates *all* of
+        # listener_functions) raised on every reload with a parameter listener active.
+        # Manager.clear_api iterates its handlers unguarded, so that also meant every
+        # handler after this one — including all three of Seshat's — kept listeners
+        # bound to the dead song object.
+        #--------------------------------------------------------------------------------
         def device_get_parameter_value_listener(device, params: Tuple[Any] = ()):
 
             def property_changed_callback():
@@ -105,25 +120,27 @@ class DeviceHandler(AbletonOSCHandler):
                 self.logger.info("Property %s changed of %s %s: %s" % ('value_string', 'device parameter', str(params), value_string))
                 self.osc_server.send("/live/device/get/parameter/value_string", (*params, value_string,))
 
-            listener_key = ('device_parameter_value', tuple(params))
-            if listener_key in self.listener_functions:
-               device_get_parameter_remove_value_listener(device, params)
+            listener_key = ("value", tuple(params))
+            device_get_parameter_remove_value_listener(device, params)
 
             self.logger.info("Adding listener for %s %s, property: %s" % ('device parameter', str(params), 'value'))
-            device.parameters[params[2]].add_value_listener(property_changed_callback)
+            parameter_object = device.parameters[params[2]]
+            parameter_object.add_value_listener(property_changed_callback)
             self.listener_functions[listener_key] = property_changed_callback
+            self.listener_objects[listener_key] = parameter_object
 
             property_changed_callback()
 
+        #--------------------------------------------------------------------------------
+        # Silent when nothing is registered, like the other DeviceParameter listeners
+        # in this fork: the start path calls through here unconditionally to make
+        # re-listening idempotent, and a first subscribe is not a missing-listener
+        # error. Upstream warned here, but referenced an unbound `prop` to do it.
+        #--------------------------------------------------------------------------------
         def device_get_parameter_remove_value_listener(device, params: Tuple[Any] = ()):
-            listener_key = ('device_parameter_value', tuple(params))
+            listener_key = ("value", tuple(params))
             if listener_key in self.listener_functions:
-                self.logger.info("Removing listener for %s %s, property %s" % (self.class_identifier, str(params), 'value'))
-                listener_function = self.listener_functions[listener_key]
-                device.parameters[params[2]].remove_value_listener(listener_function)
-                del self.listener_functions[listener_key]
-            else:
-                self.logger.warning("No listener function found for property: %s (%s)" % (prop, str(params)))
+                self._stop_listen(self.listener_objects[listener_key], "value", params)
 
         def device_set_parameter_value(device, params: Tuple[Any] = ()):
             param_index, param_value = params[:2]

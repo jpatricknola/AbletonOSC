@@ -52,6 +52,18 @@ ongoing cost — merging upstream releases — is close to zero.
   `("value", (*params, prop))` with the `DeviceParameter` stored, and stopping
   delegates to the fixed base `_stop_listen`.
 
+- **`device.py` — parameter listeners join the same bookkeeping.** The same two
+  bugs as `track.py`'s mixer listeners, in the third place upstream listens to a
+  `DeviceParameter`: the key was `('device_parameter_value', …)` and
+  `listener_objects` was never populated, so `_clear_listeners` raised on reload
+  whenever a parameter listener was active — and since `Manager.clear_api`
+  iterates its handler list unguarded, every handler after `DeviceHandler`
+  (Seshat's three among them) then kept listeners bound to the dead song object.
+  Now keyed `("value", (track, device, parameter))` with the `DeviceParameter`
+  stored, stopping delegates to the base `_stop_listen`. Also removes a
+  `NameError` in the no-listener warning path, which referenced an unbound
+  `prop`.
+
 - **`clip_slot.py` — logger format args.** Cherry-picked from upstream PR #213.
   `self.logger.info(track_index, clip_index, rv)` passes an `int` where a format
   string belongs, raising inside every clip-slot callback and flooding Live's
