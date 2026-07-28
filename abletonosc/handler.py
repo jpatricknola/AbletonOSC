@@ -88,6 +88,16 @@ class AbletonOSCHandler(Component):
         listener_key = (prop, tuple(params))
         if listener_key in self.listener_functions:
             self.logger.info("Removing listener for %s %s, property %s" % (self.class_identifier, str(params), prop))
+            #--------------------------------------------------------------------------------
+            # Unbind from the object the listener was actually registered on, not the
+            # one we were handed. Listeners are keyed by index but bound to a LOM
+            # object, and indices renumber: delete track 0 of [A, B, C] and index 0
+            # now means B, so a re-subscribe hands us B while the stored callback
+            # belongs to A. B.remove_x_listener would then raise, be swallowed below
+            # as benign, and the dict entry dropped regardless — leaving A's listener
+            # alive forever, still pushing under an index that now means someone else.
+            #--------------------------------------------------------------------------------
+            target = self.listener_objects.get(listener_key, target)
             listener_function = self.listener_functions[listener_key]
             remove_listener_function_name = "remove_%s_listener" % prop
             remove_listener_function = getattr(target, remove_listener_function_name)

@@ -241,6 +241,21 @@ class TrackHandler(AbletonOSCHandler):
         self.logger.info("Getting property for %s: %s = %s" % (self.class_identifier, prop, parameter_object.value))
         return parameter_object.value,
 
+    #--------------------------------------------------------------------------------
+    # A mixer listener is not bound to the track: it is bound to a DeviceParameter
+    # (`mixer_device.volume` and friends), whose change notification is
+    # add_value_listener. So it is registered under the base class's bookkeeping as
+    # the property "value", with the track index and the mixer property name
+    # together forming the params half of the key — ("value", (track_id, "volume")).
+    #
+    # That shape is what lets _stop_mixer_listen delegate to the base _stop_listen:
+    # the base derives its removal method from the key's prop, and "value" yields
+    # remove_value_listener, which is the correct one for a DeviceParameter. It also
+    # means _clear_listeners handles mixer keys with no special case.
+    #--------------------------------------------------------------------------------
+    def _mixer_listener_params(self, prop, params: Optional[Tuple] = ()) -> Tuple[Any]:
+        return (*tuple(params), prop)
+
     def _start_mixer_listen(self, target, prop, params: Optional[Tuple] = ()) -> None:
         parameter_object = getattr(target.mixer_device, prop)
         def property_changed_callback():
@@ -249,26 +264,31 @@ class TrackHandler(AbletonOSCHandler):
             osc_address = "/live/%s/get/%s" % (self.class_identifier, prop)
             self.osc_server.send(osc_address, (*params, value,))
 
-        listener_key = (prop, tuple(params))
-        if listener_key in self.listener_functions:
-            self._stop_mixer_listen(target, prop, params)
+        #--------------------------------------------------------------------------------
+        # Hand-rolled rather than delegated to _start_listen, only because the reply
+        # address and payload differ: the base class would derive
+        # /live/track/get/value and send the property name on the wire. All the
+        # bookkeeping below is the base class's own, and must stay that way.
+        #--------------------------------------------------------------------------------
+        listener_key = ("value", self._mixer_listener_params(prop, params))
+        self._stop_mixer_listen(target, prop, params)
 
         self.logger.info("Adding listener for %s %s, property: %s" % (self.class_identifier, str(params), prop))
 
         parameter_object.add_value_listener(property_changed_callback)
         self.listener_functions[listener_key] = property_changed_callback
+        self.listener_objects[listener_key] = parameter_object
         #--------------------------------------------------------------------------------
         # Immediately send the current value
         #--------------------------------------------------------------------------------
         property_changed_callback()
 
     def _stop_mixer_listen(self, target, prop, params: Optional[Tuple[Any]] = ()) -> None:
-        parameter_object = getattr(target.mixer_device, prop)
-        listener_key = (prop, tuple(params))
-        if listener_key in self.listener_functions:
-            self.logger.info("Removing listener for %s %s, property %s" % (self.class_identifier, str(params), prop))
-            listener_function = self.listener_functions[listener_key]
-            parameter_object.remove_value_listener(listener_function)
-            del self.listener_functions[listener_key]
-        else:
-            self.logger.warning("No listener function found for property: %s (%s)" % (prop, str(params)))
+        #--------------------------------------------------------------------------------
+        # Silent when nothing is registered — unlike the base class, which warns.
+        # _start_mixer_listen calls through here unconditionally to make re-listening
+        # idempotent, and a first subscribe is not a missing-listener error.
+        #--------------------------------------------------------------------------------
+        listener_params = self._mixer_listener_params(prop, params)
+        if ("value", listener_params) in self.listener_functions:
+            self._stop_listen(getattr(target.mixer_device, prop), "value", listener_params)
