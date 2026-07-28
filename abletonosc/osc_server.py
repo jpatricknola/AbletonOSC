@@ -148,14 +148,38 @@ class OSCServer:
     def process(self) -> None:
         """
         Synchronously process all data queued on the OSC socket.
+
+        Error handling is per-message: a message that throws is logged and the
+        loop moves on to the next one. Anything wider would let one bad message
+        discard the rest of this tick's queue, which breaks clients that send
+        ordered multi-message sequences.
         """
-        try:
-            repeats = 0
-            while True:
-                #--------------------------------------------------------------------------------
-                # Loop until no more data is available.
-                #--------------------------------------------------------------------------------
+        while True:
+            #--------------------------------------------------------------------------------
+            # Loop until no more data is available.
+            #--------------------------------------------------------------------------------
+            try:
                 data, remote_addr = self._socket.recvfrom(65536)
+            except socket.error as e:
+                if e.errno == errno.ECONNRESET:
+                    #--------------------------------------------------------------------------------
+                    # This benign error seems to occur on startup on Windows
+                    #--------------------------------------------------------------------------------
+                    self.logger.warning("AbletonOSC: Non-fatal socket error: %s" % (traceback.format_exc()))
+                elif e.errno == errno.EAGAIN or e.errno == errno.EWOULDBLOCK:
+                    #--------------------------------------------------------------------------------
+                    # Another benign networking error, throw when no data is received
+                    # on a call to recvfrom() on a non-blocking socket
+                    #--------------------------------------------------------------------------------
+                    pass
+                else:
+                    #--------------------------------------------------------------------------------
+                    # Something more serious has happened
+                    #--------------------------------------------------------------------------------
+                    self.logger.error("AbletonOSC: Socket error: %s" % (traceback.format_exc()))
+                break
+
+            try:
                 #--------------------------------------------------------------------------------
                 # Update the default reply address to the most recent client. Used when
                 # sending (e.g) /live/song/beat messages and listen updates.
@@ -164,28 +188,9 @@ class OSCServer:
                 #--------------------------------------------------------------------------------
                 self._remote_addr = (remote_addr[0], OSC_RESPONSE_PORT)
                 self.parse_bundle(data, remote_addr)
-
-        except socket.error as e:
-            if e.errno == errno.ECONNRESET:
-                #--------------------------------------------------------------------------------
-                # This benign error seems to occur on startup on Windows
-                #--------------------------------------------------------------------------------
-                self.logger.warning("AbletonOSC: Non-fatal socket error: %s" % (traceback.format_exc()))
-            elif e.errno == errno.EAGAIN or e.errno == errno.EWOULDBLOCK:
-                #--------------------------------------------------------------------------------
-                # Another benign networking error, throw when no data is received
-                # on a call to recvfrom() on a non-blocking socket
-                #--------------------------------------------------------------------------------
-                pass
-            else:
-                #--------------------------------------------------------------------------------
-                # Something more serious has happened
-                #--------------------------------------------------------------------------------
-                self.logger.error("AbletonOSC: Socket error: %s" % (traceback.format_exc()))
-
-        except Exception as e:
-            self.logger.error("AbletonOSC: Error handling OSC message: %s" % e)
-            self.logger.warning("AbletonOSC: %s" % traceback.format_exc())
+            except Exception as e:
+                self.logger.error("AbletonOSC: Error handling OSC message: %s" % e)
+                self.logger.warning("AbletonOSC: %s" % traceback.format_exc())
 
     def shutdown(self) -> None:
         """
