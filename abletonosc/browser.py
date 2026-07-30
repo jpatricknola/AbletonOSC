@@ -1,5 +1,8 @@
 import json
 import os
+import stat
+import tempfile
+import time
 from typing import Any, Optional, Tuple
 
 import Live
@@ -26,9 +29,15 @@ from .handler import AbletonOSCHandler
 # It is -1 when the device is not on the chain yet, which some VST/AU plugins do
 # by instantiating asynchronously.
 #
-#   /live/browser/export      [dest_path]
-#     -> [dest_path, "ok", total_items]
-#     -> [dest_path, "error", message]
+#   /live/browser/export      []
+#     -> [export_path, "ok", total_items]
+#     -> ["", "error", message]
+#
+# export takes **no arguments**: this handler chooses the destination itself,
+# inside EXPORT_ROOT below, and returns the absolute path it actually wrote. A
+# caller-supplied path would be opened with Live's privileges, and the one client
+# never needed to name the file. A request that still carries the obsolete
+# [dest_path] argument is rejected without writing anything.
 #
 #   /live/browser/preview_item  [uri]
 #     -> [uri, "ok", name]
@@ -79,6 +88,30 @@ MAX_DEPTH = 6
 DEFAULT_MAX_RESULTS = 25
 MAX_RESULTS_LIMIT = 100
 
+#--------------------------------------------------------------------------------
+# Where exports go. Deliberately `expanduser` + `abspath` and **not** `realpath`:
+# Seshat derives the same root in Elixir with Path.expand/1, which does not
+# resolve symlinks, so a symlinked ~/.seshat would put this path under the link
+# target and fail the consumer's root check on every reindex. realpath would buy
+# no safety here either — a symlinked export directory is written through by
+# both spellings. What guards the final component is mkstemp's exclusive create
+# on this side and File.lstat/1 on Elixir's.
+#--------------------------------------------------------------------------------
+EXPORT_ROOT = os.path.abspath(os.path.expanduser("~/.seshat/browser-exports"))
+EXPORT_PREFIX = "seshat-browser-export-"
+EXPORT_SUFFIX = ".json"
+
+#--------------------------------------------------------------------------------
+# Only Python knows an export's name now, so only Python can sweep up one whose
+# reply never reached the caller (a query timeout, a lost datagram, a path the
+# consumer refused) — nothing else would ever delete a multi-megabyte orphan.
+# The age gate is load-bearing: the transport does not serialize queries, so an
+# unconditional sweep could delete a finished export out from under an
+# overlapping caller. Ten minutes is well past the 120-second query timeout while
+# still bounding how long an orphan survives.
+#--------------------------------------------------------------------------------
+EXPORT_STALE_SECONDS = 10 * 60
+
 
 class BrowserHandler(AbletonOSCHandler):
     def __init__(self, manager):
@@ -101,6 +134,16 @@ class BrowserHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/browser/export", self._export)
         self.osc_server.add_handler("/live/browser/preview_item", self._preview_item)
         self.osc_server.add_handler("/live/browser/stop_preview", self._stop_preview)
+
+        #--------------------------------------------------------------------------------
+        # Sweep once at startup as well as before each export, so orphans left by
+        # a crashed or killed consumer don't wait for the next reindex. Never let
+        # it break registration: the addresses above matter more than the sweep.
+        #--------------------------------------------------------------------------------
+        try:
+            self._clean_stale_exports()
+        except Exception as e:
+            self.logger.warning("Browser: stale export sweep failed: %s" % e)
 
     #--------------------------------------------------------------------------------
     # Endpoints
@@ -226,9 +269,19 @@ class BrowserHandler(AbletonOSCHandler):
         return ("ok",)
 
     def _export(self, params: Tuple[Any] = ()) -> Tuple:
-        dest_path = str(params[0]) if len(params) > 0 else ""
-        if not dest_path:
-            return ("", "error", "export requires [dest_path]")
+        if len(params) > 0:
+            #--------------------------------------------------------------------------------
+            # The obsolete [dest_path] form. Its reply goes to the fixed response
+            # port rather than back to the sender's socket, so for anything but
+            # Seshat's own transport this log line is the only observable outcome.
+            #--------------------------------------------------------------------------------
+            self.logger.error("Browser: export takes no arguments (got %d) — "
+                              "this handler chooses the destination. Nothing was "
+                              "written. Re-run mix abletonosc.install and restart Live."
+                              % len(params))
+            return ("", "error",
+                    "export takes no arguments: it writes into %s and returns the path. "
+                    "Re-run mix abletonosc.install and restart Live." % EXPORT_ROOT)
 
         #--------------------------------------------------------------------------------
         # This walks every category in one go on Live's UI thread, so the UI can
@@ -238,7 +291,7 @@ class BrowserHandler(AbletonOSCHandler):
         #--------------------------------------------------------------------------------
         self.logger.info("Browser: exporting %d categories to %s — "
                          "Live's UI may be unresponsive while this runs"
-                         % (len(EXPORT_CATEGORIES), dest_path))
+                         % (len(EXPORT_CATEGORIES), EXPORT_ROOT))
 
         #--------------------------------------------------------------------------------
         # An export always re-walks: its whole purpose is to pick up Packs and
@@ -261,22 +314,101 @@ class BrowserHandler(AbletonOSCHandler):
                                 for (name, path, uri, _item) in index]
             total += len(export[category])
 
+        #--------------------------------------------------------------------------------
+        # Nothing is created on disk until there is something worth writing.
+        #--------------------------------------------------------------------------------
         if not export:
-            return (dest_path, "error", "Could not index any browser category")
+            return ("", "error", "Could not index any browser category")
 
         try:
-            directory = os.path.dirname(dest_path)
-            if directory and not os.path.isdir(directory):
-                os.makedirs(directory)
+            self._clean_stale_exports()
+        except Exception as e:
+            self.logger.warning("Browser: stale export sweep failed: %s" % e)
 
-            with open(dest_path, "w") as f:
+        try:
+            fd, export_path = _new_export_file()
+        except Exception as e:
+            self.logger.error("Browser: could not create an export file in %s: %s"
+                              % (EXPORT_ROOT, e))
+            return ("", "error", "Could not create an export file in '%s': %s"
+                    % (EXPORT_ROOT, e))
+
+        try:
+            handle = os.fdopen(fd, "w")
+        except Exception as e:
+            #--------------------------------------------------------------------------------
+            # fdopen didn't take ownership of the descriptor, so close it here.
+            # Below, the `with` owns it and closes it on every path.
+            #--------------------------------------------------------------------------------
+            self.logger.error("Browser: could not open %s for writing: %s" % (export_path, e))
+            _close_quietly(fd)
+            self._remove_quietly(export_path)
+            return ("", "error", "Could not open the browser export for writing: %s" % e)
+
+        try:
+            with handle as f:
                 json.dump(export, f)
         except Exception as e:
-            self.logger.error("Browser: failed to write export to %s: %s" % (dest_path, e))
-            return (dest_path, "error", "Could not write '%s': %s" % (dest_path, e))
+            self.logger.error("Browser: failed to write export to %s: %s" % (export_path, e))
+            self._remove_quietly(export_path)
+            return ("", "error", "Could not write the browser export: %s" % e)
 
-        self.logger.info("Browser: exported %d item(s) to %s" % (total, dest_path))
-        return (dest_path, "ok", total)
+        self.logger.info("Browser: exported %d item(s) to %s" % (total, export_path))
+        return (export_path, "ok", total)
+
+    #--------------------------------------------------------------------------------
+    # Export housekeeping
+    #--------------------------------------------------------------------------------
+    def _clean_stale_exports(self) -> None:
+        """
+        Remove export files old enough that no caller can still be reading them.
+
+        Deliberately narrow: direct children of EXPORT_ROOT only, matching the
+        export name shape, regular files by os.lstat (so a symlink is skipped
+        rather than followed), and at least EXPORT_STALE_SECONDS old. Everything
+        else in that directory — fresh exports, symlinks, subdirectories, files
+        nobody here named — is left alone. Failures are logged and skipped: a
+        sweep must never be the reason an export fails.
+        """
+        try:
+            names = os.listdir(EXPORT_ROOT)
+        except OSError:
+            #--------------------------------------------------------------------------------
+            # No export directory yet is the normal state before the first export.
+            #--------------------------------------------------------------------------------
+            return
+
+        cutoff = time.time() - EXPORT_STALE_SECONDS
+
+        for name in names:
+            if not (name.startswith(EXPORT_PREFIX) and name.endswith(EXPORT_SUFFIX)):
+                continue
+
+            path = os.path.join(EXPORT_ROOT, name)
+
+            try:
+                info = os.lstat(path)
+            except OSError as e:
+                self.logger.warning("Browser: could not inspect %s: %s" % (path, e))
+                continue
+
+            if not stat.S_ISREG(info.st_mode):
+                continue
+
+            if info.st_mtime > cutoff:
+                continue
+
+            try:
+                os.remove(path)
+                self.logger.info("Browser: removed stale export %s" % path)
+            except OSError as e:
+                self.logger.warning("Browser: could not remove stale export %s: %s" % (path, e))
+
+    def _remove_quietly(self, path: str) -> None:
+        try:
+            os.remove(path)
+        except OSError as e:
+            self.logger.warning("Browser: could not remove partial export %s: %s" % (path, e))
 
     #--------------------------------------------------------------------------------
     # Indexing
@@ -396,6 +528,26 @@ class BrowserHandler(AbletonOSCHandler):
                 return (device.name, index)
 
         return (devices[-1].name, len(devices) - 1)
+
+
+def _new_export_file() -> Tuple[int, str]:
+    """
+    Create a fresh, uniquely named export file inside EXPORT_ROOT.
+
+    Returns (open write descriptor, absolute path). mkstemp does the exclusive
+    create — no caller-supplied name, no pre-existing file reused, no widening
+    of the 0600 mode it opens with — and the directory is created owner-only.
+    """
+    os.makedirs(EXPORT_ROOT, 0o700, exist_ok=True)
+    fd, path = tempfile.mkstemp(prefix=EXPORT_PREFIX, suffix=EXPORT_SUFFIX, dir=EXPORT_ROOT)
+    return (fd, os.path.abspath(path))
+
+
+def _close_quietly(fd: int) -> None:
+    try:
+        os.close(fd)
+    except OSError:
+        pass
 
 
 def _children_of(item) -> list:

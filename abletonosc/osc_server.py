@@ -12,7 +12,7 @@ import traceback
 
 class OSCServer:
     def __init__(self,
-                 local_addr: Tuple[str, int] = ('0.0.0.0', OSC_LISTEN_PORT),
+                 local_addr: Tuple[str, int] = ('127.0.0.1', OSC_LISTEN_PORT),
                  remote_addr: Tuple[str, int] = ('127.0.0.1', OSC_RESPONSE_PORT)):
         """
         Class that handles OSC server responsibilities, including support for sending
@@ -22,10 +22,18 @@ class OSCServer:
         incoming messages. To investigate, as it would be ultimately better not to have
         to roll our own.
 
+        This fork is **local-only by default**: every OSC address here can control
+        Live, and there is no authentication on the wire, so upstream's wildcard
+        bind exposed full remote control of the user's session to anything the
+        machine's network boundary allowed through. Seshat's only client runs on
+        the same machine. Do not restore the wildcard default — a networked
+        controller needs an explicit opt-in bind plus a security design of its own
+        (see SESHAT.md).
+
         Args:
             local_addr: Local address and port to listen on.
-                        By default, binds to the wildcard address 0.0.0.0, which means listening on
-                        every available local IPv4 interface (including 127.0.0.1).
+                        By default, binds to IPv4 loopback (127.0.0.1), so only
+                        processes on this machine can reach the OSC API.
             remote_addr: Remote address to send replies to, by default. Can be overridden in send().
         """
 
@@ -181,12 +189,11 @@ class OSCServer:
 
             try:
                 #--------------------------------------------------------------------------------
-                # Update the default reply address to the most recent client. Used when
-                # sending (e.g) /live/song/beat messages and listen updates.
-                #
-                # This is slightly ugly and prevents registering listeners from different IPs.
+                # The default reply address is fixed at construction and is never
+                # retargeted from the last datagram's source: listener updates,
+                # /live/startup and /live/error always go to loopback on the
+                # response port. Upstream rewrote it per message here.
                 #--------------------------------------------------------------------------------
-                self._remote_addr = (remote_addr[0], OSC_RESPONSE_PORT)
                 self.parse_bundle(data, remote_addr)
             except Exception as e:
                 self.logger.error("AbletonOSC: Error handling OSC message: %s" % e)

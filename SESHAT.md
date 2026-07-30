@@ -80,6 +80,40 @@ ongoing cost — merging upstream releases — is close to zero.
   to the fixed response port regardless, so that change buys nothing here and
   touches reply correlation.
 
+### Deliberate changes to upstream's behaviour
+
+Not bug fixes and not extensions: places where upstream works as intended and
+this fork intends something different. Both of these are **security** changes,
+so treat any merge that reverts one as a regression, not a preference.
+
+- **`osc_server.py` — the OSC socket binds loopback only.** Upstream's
+  `OSCServer.__init__` defaults `local_addr` to `('0.0.0.0', OSC_LISTEN_PORT)`,
+  i.e. every local IPv4 interface. That is a reasonable default for upstream,
+  whose users drive Live from phones, tablets and other machines on the LAN. It
+  is the wrong default here: every OSC address can control Live, there is no
+  authentication anywhere on the wire, and Seshat's only client is on the same
+  machine. The default is now `('127.0.0.1', OSC_LISTEN_PORT)`. `Manager`
+  constructs `OSCServer()` with no arguments and logs `_local_addr`, so the new
+  bind is used and visible in `Log.txt` with no other change.
+
+- **`osc_server.py` — the default reply address is never retargeted.** Upstream's
+  `process()` reassigned `self._remote_addr` to the source of the most recent
+  datagram, so listener pushes, `/live/startup`, `/live/error` and `/live/test`
+  followed whichever client spoke last. (Upstream's own comment concedes this
+  prevents listeners from more than one IP.) That assignment is gone; the default
+  remote stays `('127.0.0.1', OSC_RESPONSE_PORT)` as constructed. The
+  per-callback reply path in `process_message()` is untouched — it still answers
+  the originating hostname on the response port, which after the bind change can
+  only be loopback.
+
+  **Merge hazard.** Either change is easy to lose: nothing fails, and locally
+  everything keeps working, because loopback traffic is unaffected by both. The
+  regression is silent remote exposure. Seshat's `vendored_addresses_test` greps
+  this file's `osc_server.py` for the loopback default and for the absence of the
+  `_remote_addr` assignment, and for this section of `SESHAT.md`. If a networked
+  controller (TouchOSC and friends) is ever wanted, it gets an **explicit opt-in
+  bind constant plus a security design** — do not restore the wildcard default.
+
 ### Additions to upstream's code
 
 - **`clip.py` — `quantize` in the generic methods list.** From upstream PR #198
@@ -124,6 +158,24 @@ comment explaining what it adds and why. They are registered at the end of
   when diffing doesn't resolve it. Without the index, steering the view onto a
   freshly loaded device would cost a second round trip to re-read the whole
   chain.
+
+  `/live/browser/export` takes **no arguments** and chooses its own destination:
+  it creates a uniquely named file with `tempfile.mkstemp` inside
+  `~/.seshat/browser-exports` (owner-only, created on demand) and returns the
+  absolute path it wrote — `[export_path, "ok", total_items]`, or
+  `["", "error", message]`, which never names a partial file. It used to take a
+  `dest_path` and open it with Live's privileges; that request form is now
+  rejected with an error reply and an error-level log line, and nothing is
+  written. Since only this handler knows an export's name, it is also the only
+  thing that can sweep up an export whose reply never reached the caller: a
+  startup-and-pre-export sweep deletes matching **regular** direct children of
+  the export root (`os.lstat`, so a symlink is skipped rather than followed) that
+  are at least ten minutes old. The age gate keeps an overlapping caller's
+  finished export alive — Seshat's transport does not serialize queries — while
+  bounding how long an orphaned multi-megabyte file survives. The export root is
+  derived with `expanduser` + `abspath`, **not** `realpath`, because the Elixir
+  consumer derives the same string with `Path.expand/1` and validates the reply
+  path against it.
 - **`abletonosc/return_track.py`** — `/live/return_track/*` and `/live/master/*`.
   Upstream's track addresses resolve through `song.tracks` only, so return
   tracks and the master are unreachable. `/live/return_track/select` is the same
@@ -155,6 +207,12 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   those PRs, either keep an alias registration or update Seshat in the same
   change. Seshat's `audit-osc` workflow is the verifier: it checks every
   `/live/` address in Seshat's `lib/` against the API docs.
+
+- **Anything touching `OSCServer.__init__`'s defaults or `process()`.** The
+  loopback bind and the removed reply retargeting are both one-liners against
+  upstream, and reverting either is invisible from the machine Live runs on —
+  loopback keeps working exactly as before. See the deliberate-changes section
+  above.
 
 - **Anything touching `_stop_listen`, `_start_listen`, or `listener_objects`.**
   The wrong-object unbind fix above is small and easy to lose in a merge. Its
