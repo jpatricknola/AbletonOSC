@@ -71,13 +71,26 @@ class ClipHandler(AbletonOSCHandler):
             #--------------------------------------------------------------------------------
             # quantize(quantization_grid, amount).
             #
-            # The grid is Live's GridQuantization enum, NOT RecordingQuantization:
-            #   0 no_grid    1 g_8_bars   2 g_4_bars   3 g_2_bars   4 g_bar
-            #   5 g_half     6 g_quarter  7 g_eighth   8 g_sixteenth
-            #   9 g_thirtysecond
-            # so sixteenths is 8. There are no triplet grids — swing comes from the
-            # song's swing_amount, which quantize honours. Amount is a float on
-            # 0.0-1.0 (Live's UI shows it as a percentage).
+            # The grid is Live's GridQuantization enum, NOT RecordingQuantization.
+            # MEASURED against a running Live on 2026-07-31 — one clip per value,
+            # probe notes chosen so each candidate grid lands distinguishably:
+            #   0 no grid    1 1/4        2 1/8        3 1/8 triplet
+            #   4 1/8 triplet             5 1/16       6 1/16 triplet
+            #   7 1/16 triplet            8 1/32       >=9 invalid, nothing moves
+            # so sixteenths is 5, and there ARE triplet grids. This comment used to
+            # say `5 g_half ... 8 g_sixteenth, 9 g_thirtysecond`, and every row of
+            # that was wrong; if some document disagrees with the table above, the
+            # instrument won. There is no 1/2 grid and no bar-length grid. 3/4 and
+            # 6/7 are duplicates (reason unknown; prefer the lower). Whether the
+            # song's swing_amount colours the result is UNVERIFIED — the old claim
+            # that it is where swing comes from shared a sentence with the false
+            # "no triplet grids", and nothing here has tested it.
+            #
+            # Amount is a float on 0.0-1.0 (Live's UI shows it as a percentage),
+            # applied linearly: new = old + amount * (target - old). Only note
+            # starts move; a move that lands two same-pitch notes on one point
+            # merges them (later velocity wins), and one that creates a same-pitch
+            # overlap trims the earlier note.
             #--------------------------------------------------------------------------------
             "quantize"
         ]

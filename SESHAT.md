@@ -120,9 +120,32 @@ so treat any merge that reverts one as a regression, not a preference.
   (that PR's warp-marker and extended-note work is not taken). Gives
   `/live/clip/quantize track_id, clip_id, grid, amount` via the existing
   `_call_method` path. `grid` is Live's `GridQuantization` enum — **not**
-  `RecordingQuantization`: `no_grid=0, g_8_bars=1, g_4_bars=2, g_2_bars=3,
-  g_bar=4, g_half=5, g_quarter=6, g_eighth=7, g_sixteenth=8, g_thirtysecond=9`.
-  So sixteenths is `8`.
+  `RecordingQuantization`, and **not** what this file said until 2026-07-31.
+  The enum was measured against a running Live on that date (one clip per
+  value, probe notes chosen so every candidate grid lands distinguishably,
+  `amount` 1.0, read back with `/live/clip/get/notes`, identical in 4/4 and
+  6/8):
+
+  | Value | Grid | | Value | Grid |
+  |---|---|---|---|---|
+  | 0 | no grid | | 5 | **1/16** |
+  | 1 | 1/4 | | 6 | 1/16 triplet |
+  | 2 | 1/8 | | 7 | 1/16 triplet |
+  | 3 | 1/8 triplet | | 8 | 1/32 |
+  | 4 | 1/8 triplet | | ≥9 | invalid — nothing moves |
+
+  So sixteenths is **5**, not `8`. The previous claim here (`g_8_bars=1 …
+  g_half=5, g_quarter=6, g_eighth=7, g_sixteenth=8, g_thirtysecond=9`) was
+  wrong in every row, as was the matching claim that there are no triplet
+  grids — 1/8T and 1/16T are reachable, and only this way. There is no 1/2
+  grid and no bar-length grid. Whether the song's `swing_amount` colours the
+  result is **unverified**; the bridge exposes no address to set it with.
+
+  Seshat's `quantize_clip` never puts these integers in front of the model: it
+  takes a string grid (`"1/16"`, `"1/8T"`, …) and maps it in one private
+  function, `Seshat.Tools.Handlers.grid_quantization/1`, so a future
+  correction is a one-line change. The address **never replies**, so a wrong
+  integer is silent everywhere except in Live.
 
 - **`view.py` — `/live/view/show_view` and `/live/view/set/detail_clip`.** The
   first Seshat addresses to live in an upstream file rather than in a handler of
