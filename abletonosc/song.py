@@ -72,6 +72,7 @@ class SongHandler(AbletonOSCHandler):
             "session_record",
             "signature_denominator",
             "signature_numerator",
+            "swing_amount",
             "tempo"
         ]
 
