@@ -817,12 +817,14 @@ class ReturnTrackHandler(AbletonOSCHandler):
         Returns (index, device_index, device, None) on success and
         (index, device_index, None, message) on failure. Both indices are echoed
         back verbatim even when out of range, for the same correlation reason as
-        `_return_track` — with -1 standing in for an index that wasn't a number
-        at all.
+        `_return_track` — including when the return track itself failed to
+        resolve, in which case the device index is parsed independently just
+        for the echo, so the reply still correlates with the query that asked
+        for it. -1 stands in only when that value wasn't a number at all.
         """
         index, track, error = self._return_track(params, operation)
         if error is not None:
-            return (index, -1, None, error)
+            return (index, _echo_index(params, 1), None, error)
 
         device_index, device, message = self._device_of(track, params, 1, operation)
         if message is not None:
@@ -846,10 +848,15 @@ class ReturnTrackHandler(AbletonOSCHandler):
     def _return_device_parameter(self, params: Tuple[Any], operation: str):
         """
         (index, device_index, param_index, parameter, None) / (..., None, message).
+
+        The parameter index is echoed the same way as `_return_device`'s device
+        index: parsed independently for the echo when an outer lookup already
+        failed, so a bad return or device index still comes back correlated
+        with the query that asked about the parameter.
         """
         index, device_index, device, error = self._return_device(params, operation)
         if error is not None:
-            return (index, device_index, -1, None, error)
+            return (index, device_index, _echo_index(params, 2), None, error)
 
         param_index, parameter, message = self._parameter_of(device, params, 2, operation)
         if message is not None:
@@ -860,10 +867,14 @@ class ReturnTrackHandler(AbletonOSCHandler):
     def _master_device_parameter(self, params: Tuple[Any], operation: str):
         """
         (device_index, param_index, parameter, None) / (..., None, message).
+
+        Same echo rule as `_return_device_parameter`: the parameter index is
+        parsed independently for the echo when the device lookup already
+        failed.
         """
         device_index, device, error = self._master_device(params, operation)
         if error is not None:
-            return (device_index, -1, None, error)
+            return (device_index, _echo_index(params, 1), None, error)
 
         param_index, parameter, message = self._parameter_of(device, params, 1, operation)
         if message is not None:
@@ -904,6 +915,22 @@ class ReturnTrackHandler(AbletonOSCHandler):
             return (param_index, None, message)
 
         return (param_index, parameters[param_index], None)
+
+
+def _echo_index(params: Tuple[Any], position: int) -> int:
+    """
+    Best-effort echo of an index argument that an *outer* lookup already
+    failed on, so the error reply still correlates with the query that asked
+    about it (the caller checks every echoed position against what it sent).
+    Returns the value at `position` parsed as an int whenever that's possible
+    — including one that is out of range, since out-of-range is exactly what
+    a real query sends — and -1 only when the value isn't a number at all
+    (missing, non-numeric, or wrong type).
+    """
+    try:
+        return int(params[position])
+    except (IndexError, TypeError, ValueError):
+        return -1
 
 
 def _device_chain(track) -> Tuple:
