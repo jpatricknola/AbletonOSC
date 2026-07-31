@@ -173,18 +173,35 @@ so treat any merge that reverts one as a regression, not a preference.
   that drops the line is otherwise invisible — every other song address still
   answers, and swing sets fail the silent way all OSC fails.
 
-- **`view.py` — `/live/view/show_view` and `/live/view/set/detail_clip`.** The
+- **`view.py` — `/live/view/show_view`, `/live/view/hide_view`,
+  `/live/view/get/is_view_visible` and `/live/view/set/detail_clip`.** The
   first Seshat addresses to live in an upstream file rather than in a handler of
   our own: they belong to the View API by every other measure, and splitting them
   into a fourth module would put two `ViewHandler`s in `manager.py`. Upstream can
   *select* a track, scene, clip or device but cannot bring the pane those live in
-  into view — `Application.View.show_view` and `song.view.detail_clip` have no
-  OSC address at all. Seshat's view steering (every mutating tool ends by showing
-  what it changed) needs both: selecting a clip nobody can see is not
-  confirmation that anything happened. Both are **silent**, like upstream's
-  setters — an unknown view name or an empty clip slot is logged to `Log.txt` and
-  nothing goes on the wire, because a steering send must never fail or delay the
-  tool it follows.
+  into view, put a pane away, or report which panes are open —
+  `Application.View.show_view`, `.hide_view`, `.is_view_visible` and
+  `song.view.detail_clip` have no OSC address at all. Seshat's view steering
+  (every mutating tool ends by showing what it changed) needs the first:
+  selecting a clip nobody can see is not confirmation that anything happened.
+
+  The three setters are **silent**, like upstream's setters — an unknown view
+  name or an empty clip slot is logged to `Log.txt` and nothing goes on the wire,
+  because a steering send must never fail or delay the tool it follows.
+  `get/is_view_visible` is the exception and follows the fork's getter rule
+  instead: it **always replies**, `[view_name, "ok", 1|0]` or
+  `[view_name, "error", message]`, echoing the name it was asked about, because
+  a caller waits on it and silence must mean only "this extension isn't
+  installed". Live raises on an unrecognised name there — unlike `show_view`,
+  which ignores one — so the error arm is reachable and costs a fast reply
+  rather than a guard timeout.
+
+  `hide_view` passes its name through verbatim like the others, but only
+  `Browser` and `Detail` truly hide (measured against Live 12 Suite,
+  2026-07-31): hiding `Session` shows Arranger and vice versa, and hiding
+  `Detail/Clip` or `Detail/DeviceChain` flips the detail panel to its other tab
+  rather than closing it. Seshat's `hide_view` tool therefore offers a narrower
+  enum than this file accepts.
 
 ### Seshat's own handlers
 
