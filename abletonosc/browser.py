@@ -29,6 +29,36 @@ from .handler import AbletonOSCHandler
 # It is -1 when the device is not on the chain yet, which some VST/AU plugins do
 # by instantiating asynchronously.
 #
+#   /live/browser/load_item_on_return   [return_index, uri]
+#     -> [return_index, uri, "ok", return_name, device_name, device_index]
+#     -> [return_index, uri, "error", message]
+#
+#   /live/browser/load_item_on_master   [uri]
+#     -> [uri, "ok", device_name, device_index]
+#     -> [uri, "error", message]
+#
+# Separate addresses rather than a widened load_item, so the shipped address
+# keeps its exact shape and the reply arity itself says which index space was
+# targeted. `browser.load_item` loads onto whatever `song.view.selected_track`
+# is, and that accepts a return track or the master perfectly well — so all
+# three share one implementation and differ only in how the target is resolved
+# and how the reply is spelled.
+#
+# `load_item_on_return` reports the return's name **read back after the load**:
+# Live renames an empty return the moment its first device lands (`A-Return`
+# became `A-Reverb`, measured 2026-07-31), so a name echoed from before the load
+# would be wrong in exactly the case the caller most wants to report.
+#
+# Both new endpoints carry a guard the regular-track load doesn't need.
+# Measured 2026-07-31 on both a return and the master: loading a *non-effect*
+# item (an instrument) with one of them selected does not fail — Live silently
+# **creates a new MIDI track** and loads the instrument there, leaving the
+# target chain untouched. So the load is checked twice: the set's track count
+# must be unchanged, and the target's device chain must have gained something.
+# Either check failing is an error reply naming what actually happened. The
+# stray track is deliberately **not** deleted here — reporting it and letting
+# the caller offer to remove it is the lesson of Seshat's removed create_project.
+#
 #   /live/browser/export      []
 #     -> [export_path, "ok", total_items]
 #     -> ["", "error", message]
@@ -131,6 +161,10 @@ class BrowserHandler(AbletonOSCHandler):
 
         self.osc_server.add_handler("/live/browser/get/items", self._get_items)
         self.osc_server.add_handler("/live/browser/load_item", self._load_item)
+        self.osc_server.add_handler("/live/browser/load_item_on_return",
+                                    self._load_item_on_return)
+        self.osc_server.add_handler("/live/browser/load_item_on_master",
+                                    self._load_item_on_master)
         self.osc_server.add_handler("/live/browser/export", self._export)
         self.osc_server.add_handler("/live/browser/preview_item", self._preview_item)
         self.osc_server.add_handler("/live/browser/stop_preview", self._stop_preview)
@@ -200,14 +234,74 @@ class BrowserHandler(AbletonOSCHandler):
                     % (track_index, len(tracks)))
         track = tracks[track_index]
 
+        name, index, error = self._load_onto(track, uri, verify_target=False)
+        if error is not None:
+            return (track_index, uri, "error", error)
+
+        return (track_index, uri, "ok", name, index)
+
+    def _load_item_on_return(self, params: Tuple[Any] = ()) -> Tuple:
+        try:
+            return_index = int(params[0])
+        except (IndexError, TypeError, ValueError):
+            return (-1, "", "error", "load_item_on_return requires [return_index, uri]")
+
+        uri = str(params[1]) if len(params) > 1 else ""
+        if not uri:
+            return (return_index, uri, "error", "Missing browser item uri")
+
+        return_tracks = list(self.song.return_tracks)
+        if return_index < 0 or return_index >= len(return_tracks):
+            return (return_index, uri, "error",
+                    "Return track index %d out of range — the set has %d return track(s)"
+                    % (return_index, len(return_tracks)))
+        track = return_tracks[return_index]
+
+        name, index, error = self._load_onto(
+            track, uri, verify_target=True, label="return track %d" % return_index)
+        if error is not None:
+            return (return_index, uri, "error", error)
+
+        #--------------------------------------------------------------------------------
+        # The return's name is read *after* the load on purpose — see the header.
+        #--------------------------------------------------------------------------------
+        return (return_index, uri, "ok", _track_name(track), name, index)
+
+    def _load_item_on_master(self, params: Tuple[Any] = ()) -> Tuple:
+        uri = str(params[0]) if len(params) > 0 else ""
+        if not uri:
+            return ("", "error", "load_item_on_master requires [uri]")
+
+        name, index, error = self._load_onto(
+            self.song.master_track, uri, verify_target=True, label="the master track")
+        if error is not None:
+            return (uri, "error", error)
+
+        return (uri, "ok", name, index)
+
+    def _load_onto(self, track, uri, verify_target: bool, label: str = ""):
+        """
+        Resolve `uri` and load it onto `track`, reading back what landed.
+
+        Returns (device_name, device_index, None) on success and
+        (None, -1, message) on failure. Shared by all three load endpoints —
+        they differ only in how the target track is found and how the reply is
+        spelled.
+
+        `verify_target` turns on the return/master guard described in the header:
+        Live answers a non-effect load on those chains by creating a stray MIDI
+        track rather than refusing, so success has to be *checked*, not assumed.
+        A regular track needs no such check — every browser item is loadable
+        there, and the existing address's behaviour is deliberately unchanged.
+        """
         try:
             item = self._find_item(uri)
         except Exception as e:
             self.logger.error("Browser: failed to search for uri %s: %s" % (uri, e))
-            return (track_index, uri, "error", "Could not search the browser: %s" % e)
+            return (None, -1, "Could not search the browser: %s" % e)
 
         if item is None:
-            return (track_index, uri, "error",
+            return (None, -1,
                     "No browser item found with uri '%s' — "
                     "query /live/browser/get/items to get a valid uri" % uri)
 
@@ -215,6 +309,8 @@ class BrowserHandler(AbletonOSCHandler):
             before = list(track.devices)
         except Exception:
             before = []
+
+        tracks_before = list(self.song.tracks) if verify_target else []
 
         try:
             #--------------------------------------------------------------------------------
@@ -226,10 +322,41 @@ class BrowserHandler(AbletonOSCHandler):
             Live.Application.get_application().browser.load_item(item)
         except Exception as e:
             self.logger.error("Browser: failed to load %s: %s" % (uri, e))
-            return (track_index, uri, "error", "Could not load '%s': %s" % (item.name, e))
+            return (None, -1, "Could not load '%s': %s" % (item.name, e))
+
+        if verify_target:
+            error = self._verify_landed(track, item, before, tracks_before, label)
+            if error is not None:
+                return (None, -1, error)
 
         name, index = self._loaded_device(track, item, before)
-        return (track_index, uri, "ok", name, index)
+        return (name, index, None)
+
+    def _verify_landed(self, track, item, before, tracks_before, label):
+        """
+        Confirm a return/master load actually landed there. Message, or None.
+        """
+        stray = [t for t in self.song.tracks if t not in tracks_before]
+        if stray:
+            return ("Live would not load '%s' onto %s — it created a new track \"%s\" and put "
+                    "it there instead, leaving %s unchanged. Only audio effects can go on a "
+                    "return or the master. The new track was left in place rather than "
+                    "deleted."
+                    % (item.name, label, _track_name(stray[0]), label))
+
+        try:
+            landed = [device for device in track.devices if device not in before]
+        except Exception as e:
+            return ("Loaded '%s', but %s's device chain could not be read back to confirm it "
+                    "landed: %s" % (item.name, label, e))
+
+        if not landed:
+            return ("Nothing was added to %s — its device chain is unchanged after loading "
+                    "'%s'. Only audio effects can go on a return or the master; a plugin that "
+                    "instantiates asynchronously can also look like this, so check Live before "
+                    "retrying." % (label, item.name))
+
+        return None
 
     def _preview_item(self, params: Tuple[Any] = ()) -> Tuple:
         uri = str(params[0]) if len(params) > 0 else ""
@@ -541,6 +668,17 @@ def _new_export_file() -> Tuple[int, str]:
     os.makedirs(EXPORT_ROOT, 0o700, exist_ok=True)
     fd, path = tempfile.mkstemp(prefix=EXPORT_PREFIX, suffix=EXPORT_SUFFIX, dir=EXPORT_ROOT)
     return (fd, os.path.abspath(path))
+
+
+def _track_name(track) -> str:
+    """
+    A track's name, or "" if Live won't give it up — a name is only ever used to
+    make a reply readable, never to decide anything.
+    """
+    try:
+        return track.name
+    except Exception:
+        return ""
 
 
 def _close_quietly(fd: int) -> None:

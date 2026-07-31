@@ -23,24 +23,111 @@ from .handler import AbletonOSCHandler
 #   /live/return_track/get/volume   [index]           -> [index, "ok", volume]
 #                                                     -> [index, "error", message]
 #   /live/return_track/set/volume   [index, value]    -> (no reply)
+#   /live/return_track/get/panning  [index]           -> [index, "ok", pan]
+#                                                     -> [index, "error", message]
+#   /live/return_track/set/panning  [index, pan]      -> (no reply)
+#   /live/return_track/get/mute     [index]           -> [index, "ok", 0|1]
+#                                                     -> [index, "error", message]
+#   /live/return_track/set/mute     [index, 0|1]      -> (no reply)
+#   /live/return_track/get/solo     [index]           -> [index, "ok", 0|1]
+#                                                     -> [index, "error", message]
+#   /live/return_track/set/solo     [index, 0|1]      -> (no reply)
 #   /live/return_track/select       [index]           -> (no reply)
 #   /live/master/get/volume         []                -> [volume]
 #   /live/master/set/volume         [value]           -> (no reply)
+#   /live/master/get/panning        []                -> [pan]
+#   /live/master/set/panning        [pan]             -> (no reply)
+#   /live/master/get/cue_volume     []                -> [value]
+#   /live/master/set/cue_volume     [value]           -> (no reply)
+#   /live/master/select             []                -> (no reply)
+#
+# The master track has no mute, solo or arm at all — reading one raises
+# RuntimeError("Main track has no 'mute' property!") rather than returning
+# something falsy, so feature-detecting with hasattr is unsafe on a LOM object
+# and those addresses are simply not offered. Returns have no `arm` either.
+# (Live 12 calls the master track "Main" in its UI and in those error strings.)
 #
 # `select` is the same gap one level up: upstream's
 # /live/view/set/selected_track resolves through `song.tracks`, so it can never
 # reach a return. `song.view.selected_track` itself accepts any track, returns
-# included, so this only needs the lookup upstream lacks.
+# and the master included, so this only needs the lookup upstream lacks.
 #
-# Listeners, so a return fader or the master fader moved in Live's UI reaches
-# Seshat without waiting for the next refresh:
+# Device chains on returns and the master are unreachable upstream for the same
+# reason: every /live/device/* address and /live/track/delete_device resolves its
+# track through `song.tracks`, and /live/view/set/selected_device with it. So the
+# whole device surface is repeated here against `song.return_tracks` and
+# `song.master_track`:
+#
+#   /live/return_track/get/devices                [index]
+#       -> [index, "ok", count, name0, type0, class0, ...]
+#       -> [index, "error", message]
+#   /live/master/get/devices                      []
+#       -> [count, name0, type0, class0, ...]
+#   /live/return_track/device/get/name            [index, device]
+#       -> [index, device, "ok", name] / [index, device, "error", message]
+#   /live/master/device/get/name                  [device]
+#       -> [device, "ok", name] / [device, "error", message]
+#   /live/return_track/device/get/parameters      [index, device]
+#       -> [index, device, "ok", device_name, count, (pname, value, min, max)*N]
+#   /live/master/device/get/parameters            [device]
+#       -> [device, "ok", device_name, count, (pname, value, min, max)*N]
+#   /live/return_track/device/get/parameter/value         [index, device, param]
+#       -> [index, device, param, "ok", value]
+#   /live/master/device/get/parameter/value               [device, param]
+#       -> [device, param, "ok", value]
+#   /live/return_track/device/get/parameter/value_string  [index, device, param]
+#       -> [index, device, param, "ok", string]
+#   /live/master/device/get/parameter/value_string        [device, param]
+#       -> [device, param, "ok", string]
+#   /live/return_track/device/set/parameter/value [index, device, param, value]
+#       -> (no reply)
+#   /live/master/device/set/parameter/value       [device, param, value]
+#       -> (no reply)
+#   /live/return_track/delete_device              [index, device]
+#       -> [index, device, "ok", remaining] / [index, device, "error", message]
+#   /live/master/delete_device                    [device]
+#       -> [device, "ok", remaining] / [device, "error", message]
+#   /live/return_track/select_device              [index, device] -> (no reply)
+#   /live/master/select_device                    [device]        -> (no reply)
+#
+# The list getters deliberately combine what upstream splits across several
+# addresses — three for a device chain, five for a parameter dump. Each of those
+# is a separate round trip on a protocol with no request ids, and the caller
+# needs all of them together or none of them; one reply also removes the risk of
+# assembling parallel lists from replies that describe different devices. Count
+# comes first in the flat tail so the reply stays parseable, and a tail that is
+# not a whole number of triples (or quadruples) is a shape error the caller
+# rejects rather than truncating.
+#
+# `delete_device` **replies**, unlike upstream's silent /live/track/delete_device.
+# It is a method with a real failure path (a bad index), and the caller would
+# otherwise have to sandwich it between two count reads to learn anything at all.
+# The reply carries the device count remaining after the delete, re-read from
+# Live rather than computed.
+#
+# Listeners, so a return fader, pan, mute or solo — or the master fader, pan or
+# cue level — moved in Live's UI reaches Seshat without waiting for the next
+# refresh:
 #
 #   /live/return_track/start_listen/name    [index]   -> pushes [index, name]
 #   /live/return_track/stop_listen/name     [index]
 #   /live/return_track/start_listen/volume  [index]   -> pushes [index, value]
 #   /live/return_track/stop_listen/volume   [index]
+#   /live/return_track/start_listen/panning [index]   -> pushes [index, pan]
+#   /live/return_track/stop_listen/panning  [index]
+#   /live/return_track/start_listen/mute    [index]   -> pushes [index, 0|1]
+#   /live/return_track/stop_listen/mute     [index]
+#   /live/return_track/start_listen/solo    [index]   -> pushes [index, 0|1]
+#   /live/return_track/stop_listen/solo     [index]
 #   /live/master/start_listen/volume        []        -> pushes [value]
 #   /live/master/stop_listen/volume         []
+#   /live/master/start_listen/panning       []        -> pushes [pan]
+#   /live/master/stop_listen/panning        []
+#   /live/master/start_listen/cue_volume    []        -> pushes [value]
+#   /live/master/stop_listen/cue_volume     []
+#
+# There are no device listeners here: mirroring device chains is not something
+# Seshat does yet, and a parameter listener per parameter would flood the wire.
 #
 # Each pushes on the matching get/ address. The push shape is deliberately the
 # bare pair rather than the ok/error envelope a query reply carries, so the two
@@ -70,7 +157,10 @@ from .handler import AbletonOSCHandler
 #
 # Volume is 0.0-1.0 on Live's fader scale, read and written through
 # `mixer_device.volume.value` — the same reason upstream's TrackHandler
-# special-cases volume and panning.
+# special-cases volume and panning. Panning is -1.0 to 1.0 through
+# `mixer_device.panning.value` (Live displays it as 50L / C / 50R), and the
+# master's cue level is `mixer_device.cue_volume.value`, 0.0-1.0 on the *same* dB
+# curve as track volume — its parameter is named "Preview Volume" in Live.
 #--------------------------------------------------------------------------------
 
 
@@ -100,6 +190,72 @@ class ReturnTrackHandler(AbletonOSCHandler):
                                     self._start_listen_master_volume)
         self.osc_server.add_handler("/live/master/stop_listen/volume",
                                     self._stop_listen_master_volume)
+
+        #--------------------------------------------------------------------------------
+        # Mixer surface beyond the faders: pan and mute/solo per return, pan and
+        # cue level on the master.
+        #--------------------------------------------------------------------------------
+        self.osc_server.add_handler("/live/return_track/get/panning", self._get_panning)
+        self.osc_server.add_handler("/live/return_track/set/panning", self._set_panning)
+        self.osc_server.add_handler("/live/return_track/start_listen/panning",
+                                    self._start_listen_panning)
+        self.osc_server.add_handler("/live/return_track/stop_listen/panning",
+                                    self._stop_listen_panning)
+        self.osc_server.add_handler("/live/return_track/get/mute", self._get_mute)
+        self.osc_server.add_handler("/live/return_track/set/mute", self._set_mute)
+        self.osc_server.add_handler("/live/return_track/start_listen/mute",
+                                    self._start_listen_mute)
+        self.osc_server.add_handler("/live/return_track/stop_listen/mute",
+                                    self._stop_listen_mute)
+        self.osc_server.add_handler("/live/return_track/get/solo", self._get_solo)
+        self.osc_server.add_handler("/live/return_track/set/solo", self._set_solo)
+        self.osc_server.add_handler("/live/return_track/start_listen/solo",
+                                    self._start_listen_solo)
+        self.osc_server.add_handler("/live/return_track/stop_listen/solo",
+                                    self._stop_listen_solo)
+        self.osc_server.add_handler("/live/master/get/panning", self._get_master_panning)
+        self.osc_server.add_handler("/live/master/set/panning", self._set_master_panning)
+        self.osc_server.add_handler("/live/master/start_listen/panning",
+                                    self._start_listen_master_panning)
+        self.osc_server.add_handler("/live/master/stop_listen/panning",
+                                    self._stop_listen_master_panning)
+        self.osc_server.add_handler("/live/master/get/cue_volume", self._get_cue_volume)
+        self.osc_server.add_handler("/live/master/set/cue_volume", self._set_cue_volume)
+        self.osc_server.add_handler("/live/master/start_listen/cue_volume",
+                                    self._start_listen_cue_volume)
+        self.osc_server.add_handler("/live/master/stop_listen/cue_volume",
+                                    self._stop_listen_cue_volume)
+        self.osc_server.add_handler("/live/master/select", self._select_master)
+
+        #--------------------------------------------------------------------------------
+        # Device chains on returns and the master.
+        #--------------------------------------------------------------------------------
+        self.osc_server.add_handler("/live/return_track/get/devices", self._get_devices)
+        self.osc_server.add_handler("/live/master/get/devices", self._get_master_devices)
+        self.osc_server.add_handler("/live/return_track/device/get/name",
+                                    self._get_device_name)
+        self.osc_server.add_handler("/live/master/device/get/name",
+                                    self._get_master_device_name)
+        self.osc_server.add_handler("/live/return_track/device/get/parameters",
+                                    self._get_device_parameters)
+        self.osc_server.add_handler("/live/master/device/get/parameters",
+                                    self._get_master_device_parameters)
+        self.osc_server.add_handler("/live/return_track/device/get/parameter/value",
+                                    self._get_device_parameter_value)
+        self.osc_server.add_handler("/live/master/device/get/parameter/value",
+                                    self._get_master_device_parameter_value)
+        self.osc_server.add_handler("/live/return_track/device/get/parameter/value_string",
+                                    self._get_device_parameter_value_string)
+        self.osc_server.add_handler("/live/master/device/get/parameter/value_string",
+                                    self._get_master_device_parameter_value_string)
+        self.osc_server.add_handler("/live/return_track/device/set/parameter/value",
+                                    self._set_device_parameter_value)
+        self.osc_server.add_handler("/live/master/device/set/parameter/value",
+                                    self._set_master_device_parameter_value)
+        self.osc_server.add_handler("/live/return_track/delete_device", self._delete_device)
+        self.osc_server.add_handler("/live/master/delete_device", self._delete_master_device)
+        self.osc_server.add_handler("/live/return_track/select_device", self._select_device)
+        self.osc_server.add_handler("/live/master/select_device", self._select_master_device)
 
     #--------------------------------------------------------------------------------
     # Return tracks
@@ -144,6 +300,72 @@ class ReturnTrackHandler(AbletonOSCHandler):
             return None
 
         track.mixer_device.volume.value = value
+
+    def _get_panning(self, params: Tuple[Any] = ()) -> Tuple:
+        index, track, error = self._return_track(params, "get/panning")
+        if error is not None:
+            return (index, "error", error)
+
+        return (index, "ok", track.mixer_device.panning.value)
+
+    def _set_panning(self, params: Tuple[Any] = ()) -> None:
+        index, track, error = self._return_track(params, "set/panning")
+        if error is not None:
+            return None
+
+        try:
+            value = float(params[1])
+        except (IndexError, TypeError, ValueError):
+            self.logger.error("Return track: set/panning requires [index, value]")
+            return None
+
+        track.mixer_device.panning.value = value
+
+    #--------------------------------------------------------------------------------
+    # mute and solo are plain listenable Track properties, unlike the mixer
+    # faders — so no DeviceParameter dance here, just the attribute. They are
+    # reported as 0/1 rather than as Python bools so the reply's arity and types
+    # match every other envelope on this handler.
+    #--------------------------------------------------------------------------------
+    def _get_mute(self, params: Tuple[Any] = ()) -> Tuple:
+        index, track, error = self._return_track(params, "get/mute")
+        if error is not None:
+            return (index, "error", error)
+
+        return (index, "ok", 1 if track.mute else 0)
+
+    def _set_mute(self, params: Tuple[Any] = ()) -> None:
+        index, track, error = self._return_track(params, "set/mute")
+        if error is not None:
+            return None
+
+        try:
+            value = int(params[1])
+        except (IndexError, TypeError, ValueError):
+            self.logger.error("Return track: set/mute requires [index, 0|1]")
+            return None
+
+        track.mute = bool(value)
+
+    def _get_solo(self, params: Tuple[Any] = ()) -> Tuple:
+        index, track, error = self._return_track(params, "get/solo")
+        if error is not None:
+            return (index, "error", error)
+
+        return (index, "ok", 1 if track.solo else 0)
+
+    def _set_solo(self, params: Tuple[Any] = ()) -> None:
+        index, track, error = self._return_track(params, "set/solo")
+        if error is not None:
+            return None
+
+        try:
+            value = int(params[1])
+        except (IndexError, TypeError, ValueError):
+            self.logger.error("Return track: set/solo requires [index, 0|1]")
+            return None
+
+        track.solo = bool(value)
 
     def _select(self, params: Tuple[Any] = ()) -> None:
         """
@@ -191,17 +413,68 @@ class ReturnTrackHandler(AbletonOSCHandler):
         if error is not None:
             return None
 
-        self._listen_to_volume(track.mixer_device.volume,
-                               "/live/return_track/get/volume",
-                               reply_prefix=(index,),
-                               listener_params=(index,))
+        self._listen_to_mixer_param(track.mixer_device.volume,
+                                    "/live/return_track/get/volume",
+                                    reply_prefix=(index,),
+                                    listener_params=(index, "volume"))
 
     def _stop_listen_volume(self, params: Tuple[Any] = ()) -> None:
         index, track, error = self._return_track(params, "stop_listen/volume")
         if error is not None:
             return None
 
-        self._stop_listen_if_present("value", (index,))
+        self._stop_listen_if_present("value", (index, "volume"))
+
+    def _start_listen_panning(self, params: Tuple[Any] = ()) -> None:
+        index, track, error = self._return_track(params, "start_listen/panning")
+        if error is not None:
+            return None
+
+        self._listen_to_mixer_param(track.mixer_device.panning,
+                                    "/live/return_track/get/panning",
+                                    reply_prefix=(index,),
+                                    listener_params=(index, "panning"))
+
+    def _stop_listen_panning(self, params: Tuple[Any] = ()) -> None:
+        index, track, error = self._return_track(params, "stop_listen/panning")
+        if error is not None:
+            return None
+
+        self._stop_listen_if_present("value", (index, "panning"))
+
+    def _start_listen_mute(self, params: Tuple[Any] = ()) -> None:
+        index, track, error = self._return_track(params, "start_listen/mute")
+        if error is not None:
+            return None
+
+        #--------------------------------------------------------------------------------
+        # `mute` is an ordinary listenable Track property, so the base class
+        # derives /live/return_track/get/mute itself and sends (index, value) —
+        # the same deal as `name` above. Live pushes a bool where the getter
+        # replies 0/1; both are truthy-checked on the Elixir side.
+        #--------------------------------------------------------------------------------
+        self._start_listen(track, "mute", (index,))
+
+    def _stop_listen_mute(self, params: Tuple[Any] = ()) -> None:
+        index, track, error = self._return_track(params, "stop_listen/mute")
+        if error is not None:
+            return None
+
+        self._stop_listen_if_present("mute", (index,))
+
+    def _start_listen_solo(self, params: Tuple[Any] = ()) -> None:
+        index, track, error = self._return_track(params, "start_listen/solo")
+        if error is not None:
+            return None
+
+        self._start_listen(track, "solo", (index,))
+
+    def _stop_listen_solo(self, params: Tuple[Any] = ()) -> None:
+        index, track, error = self._return_track(params, "stop_listen/solo")
+        if error is not None:
+            return None
+
+        self._stop_listen_if_present("solo", (index,))
 
     #--------------------------------------------------------------------------------
     # Master track
@@ -212,13 +485,31 @@ class ReturnTrackHandler(AbletonOSCHandler):
         # collide with a return track's — hence the "master" sentinel. It never
         # reaches the wire: the push carries the bare value.
         #--------------------------------------------------------------------------------
-        self._listen_to_volume(self.song.master_track.mixer_device.volume,
-                               "/live/master/get/volume",
-                               reply_prefix=(),
-                               listener_params=("master",))
+        self._listen_to_mixer_param(self.song.master_track.mixer_device.volume,
+                                    "/live/master/get/volume",
+                                    reply_prefix=(),
+                                    listener_params=("master", "volume"))
 
     def _stop_listen_master_volume(self, params: Tuple[Any] = ()) -> None:
-        self._stop_listen_if_present("value", ("master",))
+        self._stop_listen_if_present("value", ("master", "volume"))
+
+    def _start_listen_master_panning(self, params: Tuple[Any] = ()) -> None:
+        self._listen_to_mixer_param(self.song.master_track.mixer_device.panning,
+                                    "/live/master/get/panning",
+                                    reply_prefix=(),
+                                    listener_params=("master", "panning"))
+
+    def _stop_listen_master_panning(self, params: Tuple[Any] = ()) -> None:
+        self._stop_listen_if_present("value", ("master", "panning"))
+
+    def _start_listen_cue_volume(self, params: Tuple[Any] = ()) -> None:
+        self._listen_to_mixer_param(self.song.master_track.mixer_device.cue_volume,
+                                    "/live/master/get/cue_volume",
+                                    reply_prefix=(),
+                                    listener_params=("master", "cue_volume"))
+
+    def _stop_listen_cue_volume(self, params: Tuple[Any] = ()) -> None:
+        self._stop_listen_if_present("value", ("master", "cue_volume"))
 
     def _stop_listen_if_present(self, prop, listener_params) -> None:
         """
@@ -237,15 +528,15 @@ class ReturnTrackHandler(AbletonOSCHandler):
         if listener_key in self.listener_functions:
             self._stop_listen(self.listener_objects[listener_key], prop, listener_params)
 
-    def _listen_to_volume(self, parameter, address, reply_prefix, listener_params) -> None:
+    def _listen_to_mixer_param(self, parameter, address, reply_prefix, listener_params) -> None:
         """
-        Listen to a mixer volume fader, pushing its value on `address`.
+        Listen to a mixer DeviceParameter, pushing its value on `address`.
 
         Hand-rolled rather than delegated to the base `_start_listen`, because the
-        listenable object here is not the track: it is `mixer_device.volume`, a
-        DeviceParameter whose change notification is `add_value_listener`. The base
-        class would name the property "value" and derive
-        /live/return_track/get/value — an address nothing serves or expects.
+        listenable object here is not the track: it is `mixer_device.volume` (or
+        `panning`, or `cue_volume`), a DeviceParameter whose change notification is
+        `add_value_listener`. The base class would name the property "value" and
+        derive /live/return_track/get/value — an address nothing serves or expects.
 
         Everything else the base class does is bookkeeping over
         `listener_functions` / `listener_objects`, keyed by (prop, params). So
@@ -257,6 +548,13 @@ class ReturnTrackHandler(AbletonOSCHandler):
         that re-listen quiet on a first subscribe. The immediate first push
         matches base behaviour too.
 
+        Because the *prop* half of that key is forced to "value" for every mixer
+        parameter, the discriminator has to live in `listener_params`: hence
+        (index, "volume") / (index, "panning") / ("master", "cue_volume") rather
+        than the bare index this used to pass. Without it, subscribing a return's
+        pan would evict its volume listener — same key, silently. The tuple never
+        reaches the wire; `reply_prefix` is what the push carries.
+
         This is the same shape TrackHandler's mixer listeners use for the tracks
         this handler doesn't reach.
         """
@@ -266,7 +564,7 @@ class ReturnTrackHandler(AbletonOSCHandler):
         listener_key = ("value", tuple(listener_params))
         self._stop_listen_if_present("value", listener_params)
 
-        self.logger.info("Adding volume listener: %s %s" % (address, str(listener_params)))
+        self.logger.info("Adding mixer listener: %s %s" % (address, str(listener_params)))
         parameter.add_value_listener(value_changed_callback)
         self.listener_functions[listener_key] = value_changed_callback
         self.listener_objects[listener_key] = parameter
@@ -284,6 +582,206 @@ class ReturnTrackHandler(AbletonOSCHandler):
             return None
 
         self.song.master_track.mixer_device.volume.value = value
+
+    def _get_master_panning(self, params: Tuple[Any] = ()) -> Tuple:
+        return (self.song.master_track.mixer_device.panning.value,)
+
+    def _set_master_panning(self, params: Tuple[Any] = ()) -> None:
+        try:
+            value = float(params[0])
+        except (IndexError, TypeError, ValueError):
+            self.logger.error("Master: set/panning requires [value]")
+            return None
+
+        self.song.master_track.mixer_device.panning.value = value
+
+    def _get_cue_volume(self, params: Tuple[Any] = ()) -> Tuple:
+        return (self.song.master_track.mixer_device.cue_volume.value,)
+
+    def _set_cue_volume(self, params: Tuple[Any] = ()) -> None:
+        try:
+            value = float(params[0])
+        except (IndexError, TypeError, ValueError):
+            self.logger.error("Master: set/cue_volume requires [value]")
+            return None
+
+        self.song.master_track.mixer_device.cue_volume.value = value
+
+    def _select_master(self, params: Tuple[Any] = ()) -> None:
+        """
+        Select the master track in Live's UI. Silent, like `_select` above.
+        """
+        try:
+            self.song.view.selected_track = self.song.master_track
+        except Exception as e:
+            self.logger.error("Master: could not select the master track: %s" % e)
+
+    #--------------------------------------------------------------------------------
+    # Device chains
+    #
+    # Everything below mirrors upstream's device.py and track.py against
+    # `song.return_tracks` / `song.master_track` instead of `song.tracks`. The
+    # parameter access is `device.parameters[i]` exactly as upstream's, and
+    # `delete_device` is `Track.delete_device(index)` exactly as upstream's
+    # /live/track/delete_device — only the lookup and the reply envelope differ.
+    #--------------------------------------------------------------------------------
+    def _get_devices(self, params: Tuple[Any] = ()) -> Tuple:
+        index, track, error = self._return_track(params, "get/devices")
+        if error is not None:
+            return (index, "error", error)
+
+        return (index, "ok", *_device_chain(track))
+
+    def _get_master_devices(self, params: Tuple[Any] = ()) -> Tuple:
+        return _device_chain(self.song.master_track)
+
+    def _get_device_name(self, params: Tuple[Any] = ()) -> Tuple:
+        index, device_index, device, error = self._return_device(params, "device/get/name")
+        if error is not None:
+            return (index, device_index, "error", error)
+
+        return (index, device_index, "ok", device.name)
+
+    def _get_master_device_name(self, params: Tuple[Any] = ()) -> Tuple:
+        device_index, device, error = self._master_device(params, "device/get/name")
+        if error is not None:
+            return (device_index, "error", error)
+
+        return (device_index, "ok", device.name)
+
+    def _get_device_parameters(self, params: Tuple[Any] = ()) -> Tuple:
+        index, device_index, device, error = self._return_device(params, "device/get/parameters")
+        if error is not None:
+            return (index, device_index, "error", error)
+
+        return (index, device_index, "ok", *_device_parameters(device))
+
+    def _get_master_device_parameters(self, params: Tuple[Any] = ()) -> Tuple:
+        device_index, device, error = self._master_device(params, "device/get/parameters")
+        if error is not None:
+            return (device_index, "error", error)
+
+        return (device_index, "ok", *_device_parameters(device))
+
+    def _get_device_parameter_value(self, params: Tuple[Any] = ()) -> Tuple:
+        index, device_index, param_index, parameter, error = self._return_device_parameter(
+            params, "device/get/parameter/value")
+        if error is not None:
+            return (index, device_index, param_index, "error", error)
+
+        return (index, device_index, param_index, "ok", parameter.value)
+
+    def _get_master_device_parameter_value(self, params: Tuple[Any] = ()) -> Tuple:
+        device_index, param_index, parameter, error = self._master_device_parameter(
+            params, "device/get/parameter/value")
+        if error is not None:
+            return (device_index, param_index, "error", error)
+
+        return (device_index, param_index, "ok", parameter.value)
+
+    def _get_device_parameter_value_string(self, params: Tuple[Any] = ()) -> Tuple:
+        index, device_index, param_index, parameter, error = self._return_device_parameter(
+            params, "device/get/parameter/value_string")
+        if error is not None:
+            return (index, device_index, param_index, "error", error)
+
+        return (index, device_index, param_index, "ok", _value_string(parameter))
+
+    def _get_master_device_parameter_value_string(self, params: Tuple[Any] = ()) -> Tuple:
+        device_index, param_index, parameter, error = self._master_device_parameter(
+            params, "device/get/parameter/value_string")
+        if error is not None:
+            return (device_index, param_index, "error", error)
+
+        return (device_index, param_index, "ok", _value_string(parameter))
+
+    def _set_device_parameter_value(self, params: Tuple[Any] = ()) -> None:
+        _index, _device_index, _param_index, parameter, error = self._return_device_parameter(
+            params, "device/set/parameter/value")
+        if error is not None:
+            return None
+
+        try:
+            value = float(params[3])
+        except (IndexError, TypeError, ValueError):
+            self.logger.error("Return track: device/set/parameter/value requires "
+                              "[index, device, parameter, value]")
+            return None
+
+        parameter.value = value
+
+    def _set_master_device_parameter_value(self, params: Tuple[Any] = ()) -> None:
+        _device_index, _param_index, parameter, error = self._master_device_parameter(
+            params, "device/set/parameter/value")
+        if error is not None:
+            return None
+
+        try:
+            value = float(params[2])
+        except (IndexError, TypeError, ValueError):
+            self.logger.error("Master: device/set/parameter/value requires "
+                              "[device, parameter, value]")
+            return None
+
+        parameter.value = value
+
+    def _delete_device(self, params: Tuple[Any] = ()) -> Tuple:
+        index, device_index, _device, error = self._return_device(params, "delete_device")
+        if error is not None:
+            return (index, device_index, "error", error)
+
+        track = self.song.return_tracks[index]
+        try:
+            track.delete_device(device_index)
+        except Exception as e:
+            self.logger.error("Return track: could not delete device %d on return %d: %s"
+                              % (device_index, index, e))
+            return (index, device_index, "error",
+                    "Could not delete device %d: %s" % (device_index, e))
+
+        return (index, device_index, "ok", len(track.devices))
+
+    def _delete_master_device(self, params: Tuple[Any] = ()) -> Tuple:
+        device_index, _device, error = self._master_device(params, "delete_device")
+        if error is not None:
+            return (device_index, "error", error)
+
+        track = self.song.master_track
+        try:
+            track.delete_device(device_index)
+        except Exception as e:
+            self.logger.error("Master: could not delete device %d: %s" % (device_index, e))
+            return (device_index, "error",
+                    "Could not delete device %d: %s" % (device_index, e))
+
+        return (device_index, "ok", len(track.devices))
+
+    def _select_device(self, params: Tuple[Any] = ()) -> None:
+        """
+        Select a device on a return track's chain. Silent, like every `select`
+        here: it is view steering behind a tool that has already succeeded.
+
+        `song.view.select_device` also opens the device chain in Live's detail
+        panel, which is exactly what the caller wants — measured 2026-07-31.
+        """
+        _index, _device_index, device, error = self._return_device(params, "select_device")
+        if error is not None:
+            return None
+
+        try:
+            self.song.view.select_device(device)
+        except Exception as e:
+            self.logger.error("Return track: could not select device: %s" % e)
+
+    def _select_master_device(self, params: Tuple[Any] = ()) -> None:
+        _device_index, device, error = self._master_device(params, "select_device")
+        if error is not None:
+            return None
+
+        try:
+            self.song.view.select_device(device)
+        except Exception as e:
+            self.logger.error("Master: could not select device: %s" % e)
 
     #--------------------------------------------------------------------------------
     # Lookup
@@ -311,3 +809,147 @@ class ReturnTrackHandler(AbletonOSCHandler):
             return (index, None, message)
 
         return (index, return_tracks[index], None)
+
+    def _return_device(self, params: Tuple[Any], operation: str):
+        """
+        Resolve params[0] to a return track and params[1] to a device on it.
+
+        Returns (index, device_index, device, None) on success and
+        (index, device_index, None, message) on failure. Both indices are echoed
+        back verbatim even when out of range, for the same correlation reason as
+        `_return_track` — with -1 standing in for an index that wasn't a number
+        at all.
+        """
+        index, track, error = self._return_track(params, operation)
+        if error is not None:
+            return (index, -1, None, error)
+
+        device_index, device, message = self._device_of(track, params, 1, operation)
+        if message is not None:
+            message = "Return track %d: %s" % (index, message)
+
+        return (index, device_index, device, message)
+
+    def _master_device(self, params: Tuple[Any], operation: str):
+        """
+        Resolve params[0] to a device on the master track.
+
+        Returns (device_index, device, None) / (device_index, None, message).
+        """
+        device_index, device, message = self._device_of(
+            self.song.master_track, params, 0, operation)
+        if message is not None:
+            message = "Master track: %s" % message
+
+        return (device_index, device, message)
+
+    def _return_device_parameter(self, params: Tuple[Any], operation: str):
+        """
+        (index, device_index, param_index, parameter, None) / (..., None, message).
+        """
+        index, device_index, device, error = self._return_device(params, operation)
+        if error is not None:
+            return (index, device_index, -1, None, error)
+
+        param_index, parameter, message = self._parameter_of(device, params, 2, operation)
+        if message is not None:
+            message = "Return track %d, device %d: %s" % (index, device_index, message)
+
+        return (index, device_index, param_index, parameter, message)
+
+    def _master_device_parameter(self, params: Tuple[Any], operation: str):
+        """
+        (device_index, param_index, parameter, None) / (..., None, message).
+        """
+        device_index, device, error = self._master_device(params, operation)
+        if error is not None:
+            return (device_index, -1, None, error)
+
+        param_index, parameter, message = self._parameter_of(device, params, 1, operation)
+        if message is not None:
+            message = "Master track, device %d: %s" % (device_index, message)
+
+        return (device_index, param_index, parameter, message)
+
+    def _device_of(self, track, params: Tuple[Any], position: int, operation: str):
+        try:
+            device_index = int(params[position])
+        except (IndexError, TypeError, ValueError):
+            message = "%s requires a device index at argument %d" % (operation, position)
+            self.logger.error("Device lookup: %s" % message)
+            return (-1, None, message)
+
+        devices = track.devices
+        if device_index < 0 or device_index >= len(devices):
+            message = "there is no device %d — the chain holds %d device(s)" % (
+                device_index, len(devices))
+            self.logger.error("Device lookup: %s (%s)" % (message, operation))
+            return (device_index, None, message)
+
+        return (device_index, devices[device_index], None)
+
+    def _parameter_of(self, device, params: Tuple[Any], position: int, operation: str):
+        try:
+            param_index = int(params[position])
+        except (IndexError, TypeError, ValueError):
+            message = "%s requires a parameter index at argument %d" % (operation, position)
+            self.logger.error("Parameter lookup: %s" % message)
+            return (-1, None, message)
+
+        parameters = device.parameters
+        if param_index < 0 or param_index >= len(parameters):
+            message = "there is no parameter %d — '%s' has %d parameter(s)" % (
+                param_index, device.name, len(parameters))
+            self.logger.error("Parameter lookup: %s (%s)" % (message, operation))
+            return (param_index, None, message)
+
+        return (param_index, parameters[param_index], None)
+
+
+def _device_chain(track) -> Tuple:
+    """
+    (count, name0, type0, class0, name1, ...) for a track's device chain.
+
+    Count first so the flat tail stays parseable: the reader takes `count`,
+    then expects exactly that many triples, and treats any other length as a
+    shape error rather than truncating.
+    """
+    devices = list(track.devices)
+
+    flat = []
+    for device in devices:
+        flat.append(device.name)
+        flat.append(device.type)
+        flat.append(device.class_name)
+
+    return (len(devices), *flat)
+
+
+def _device_parameters(device) -> Tuple:
+    """
+    (device_name, count, pname0, value0, min0, max0, pname1, ...).
+
+    One reply where upstream needs five, for the same reason `_device_chain`
+    combines three: the caller wants all of them together, and assembling
+    parallel lists out of separate replies risks describing two different
+    devices.
+    """
+    parameters = list(device.parameters)
+
+    flat = []
+    for parameter in parameters:
+        flat.append(parameter.name)
+        flat.append(parameter.value)
+        flat.append(parameter.min)
+        flat.append(parameter.max)
+
+    return (device.name, len(parameters), *flat)
+
+
+def _value_string(parameter) -> str:
+    """
+    Live's UI-friendly rendering of a parameter's current value ("2.5 kHz").
+
+    Same call as upstream's /live/device/get/parameter/value_string.
+    """
+    return parameter.str_for_value(parameter.value)

@@ -225,6 +225,29 @@ comment explaining what it adds and why. They are registered at the end of
   freshly loaded device would cost a second round trip to re-read the whole
   chain.
 
+  `/live/browser/load_item_on_return [return_index, uri]` and
+  `/live/browser/load_item_on_master [uri]` are the same load aimed at the two
+  chains upstream can't reach — `browser.load_item` loads onto
+  `song.view.selected_track`, which accepts a return or the master perfectly
+  well, so all three endpoints share one implementation and differ only in
+  target resolution and reply shape. They are separate addresses rather than a
+  widened `load_item` so the shipped address keeps its exact shape and the reply
+  arity says which index space was targeted:
+  `[return_index, uri, "ok", return_name, device_name, device_index]` and
+  `[uri, "ok", device_name, device_index]`. The return's name is read back
+  **after** the load, because Live renames an empty return the moment its first
+  device lands (`A-Return` → `A-Reverb`, measured 2026-07-31).
+
+  Both carry a guard `load_item` doesn't need. Measured 2026-07-31 on both a
+  return and the master: loading a *non-effect* item with one of them selected
+  does not fail — Live silently creates a new MIDI track and loads the
+  instrument there, leaving the target chain untouched. So a return/master load
+  is verified twice, by the set's track count being unchanged and by the
+  target's chain having gained a device; either check failing is an error reply
+  naming what actually happened. The stray track is deliberately **not** deleted
+  — reporting it and letting the caller offer to remove it is the lesson of
+  Seshat's removed `create_project`.
+
   `/live/browser/export` takes **no arguments** and chooses its own destination:
   it creates a uniquely named file with `tempfile.mkstemp` inside
   `~/.seshat/browser-exports` (owner-only, created on demand) and returns the
@@ -247,8 +270,40 @@ comment explaining what it adds and why. They are registered at the end of
   tracks and the master are unreachable. `/live/return_track/select` is the same
   gap one level up: `/live/view/set/selected_track` indexes `song.tracks` too, so
   no upstream address can select a return. `song.view.selected_track` itself
-  accepts any track, so that handler is the lookup and nothing more — and it is
-  silent, for the same reason as the two view addresses above.
+  accepts any track — the master included — so that handler is the lookup and
+  nothing more, and it is silent, for the same reason as the two view addresses
+  above.
+
+  The file covers the whole mixer (name, volume, panning, mute and solo per
+  return; volume, panning and cue volume on the master) and the whole **device
+  chain**, because every `/live/device/*` address, `/live/track/delete_device`
+  and `/live/view/set/selected_device` resolves through `song.tracks` as well:
+  `get/devices`, `device/get/name`, `device/get/parameters`,
+  `device/get|set/parameter/value`, `device/get/parameter/value_string`,
+  `delete_device` and `select_device`, each in a return-indexed and a master
+  form. Two departures from upstream's spelling are deliberate. The list getters
+  **combine** what upstream splits — one `get/devices` reply carries
+  `count, (name, type, class_name)×N` where upstream needs three round trips,
+  and one `device/get/parameters` reply carries
+  `device_name, count, (name, value, min, max)×N` where upstream needs five —
+  because the caller wants all of them together and assembling parallel lists
+  from separate replies risks describing two different devices. And
+  `delete_device` **replies** (`[…, "ok", remaining]`) where upstream's is
+  silent: it is a method with a real failure path, and the alternative is
+  sandwiching it between two count reads.
+
+  The master deliberately offers no `mute`, `solo` or `arm`: reading one raises
+  `RuntimeError("Main track has no 'mute' property!")` rather than returning
+  something falsy (measured 2026-07-31), so `hasattr` feature-detection is
+  unsafe on a LOM object and the addresses simply do not exist. Returns have no
+  `arm` either.
+
+  The mixer listeners are keyed `(index, "volume")` / `(index, "panning")` /
+  `("master", "cue_volume")` and so on, **not** by the bare index. The base
+  class's `_stop_listen` derives `remove_value_listener` from the *prop* half of
+  the key, which forces every DeviceParameter listener to register under
+  `"value"` — so the discriminator has to live in the params half, or
+  subscribing a return's pan would silently evict its volume listener.
 - **`abletonosc/song_structure.py`** — `/live/song/{start,stop}_listen/tracks`
   and `.../return_tracks`. Upstream can only listen to *scalar* song properties,
   so nothing fires when tracks are added, deleted or reordered by hand.
