@@ -18,6 +18,8 @@ class SongHandler(AbletonOSCHandler):
         # Callbacks for Song: methods
         #--------------------------------------------------------------------------------
         for method in [
+            "begin_undo_step",
+            "end_undo_step",
             "capture_and_insert_scene",
             "capture_midi",
             "continue_playing",
