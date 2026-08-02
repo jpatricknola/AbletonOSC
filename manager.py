@@ -52,10 +52,31 @@ class Manager(ControlSurface):
 
         class LiveOSCErrorLogHandler(logging.StreamHandler):
             def emit(handler, record):
+                #--------------------------------------------------------------------------------
+                # Seshat divergence — see SESHAT.md.
+                #
+                # A record marked osc_request_error has already been sent as a
+                # structured /live/error ["request", address, ...] by
+                # osc_server.process_message, which is the only place the failing
+                # request's address and arguments are still in scope. Relaying it
+                # again as an uncorrelatable log line would just duplicate it.
+                #--------------------------------------------------------------------------------
+                if getattr(record, "osc_request_error", False):
+                    return
+
                 message = record.getMessage()
-                message = message[message.index(":") + 2:]
+                #--------------------------------------------------------------------------------
+                # Strip the "AbletonOSC: " prefix when there is one. Upstream sliced
+                # from message.index(":"), which raises ValueError on any error
+                # message with no colon in it — swallowed by logging, so the relay
+                # silently dropped that error instead of sending it.
+                #--------------------------------------------------------------------------------
+                _prefix, separator, remainder = message.partition(": ")
+                if separator:
+                    message = remainder
+
                 try:
-                    self.osc_server.send("/live/error", (message,))
+                    self.osc_server.send("/live/error", ("log", message))
                 except OSError:
                     # If the connection is dead, silently ignore errors as there's not much more we can do
                     pass

@@ -235,6 +235,65 @@ so treat any merge that reverts one as a regression, not a preference.
   rather than closing it. Seshat's `hide_view` tool therefore offers a narrower
   enum than this file accepts.
 
+- **`osc_server.py` + `manager.py` — `/live/error` carries the request that
+  failed.** Upstream catches a raising callback nowhere near the callback: the
+  exception unwinds out of `process_message()` into `process()`'s per-datagram
+  `except`, which is the only place it is logged, and by then `message.address`
+  and `message.params` are long out of scope. The log record is relayed onto
+  `/live/error` by `manager.py`'s `LiveOSCErrorLogHandler`, so what reaches a
+  client is one formatted string — `"Error handling OSC message: Index out of
+  range"` — with nothing in it to say *which* request died. A client that just
+  sent a query cannot tell whether that error is its own, so it can only wait
+  out its timeout. For Seshat, whose whole query pipeline is serialized behind
+  one in-flight request, a vanished track index therefore stalled every OSC read
+  in the process for a full five seconds.
+
+  `process_message()` now wraps the **exact-match** callback invocation in
+  `try`/`except Exception`, where both halves of the request are still in hand,
+  and sends a two-shape contract on the same address:
+
+  | Payload | Meaning |
+  |---|---|
+  | `["request", address (s), message (s), arg_count (i), *request_args]` | The request `address` + `request_args` raised inside its handler callback; `message` is the exception text. Sent **instead of** a reply — the request gets no other answer. |
+  | `["log", message (s)]` | An AbletonOSC error with no originating request (parse failures, wildcard-branch failures, a handler's own internal error logs). Never correlatable. |
+
+  `arg_count` makes the variable tail explicit and keeps a zero-argument request
+  from needing a special case. `request_args` are `message.params` echoed back
+  through `OscMessageBuilder`, so each keeps its wire type — note that an OSC
+  `f` is 32-bit, so a client comparing the echo against what it sent must
+  round-trip its own value through 32 bits first.
+
+  The structured send goes out **directly via `self.send`**, not through the log
+  relay, because the relay has no request context; the record is marked
+  `extra={"osc_request_error": True}` and `LiveOSCErrorLogHandler.emit` skips
+  marked records, so one failure produces exactly one datagram. (Measured on
+  Live 12.4.3, 2026-08-03: the embedded `logging` does deliver `extra` through
+  to a sibling handler's `record`.) The file log keeps its error-level line
+  either way, now with the offending address in it. `str(e) or
+  type(e).__name__` guards the empty-message case: a bare `Exception()`
+  stringifies to `""`, which would render as a blank rejection in a client.
+
+  The **wildcard branch is deliberately left on legacy behaviour** — it already
+  swallows `ValueError`/`AttributeError` by design, and a structured error there
+  would have to choose between the pattern address and the concrete callback
+  address. Bundles are covered for free, since `process_bundle` funnels every
+  message through `process_message`. `process()`'s outer `try`/`except` stays,
+  guarding parse errors and the wildcard branch; exact-match callback failures
+  simply no longer reach it.
+
+  `LiveOSCErrorLogHandler.emit` also loses upstream's
+  `message[message.index(":") + 2:]`, which raises `ValueError` on any error
+  message with no colon in it — swallowed by `logging`, so the relay silently
+  dropped that error rather than sending it. A `partition(": ")` strip keeps the
+  whole message when there is no prefix.
+
+  **Merge hazard.** Losing either half in a merge is completely invisible: every
+  address still answers, every error still shows up in `Log.txt`, and clients
+  just quietly go back to paying a full timeout per rejection. Seshat's
+  `vendored_addresses_test` greps `osc_server.py` for the `("request",
+  message.address, …)` payload, `manager.py` for the `("log", …)` tag and the
+  `osc_request_error` check, and this file for this section.
+
 ### Seshat's own handlers
 
 Three modules that upstream has no equivalent of. Each carries its own header
@@ -366,6 +425,16 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   upstream, and reverting either is invisible from the machine Live runs on —
   loopback keeps working exactly as before. See the deliberate-changes section
   above.
+
+- **Anything touching `process_message()`'s exact-match branch or
+  `LiveOSCErrorLogHandler.emit`.** The structured `/live/error` payload lives in
+  those two places and nowhere else. A merge that takes upstream's
+  `process_message` drops the `try`/`except` and the `("request", …)` send;
+  one that takes upstream's `emit` drops the `("log", …)` tag and the
+  `osc_request_error` skip, which leaves the structured send *and* a duplicate
+  legacy line going out for the same failure. Neither is loud: errors still
+  reach `Log.txt` and `/live/error`, and clients just go back to timing out.
+  See the additions section above.
 
 - **Anything touching `song.py`'s generic methods list or `properties_rw`.**
   Three entries there are ours — `begin_undo_step`, `end_undo_step` and

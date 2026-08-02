@@ -95,7 +95,41 @@ class OSCServer:
     def process_message(self, message, remote_addr):
         if message.address in self._callbacks:
             callback = self._callbacks[message.address]
-            rv = callback(message.params)
+
+            #--------------------------------------------------------------------------------
+            # Seshat divergence — see SESHAT.md.
+            #
+            # A callback that raises used to unwind to process()'s per-datagram
+            # catch, where the offending address and arguments are out of scope:
+            # the client saw only a formatted log line on /live/error, with
+            # nothing to correlate it against, and its query waited out a full
+            # timeout to learn what the error had already said. Catching here,
+            # where message.address and message.params are both in hand, lets the
+            # error carry the request that produced it:
+            #
+            #   /live/error ["request", address, message, arg_count, *args]
+            #
+            # The extra= marker tells the log relay in manager.py that this
+            # record has already gone out structured, so it does not also send
+            # the legacy ["log", message] payload for the same failure.
+            #
+            # The wildcard branch below is deliberately left on legacy behaviour:
+            # it already swallows ValueError/AttributeError by design, and a
+            # structured error there would have to choose between the pattern
+            # address and the concrete callback address.
+            #--------------------------------------------------------------------------------
+            try:
+                rv = callback(message.params)
+            except Exception as e:
+                detail = str(e) or type(e).__name__
+                self.logger.error("AbletonOSC: Error handling OSC message %s: %s"
+                                  % (message.address, detail),
+                                  extra={"osc_request_error": True})
+                self.logger.warning("AbletonOSC: %s" % traceback.format_exc())
+                self.send("/live/error",
+                          ("request", message.address, detail,
+                           len(message.params), *message.params))
+                return
 
             if rv is not None:
                 assert isinstance(rv, tuple)
