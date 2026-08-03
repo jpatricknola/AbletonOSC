@@ -351,7 +351,9 @@ comment explaining what it adds and why. They are registered at the end of
   startup-and-pre-export sweep deletes matching **regular** direct children of
   the export root (`os.lstat`, so a symlink is skipped rather than followed) that
   are at least ten minutes old. The age gate keeps an overlapping caller's
-  finished export alive — Seshat's transport does not serialize queries — while
+  finished export alive — the caller reads the file only after its reply
+  arrives, outside any transport ordering, so a later export's pre-sweep can
+  run mid-read — while
   bounding how long an orphaned multi-megabyte file survives. The export root is
   derived with `expanduser` + `abspath`, **not** `realpath`, because the Elixir
   consumer derives the same string with `Path.expand/1` and validates the reply
