@@ -69,12 +69,18 @@ ongoing cost — merging upstream releases — is close to zero.
   string belongs, raising inside every clip-slot callback and flooding Live's
   `Log.txt`.
 
-- **`handler.py` / `osc_server.py` — per-message resilience.** Hand-applied from
-  upstream PR #208: `_call_method` and `_set_property` log a failure instead of
-  raising through the dispatcher, and `process()` moves its try/except inside
-  the recvfrom loop so one failing message no longer aborts the rest of that
-  tick's queue. Seshat sends ordered multi-message sequences, which is exactly
-  the shape that bug truncates.
+- **`handler.py` / `osc_server.py` — per-message resilience.** The behaviour is
+  upstream PR #208's — one failing message no longer aborts the rest of that
+  tick's queue, which matters because Seshat sends ordered multi-message
+  sequences — but the mechanism has moved since it was first hand-applied.
+  `process()` keeps its try/except inside the recvfrom loop, per #208. The
+  handler-local catches are gone: `_call_method` and `_set_property` now let
+  exceptions propagate, because every callback invocation is caught
+  per-message by `OSCServer._dispatch`, which turns the failure into the
+  structured `/live/error ("request", …)` envelope described below instead of
+  an uncorrelatable log line. Later messages in the same bundle and later
+  queued datagrams still execute; `tests_unit/test_handler_envelope.py` pins
+  both properties without Live.
 
   **Not taken from #208:** its reply-to-sender-port routing. Listener pushes go
   to the fixed response port regardless, so that change buys nothing here and
@@ -248,14 +254,20 @@ so treat any merge that reverts one as a regression, not a preference.
   one in-flight request, a vanished track index therefore stalled every OSC read
   in the process for a full five seconds.
 
-  `process_message()` now wraps the **exact-match** callback invocation in
-  `try`/`except Exception`, where both halves of the request are still in hand,
-  and sends a two-shape contract on the same address:
+  Both dispatch branches now funnel through one private helper,
+  `OSCServer._dispatch`, which invokes the callback with both halves of the
+  request still in hand and sends a two-shape contract on the same address:
 
   | Payload | Meaning |
   |---|---|
-  | `["request", address (s), message (s), arg_count (i), *request_args]` | The request `address` + `request_args` raised inside its handler callback; `message` is the exception text. Sent **instead of** a reply — the request gets no other answer. |
-  | `["log", message (s)]` | An AbletonOSC error with no originating request (parse failures, wildcard-branch failures, a handler's own internal error logs). Never correlatable. |
+  | `["request", address (s), message (s), arg_count (i), *request_args]` | The request `address` + `request_args` failed in its handler callback; `message` is the exception text. `address` is always the address **the client actually sent** — for a wildcard request that is the pattern, the only address the client can correlate a pending request against, and the concrete callback address rides in `message` as `"in <callback_address>: <detail>"`. Sent **instead of** a reply — the request gets no other answer. |
+  | `["log", message (s)]` | An AbletonOSC error with no originating request (parse failures, socket errors, reload failures, a handler's own internal error logs). Never correlatable. |
+
+  The correlated contract covers exactly: uncaught exceptions from ordinary
+  callbacks (both direct and wildcard dispatch), exceptions from the generic
+  `_call_method` path, exceptions from the generic `_set_property` path, and
+  invalid (non-tuple, non-`None`) handler return values. It does **not** cover
+  every semantic rejection in the fork — see the scope note below.
 
   `arg_count` makes the variable tail explicit and keeps a zero-argument request
   from needing a special case. `request_args` are `message.params` echoed back
@@ -273,13 +285,83 @@ so treat any merge that reverts one as a regression, not a preference.
   type(e).__name__` guards the empty-message case: a bare `Exception()`
   stringifies to `""`, which would render as a blank rejection in a client.
 
-  The **wildcard branch is deliberately left on legacy behaviour** — it already
-  swallows `ValueError`/`AttributeError` by design, and a structured error there
-  would have to choose between the pattern address and the concrete callback
-  address. Bundles are covered for free, since `process_bundle` funnels every
-  message through `process_message`. `process()`'s outer `try`/`except` stays,
-  guarding parse errors and the wildcard branch; exact-match callback failures
-  simply no longer reach it.
+  **Wildcard matching is escaped and anchored.** Upstream compiled the raw
+  request address as a regex (`address.replace("*", "[^/]+")`, matched with
+  `re.match`), so `/live/*/get/tempo` also reached
+  `/live/scene/get/tempo_enabled`, `/live/track/get/*` reached
+  `/live/track/get/clips/name`, and any regex metacharacter in a pattern was
+  interpreted as regex. Patterns now compile as
+  `"[^/]+".join(re.escape(part) for part in address.split("*"))` and are
+  matched with `fullmatch`. The contract this encodes: **`*` is the only
+  supported metacharacter** (OSC's `?`, `[]`, `{}` and every regex character
+  are literal — a documented non-goal, not an accident); `*` matches **one or
+  more** non-`/` characters within a single address segment (`[^/]+` is kept
+  deliberately — switching to OSC-1.0's zero-or-more would silently widen what
+  existing Seshat patterns match); and patterns match **complete registered
+  addresses only**. Replies from wildcard fan-out still go out on the concrete
+  callback address, as before.
+
+  **Wildcard fan-out failures are isolated.** Upstream ran matches in one
+  try-free loop, so a matched callback raising anything outside
+  `ValueError`/`AttributeError` aborted the remaining matches. Each match now
+  dispatches independently through `_dispatch` and a failure never terminates
+  the loop. The legacy skip set — endpoints that simply don't apply to the
+  pattern request — is preserved **narrowly**: `ValueError`, `AttributeError`,
+  and (new, the confirmed abort case) `IndexError`, when a matched endpoint
+  reads a positional argument the pattern request omitted. Skips are logged at
+  debug naming the concrete callback and send nothing. `TypeError` and
+  `KeyError` are deliberately **not** in the set — both commonly indicate a
+  real handler defect, and no broad exception class proves an argument-shape
+  mismatch — so they, and every other exception, become the structured
+  `("request", <pattern>, "in <callback>: <detail>", …)` error above while the
+  remaining matches still run. Widening the skip set waits on per-route
+  argument schemas (issue #15). The former "legacy uncorrelated error" outcome
+  for wildcard failures is gone entirely.
+
+  **Reply validation replaced the `assert`.** Upstream checked handler return
+  values with `assert isinstance(rv, tuple)` — stripped under `python -O`, and
+  an uncorrelated crash otherwise. A non-tuple, non-`None` return now raises an
+  explicit `TypeError` inside the same boundary, so it comes back as the
+  structured error naming the request and the offending handler, identically
+  for direct and wildcard dispatch. The error deliberately names only the
+  return's *type*, never its repr — an invalid return may be large, sensitive,
+  or capable of pushing the error datagram past UDP limits. A `None` return
+  still sends nothing; `()` still sends an empty reply.
+
+  Bundles are covered for free, since `process_bundle` funnels every message
+  through `process_message`. `process()`'s outer `try`/`except` stays, guarding
+  parse errors; callback failures no longer reach it.
+
+  **Scope: what still doesn't use the correlated envelope.** Audited 2026-08-04
+  across every `logger.error` request path. Custom browser and
+  return/master handlers deliberately reply with endpoint-specific tuples
+  containing `"error"` (and their paired `logger.error` lines still relay a
+  duplicate legacy `("log", …)` datagram for the same failure — known, left
+  for issues #4/#15 as an explicit behaviour change rather than smuggled in
+  here); view-steering setters deliberately log and stay silent;
+  `song/get/track_data` can log and return partial output. Only the
+  dispatcher boundary sets the `osc_request_error` marker — it means "a
+  structured `/live/error` was already sent", and nothing else may claim it.
+
+  **Fire-and-forget caveat.** Seshat sends generic setters and methods with
+  `Transport.send_message/2`, which returns once UDP transmission succeeds. A
+  structured error arriving later is broadcast for observability but cannot
+  retroactively fail that completed tool step; only an address-and-argument
+  match against an active `Transport.query/3` fails fast. Honest mutation
+  acknowledgement/read-back is separate work. The gain from this change is
+  context — which request died, with its arguments — not delivery semantics.
+
+  **Companion Seshat update (required before this commit is consumed, not yet
+  done as of 2026-08-04).** Seshat's `vendored_addresses_test.exs` greps this
+  file's `osc_server.py` for the exact fragment
+  `("request", message.address, detail, …)`, which the `_dispatch` refactor
+  renamed (the send now reads `("request", error_address, detail, …)`), so the
+  guard will fail against this commit until it is updated to assert the
+  refactored send semantically. The same companion change must update
+  `docs/abletonosc-api-docs.md` where wildcard failures are documented as
+  uncorrelated `"log"` messages, re-run the Transport and vendored-address
+  tests, and bump the AbletonOSC submodule pointer / install verification.
+  Record the compatibility result here when that lands.
 
   `LiveOSCErrorLogHandler.emit` also loses upstream's
   `message[message.index(":") + 2:]`, which raises `ValueError` on any error
@@ -290,9 +372,13 @@ so treat any merge that reverts one as a regression, not a preference.
   **Merge hazard.** Losing either half in a merge is completely invisible: every
   address still answers, every error still shows up in `Log.txt`, and clients
   just quietly go back to paying a full timeout per rejection. Seshat's
-  `vendored_addresses_test` greps `osc_server.py` for the `("request",
-  message.address, …)` payload, `manager.py` for the `("log", …)` tag and the
-  `osc_request_error` check, and this file for this section.
+  `vendored_addresses_test` greps `osc_server.py` for the structured payload
+  (historically the fragment `("request", message.address, …)`; after the
+  `_dispatch` refactor its target must be the `("request", error_address, …)`
+  send — see the companion-update note above), `manager.py` for the
+  `("log", …)` tag and the `osc_request_error` check, and this file for this
+  section. `tests_unit/test_osc_server.py` and
+  `tests_unit/test_handler_envelope.py` pin the behaviour itself without Live.
 
 ### Seshat's own handlers
 
@@ -428,15 +514,20 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   loopback keeps working exactly as before. See the deliberate-changes section
   above.
 
-- **Anything touching `process_message()`'s exact-match branch or
-  `LiveOSCErrorLogHandler.emit`.** The structured `/live/error` payload lives in
-  those two places and nowhere else. A merge that takes upstream's
-  `process_message` drops the `try`/`except` and the `("request", …)` send;
-  one that takes upstream's `emit` drops the `("log", …)` tag and the
+- **Anything touching `process_message()`, `_dispatch`, or
+  `LiveOSCErrorLogHandler.emit`.** The structured `/live/error` payload lives
+  in `OSCServer._dispatch` and `manager.py`'s relay and nowhere else. A merge
+  that takes upstream's `process_message` drops `_dispatch` wholesale — the
+  `("request", …)` send, the escaped/anchored wildcard matching, the fan-out
+  isolation, and the reply-type validation, and it reintroduces the handler
+  exceptions that `handler.py` no longer catches locally (turning every
+  generic method/setter failure back into an aborted tick queue). One that
+  takes upstream's `emit` drops the `("log", …)` tag and the
   `osc_request_error` skip, which leaves the structured send *and* a duplicate
   legacy line going out for the same failure. Neither is loud: errors still
   reach `Log.txt` and `/live/error`, and clients just go back to timing out.
-  See the additions section above.
+  `tests_unit/` fails loudly on most of this — run it on every merge. See the
+  additions section above.
 
 - **Anything touching `song.py`'s generic methods list or `properties_rw`.**
   Three entries there are ours — `begin_undo_step`, `end_undo_step` and
