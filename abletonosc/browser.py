@@ -135,10 +135,11 @@ EXPORT_SUFFIX = ".json"
 # Only Python knows an export's name now, so only Python can sweep up one whose
 # reply never reached the caller (a query timeout, a lost datagram, a path the
 # consumer refused) — nothing else would ever delete a multi-megabyte orphan.
-# The age gate is load-bearing: the transport does not serialize queries, so an
-# unconditional sweep could delete a finished export out from under an
-# overlapping caller. Ten minutes is well past the 120-second query timeout while
-# still bounding how long an orphan survives.
+# The age gate is load-bearing: Transport serializes queries, but the caller
+# reads the file only after its export query resolves. A second export and its
+# sweep can therefore run while the first caller is still reading. Ten minutes
+# is well past the 120-second query timeout plus any plausible read, while still
+# bounding how long an orphan survives.
 #--------------------------------------------------------------------------------
 EXPORT_STALE_SECONDS = 10 * 60
 
