@@ -153,7 +153,11 @@ class TrackHandler(AbletonOSCHandler):
 
         """
          - name: the device's human-readable name
-         - type: 0 = audio_effect, 1 = instrument, 2 = midi_effect
+         - type: 1 = instrument, 2 = audio_effect, 4 = midi_effect.
+           Measured against Live 12.4.3 on 2026-07-31: an Operator reports 1, a
+           Reverb and an EQ Eight report 2. This comment used to say
+           0 = audio_effect, 1 = instrument, 2 = midi_effect — any source still
+           claiming that is repeating the old guess.
          - class_name: e.g. Operator, Reverb, AuPluginDevice, PluginDevice, InstrumentGroupDevice
         """
         self.osc_server.add_handler("/live/track/get/num_devices", create_track_callback(track_get_num_devices))
