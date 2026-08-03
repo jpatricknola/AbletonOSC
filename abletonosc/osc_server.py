@@ -92,77 +92,108 @@ class OSCServer:
         except BuildError:
             self.logger.error("AbletonOSC: OSC build error: %s" % (traceback.format_exc()))
 
+    #--------------------------------------------------------------------------------
+    # Wildcard-only compatibility skips — see _dispatch. ValueError and
+    # AttributeError are upstream's original skip set; IndexError is the one
+    # confirmed additional case (a matched endpoint reading a positional
+    # argument the pattern request omitted). Deliberately narrow: TypeError
+    # and KeyError commonly indicate a real handler defect, and no broad
+    # exception class proves an argument-shape mismatch. Widening this set
+    # waits on per-route argument schemas (issue #15).
+    #--------------------------------------------------------------------------------
+    WILDCARD_SKIP_EXCEPTIONS = (ValueError, AttributeError, IndexError)
+
+    def _dispatch(self, callback, callback_address, message, remote_addr,
+                  reply_address, error_address, wildcard=False):
+        """
+        Invoke one callback for `message` and handle its outcome: send the
+        reply on `reply_address` (direct: the request address; wildcard: the
+        concrete callback address), or report a failure on /live/error with
+        `error_address` in the address slot (always the address the client
+        actually sent, since that is the only address it can correlate a
+        pending request against).
+
+        Seshat divergence — see SESHAT.md.
+
+        A callback that raises used to unwind to process()'s per-datagram
+        catch, where the offending address and arguments are out of scope:
+        the client saw only a formatted log line on /live/error, with
+        nothing to correlate it against, and its query waited out a full
+        timeout to learn what the error had already said. Catching here,
+        where message.address and message.params are both in hand, lets the
+        error carry the request that produced it:
+
+          /live/error ["request", address, message, arg_count, *args]
+
+        The extra= marker tells the log relay in manager.py that this
+        record has already gone out structured, so it does not also send
+        the legacy ["log", message] payload for the same failure.
+
+        With wildcard=True, exceptions in WILDCARD_SKIP_EXCEPTIONS are
+        treated as "this matched endpoint does not apply to this request"
+        (e.g. /live/track/get/send with no args, or listening on a
+        property that can't be listened for) and skipped with a debug log;
+        everything else is a structured error. Either way the caller's
+        fan-out loop continues: one bad match never silences the rest.
+        """
+        try:
+            rv = callback(message.params)
+            if rv is not None and not isinstance(rv, tuple):
+                # An explicit raise, not an assert: the check must survive
+                # python -O, and it lands on the same structured-error path
+                # as any other callback failure.
+                raise TypeError("callback for %s returned %s; handlers must "
+                                "return a tuple or None"
+                                % (callback_address, type(rv).__name__))
+        except Exception as e:
+            if wildcard and isinstance(e, self.WILDCARD_SKIP_EXCEPTIONS):
+                self.logger.debug("AbletonOSC: Wildcard %s: skipping %s (%s: %s)"
+                                  % (error_address, callback_address,
+                                     type(e).__name__, e))
+                return
+            detail = str(e) or type(e).__name__
+            if callback_address != error_address:
+                detail = "in %s: %s" % (callback_address, detail)
+            self.logger.error("AbletonOSC: Error handling OSC message %s: %s"
+                              % (error_address, detail),
+                              extra={"osc_request_error": True})
+            self.logger.warning("AbletonOSC: %s" % traceback.format_exc())
+            self.send("/live/error",
+                      ("request", error_address, detail,
+                       len(message.params), *message.params))
+            return
+
+        if rv is not None:
+            remote_hostname, _ = remote_addr
+            response_addr = (remote_hostname, self._response_port)
+            self.send(address=reply_address,
+                      params=rv,
+                      remote_addr=response_addr)
+
     def process_message(self, message, remote_addr):
         if message.address in self._callbacks:
             callback = self._callbacks[message.address]
-
-            #--------------------------------------------------------------------------------
-            # Seshat divergence — see SESHAT.md.
-            #
-            # A callback that raises used to unwind to process()'s per-datagram
-            # catch, where the offending address and arguments are out of scope:
-            # the client saw only a formatted log line on /live/error, with
-            # nothing to correlate it against, and its query waited out a full
-            # timeout to learn what the error had already said. Catching here,
-            # where message.address and message.params are both in hand, lets the
-            # error carry the request that produced it:
-            #
-            #   /live/error ["request", address, message, arg_count, *args]
-            #
-            # The extra= marker tells the log relay in manager.py that this
-            # record has already gone out structured, so it does not also send
-            # the legacy ["log", message] payload for the same failure.
-            #
-            # The wildcard branch below is deliberately left on legacy behaviour:
-            # it already swallows ValueError/AttributeError by design, and a
-            # structured error there would have to choose between the pattern
-            # address and the concrete callback address.
-            #--------------------------------------------------------------------------------
-            try:
-                rv = callback(message.params)
-            except Exception as e:
-                detail = str(e) or type(e).__name__
-                self.logger.error("AbletonOSC: Error handling OSC message %s: %s"
-                                  % (message.address, detail),
-                                  extra={"osc_request_error": True})
-                self.logger.warning("AbletonOSC: %s" % traceback.format_exc())
-                self.send("/live/error",
-                          ("request", message.address, detail,
-                           len(message.params), *message.params))
-                return
-
-            if rv is not None:
-                assert isinstance(rv, tuple)
-                remote_hostname, _ = remote_addr
-                response_addr = (remote_hostname, self._response_port)
-                self.send(address=message.address,
-                          params=rv,
-                          remote_addr=response_addr)
+            self._dispatch(callback, message.address, message, remote_addr,
+                           reply_address=message.address,
+                           error_address=message.address)
         elif "*" in message.address:
-            regex = message.address.replace("*", "[^/]+")
+            #--------------------------------------------------------------------------------
+            # Wildcard matching. `*` is the only supported metacharacter and
+            # matches one or more non-`/` characters within a single address
+            # segment; everything else in the pattern — including OSC's other
+            # pattern characters and any regex character — is literal, and the
+            # pattern must match a complete registered address. See SESHAT.md
+            # for the contract this encodes.
+            #--------------------------------------------------------------------------------
+            pattern = re.compile("[^/]+".join(re.escape(part)
+                                              for part in message.address.split("*")))
             for callback_address, callback in self._callbacks.items():
-                if re.match(regex, callback_address):
-                    try:
-                        rv = callback(message.params)
-                    except ValueError:
-                        #--------------------------------------------------------------------------------
-                        # Don't throw errors for queries that require more arguments
-                        # (e.g. /live/track/get/send with no args)
-                        #--------------------------------------------------------------------------------
-                        continue
-                    except AttributeError:
-                        #--------------------------------------------------------------------------------
-                        # Don't throw errors when trying to create listeners for properties that can't
-                        # be listened for (e.g. can_be_armed, is_foldable)
-                        #--------------------------------------------------------------------------------
-                        continue
-                    if rv is not None:
-                        assert isinstance(rv, tuple)
-                        remote_hostname, _ = remote_addr
-                        response_addr = (remote_hostname, self._response_port)
-                        self.send(address=callback_address,
-                                  params=rv,
-                                  remote_addr=response_addr)
+                if not pattern.fullmatch(callback_address):
+                    continue
+                self._dispatch(callback, callback_address, message, remote_addr,
+                               reply_address=callback_address,
+                               error_address=message.address,
+                               wildcard=True)
         else:
             self.logger.error("AbletonOSC: Unknown OSC address: %s" % message.address)
 
