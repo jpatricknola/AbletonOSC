@@ -134,10 +134,34 @@ def test_fanout_indexerror_is_skipped_silently(fan, server, receiver):
     assert receiver.drain() == [("/fan/a", ("a",)), ("/fan/c", ("c",))]
 
 
+def test_fanout_indexerror_with_arguments_is_reported(fan, server, receiver):
+    # Live's most common genuine rejection is IndexError("Index out of
+    # range") from a LOM collection subscript, and the offending index
+    # arrives as an argument. Skipping it would answer /live/track/get/* 99
+    # with silence. Only the argument-less shape is a skip.
+    fan(raiser(IndexError("Index out of range")))
+    dispatch(server, "/fan/*", 99)
+    messages = receiver.drain()
+    assert [m for m in messages if m[0] != "/live/error"] == [("/fan/a", ("a",)),
+                                                              ("/fan/c", ("c",))]
+    errors = [params for address, params in messages if address == "/live/error"]
+    assert len(errors) == 1
+    assert errors[0][0] == "request"
+    assert errors[0][1] == "/fan/*"
+    assert "/fan/b" in errors[0][2]
+    assert "Index out of range" in errors[0][2]
+    assert errors[0][3] == 1
+    assert errors[0][4:] == (99,)
+
+
 @pytest.mark.parametrize("exception", [ValueError("bad"), AttributeError("no attr")])
-def test_fanout_legacy_skips_preserved(fan, server, receiver, exception):
+@pytest.mark.parametrize("args", [(), (0,)])
+def test_fanout_legacy_skips_preserved(fan, server, receiver, exception, args):
+    # The argument-count qualification is IndexError's alone: upstream's
+    # original skips stay unconditional, so a pattern that does carry
+    # arguments still skips an endpoint they don't fit.
     fan(raiser(exception))
-    dispatch(server, "/fan/*")
+    dispatch(server, "/fan/*", *args)
     assert receiver.drain() == [("/fan/a", ("a",)), ("/fan/c", ("c",))]
 
 

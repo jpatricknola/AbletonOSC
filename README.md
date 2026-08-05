@@ -40,7 +40,9 @@ When querying properties, a `*` wildcard can be used; for example, `/live/clip/g
 - A pattern must match a **complete** registered address; `/live/*/get/tempo` matches `/live/song/get/tempo` but not `/live/scene/get/tempo_enabled`.
 - Each matched endpoint replies on its own **concrete** address, not the pattern.
 - A matched endpoint whose arguments don't apply to the pattern request (e.g. a getter that needs an index the request omitted, or a listener on a property that can't be listened for) is skipped silently.
-- Any other failure in a matched endpoint is reported on `/live/error` (see below) with the **pattern** address — the address the client actually sent — and the concrete endpoint named in the error detail. A failing endpoint never prevents the remaining matches from replying.
+- Any other failure in a matched endpoint is reported on `/live/error` (see below) with the **pattern** address — the address the client actually sent — and the concrete endpoint named in the error detail. A failing endpoint never prevents the remaining matches from replying. In particular, an out-of-range index is a failure, not a skip: `/live/track/get/* 99` reports rather than falling silent.
+
+A wildcard request is a **fan-out, not a query**: it produces one reply per matched endpoint, each on a different address, and possibly an error as well. A client helper that sends one request and awaits one reply cannot express that — it will resolve on whichever datagram arrives first and drop the rest, and if any matched endpoint fails, the error may be that first datagram even while the other endpoints are replying successfully. Use wildcards where all the replies are consumed as they arrive; for a fixed set of values, send the concrete addresses and correlate them individually.
 
 ## Error handling
 

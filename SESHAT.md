@@ -318,6 +318,37 @@ so treat any merge that reverts one as a regression, not a preference.
   argument schemas (issue #15). The former "legacy uncorrelated error" outcome
   for wildcard failures is gone entirely.
 
+  **`IndexError` is qualified by argument count** (`_is_wildcard_skip`), because
+  the class alone carries both meanings. Live's LOM raises
+  `IndexError("Index out of range")` from an out-of-range collection subscript
+  — verified in `logs/abletonosc.log`, traceback through `track.py`'s
+  `self.song.tracks[track_index]` — and that is the single most common way a
+  request is legitimately refused. An unqualified skip would answer
+  `/live/track/get/* 99` with **nothing at all**: no reply, no error,
+  indistinguishable from a pattern that matched no endpoint, on the fork's most
+  frequent rejection. The reproduced abort case is the opposite shape — a
+  pattern carrying *no* index reaching an endpoint that reads `params[0]` — so
+  `IndexError` is skipped only when `message.params` is empty, and a bad index
+  (which always arrives as the argument that produced it) always reports. The
+  residual imprecision is deliberately one-sided: a multi-argument pattern
+  reaching an endpoint that wants one argument more than it sent (e.g.
+  `/live/device/get/* 0 0` and an endpoint reading `params[2]`) reports instead
+  of skipping — a correlated error naming that endpoint, with every other match
+  still replying. Issue #15's per-route schemas are what remove the guess.
+
+  **Wildcards are a fan-out, not a query — do not reach for them as a batching
+  shortcut.** A pattern produces one reply per matched endpoint, each on its own
+  concrete address, plus possibly an error on the pattern address. Seshat's
+  `Transport.query/3` awaits a single reply, and its `/live/error` clause is
+  ordered first and cancels the timer, so a wildcard sent through it resolves on
+  whichever datagram lands first and discards the rest — and one failing match
+  fails the whole query even while the other endpoints reply successfully.
+  Correlating the error on the pattern is still right (the concrete address has
+  no pending request to match, which is exactly the uncorrelated error this
+  change removed); the mismatch is cardinality, so a fully successful wildcard
+  is just as wrong through `query/3`, only silently. `query_batch/2` over the
+  concrete addresses is the answer. Nothing in Seshat sends a wildcard today.
+
   **Reply validation replaced the `assert`.** Upstream checked handler return
   values with `assert isinstance(rv, tuple)` — stripped under `python -O`, and
   an uncorrelated crash otherwise. A non-tuple, non-`None` return now raises an
@@ -359,8 +390,10 @@ so treat any merge that reverts one as a regression, not a preference.
   guard will fail against this commit until it is updated to assert the
   refactored send semantically. The same companion change must update
   `docs/abletonosc-api-docs.md` where wildcard failures are documented as
-  uncorrelated `"log"` messages, re-run the Transport and vendored-address
-  tests, and bump the AbletonOSC submodule pointer / install verification.
+  uncorrelated `"log"` messages, record there that wildcards must not be sent
+  through `Transport.query/3` (see the fan-out note above — `query_batch/2` is
+  the answer), re-run the Transport and vendored-address tests, and bump the
+  AbletonOSC submodule pointer / install verification.
   Record the compatibility result here when that lands.
 
   `LiveOSCErrorLogHandler.emit` also loses upstream's
