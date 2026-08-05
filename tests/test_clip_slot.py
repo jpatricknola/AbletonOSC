@@ -24,9 +24,16 @@ def test_clip_slot_duplicate(client):
 
 def test_clip_slot_property_listen(client):
     client.send_message("/live/clip_slot/start_listen/has_clip", (0, 0))
-    assert client.await_message("/live/clip_slot/get/has_clip", TICK_DURATION * 2) == (0, 0, False)
-    client.send_message("/live/clip_slot/create_clip", [0, 0, 4.0])
-    assert client.await_message("/live/clip_slot/get/has_clip", TICK_DURATION * 2) == (0, 0, True)
-    client.send_message("/live/clip_slot/delete_clip", [0, 0])
-    assert client.await_message("/live/clip_slot/get/has_clip", TICK_DURATION * 2) == (0, 0, False)
-    client.send_message("/live/clip_slot/stop_listen/has_clip", (0,))
+    try:
+        assert client.await_message("/live/clip_slot/get/has_clip", TICK_DURATION * 2) == (0, 0, False)
+        client.send_message("/live/clip_slot/create_clip", [0, 0, 4.0])
+        assert client.await_message("/live/clip_slot/get/has_clip", TICK_DURATION * 2) == (0, 0, True)
+        client.send_message("/live/clip_slot/delete_clip", [0, 0])
+        assert client.await_message("/live/clip_slot/get/has_clip", TICK_DURATION * 2) == (0, 0, False)
+    finally:
+        #--------------------------------------------------------------------------------
+        # Stop with the same (track, scene) key the listener was started with —
+        # a mismatched key fails the stop and leaks the listener until reload —
+        # and stop even when an assertion above fails, for the same reason.
+        #--------------------------------------------------------------------------------
+        client.send_message("/live/clip_slot/stop_listen/has_clip", (0, 0))

@@ -2,58 +2,15 @@
 
 This is the prioritized backlog produced from [HANDOFF.md](HANDOFF.md) after the
 2026-08-03 code review and targeted contract probes against a running Ableton
-Live instance. Items are ordered by recommended execution priority. The first
-three are reproduced live defects; later items are static findings, contract
-gaps, test-infrastructure problems, documentation debt, and cleanup.
+Live instance. Items are ordered by recommended execution priority and include
+reproduced live defects, static findings, contract gaps, test-infrastructure
+problems, documentation debt, and cleanup. Issue numbers are kept stable as
+completed entries are removed because other repository documents refer to them.
 
 This document describes the problem and the outcome each change must achieve.
 Detailed implementation plans are intentionally out of scope and should be
 created separately for each issue. Any change that further diverges from
 upstream must also be reflected in [SESHAT.md](SESHAT.md).
-
-## 1. Correct OSC wildcard matching
-
-**Priority:** Critical — confirmed live protocol defect
-
-Wildcard patterns are converted to regular expressions in
-`abletonosc/osc_server.py`, but matching uses an unanchored expression and the
-literal parts of the OSC address are not escaped. A pattern can therefore match
-the prefix of a longer registered address instead of only the intended complete
-address. During live testing, `/live/*/get/tempo 0` invoked
-`/live/scene/get/tempo_enabled` in addition to the intended tempo endpoints.
-`/live/track/get/*` can similarly reach nested routes such as
-`/live/track/get/clips/name`.
-
-This violates the documented wildcard contract, produces unexpected replies,
-and can invoke callbacks with an argument shape intended for another endpoint.
-Wildcard requests must match complete registered OSC addresses, and ordinary
-characters in the requested pattern must not acquire regular-expression
-semantics accidentally. The supported wildcard syntax must be explicit and
-covered independently of a running Live instance.
-
-**Affected area:** `abletonosc/osc_server.py`, wildcard contract tests, OSC API
-documentation.
-
-## 2. Isolate failures during wildcard fan-out
-
-**Priority:** Critical — confirmed live protocol defect
-
-Wildcard dispatch currently suppresses only `ValueError` and `AttributeError`
-from an individual matched callback. Other callback failures escape the
-per-match loop and prevent later matching endpoints from running. Live testing
-confirmed that `/live/*/get/tempo` with no arguments invokes the song tempo
-getter, then raises `IndexError` in the scene handler because it expects a scene
-index; the rest of the wildcard fan-out is abandoned.
-
-A wildcard request is a fan-out operation, so one endpoint's incompatible
-argument requirements or runtime failure must not silently truncate unrelated
-matches. The contract must define how individual match failures are treated and
-ensure that every eligible match is considered. Diagnostics must retain enough
-context to identify both the wildcard request and the concrete callback that
-failed, without producing an ambiguous legacy error.
-
-**Affected area:** `abletonosc/osc_server.py`, wildcard error reporting, fake
-dispatcher tests.
 
 ## 3. Define and repair multi-track wildcard getter responses
 
@@ -75,44 +32,6 @@ shape.
 
 **Affected area:** `abletonosc/track.py`, client expectations, README/SESHAT
 contract documentation, regression tests.
-
-## 4. Make all endpoint failures use one correlated error contract
-
-**Priority:** High — protocol reliability and client timeout behavior
-
-Direct callback exceptions are handled by the dispatcher and sent as structured
-`/live/error` messages containing `"request"`, the OSC address, error detail,
-argument count, and the original arguments. Generic method calls and property
-setters do not follow that path: `AbletonOSCHandler._call_method` and
-`_set_property` catch their own exceptions and log them. The logging relay then
-sends a legacy `['log', message]` error with no request address or arguments.
-
-Clients therefore receive different error shapes based on where the exception
-was caught, even when two requests fail for the same reason. Uncorrelated errors
-cannot reliably resolve a pending request and can force Seshat to wait for a
-timeout after the server already knows the operation failed. All request-driven
-failures need a single stable, correlated error envelope. Unsolicited internal
-logging may remain distinguishable from request failures.
-
-**Affected area:** `abletonosc/handler.py`, `abletonosc/osc_server.py`,
-`manager.py` log relay, Seshat error decoding, error-contract tests.
-
-## 5. Bring callback reply validation inside the error contract
-
-**Priority:** High — prevents dispatcher-level contract failures
-
-When a callback returns a non-`None` value, `OSCServer.process_message` uses an
-`assert` to require a tuple. That assertion is outside the exception boundary
-that creates the structured request error. A malformed callback return can
-therefore escape to the outer processing loop and produce an uncorrelated error.
-Assertions can also be disabled by optimized Python, making behavior dependent
-on interpreter flags.
-
-Callback response validation must be deterministic in every runtime mode and a
-bad handler return must identify the request and handler that violated the
-contract. The same rule must apply to direct and wildcard dispatch.
-
-**Affected area:** `abletonosc/osc_server.py`, callback contract tests.
 
 ## 6. Make the test suite safe, isolated, and usable as a regression gate
 
@@ -139,29 +58,6 @@ manifest and an automated unit/contract test workflow. At review time neither
 `pytest` nor `ruff` was installed and no CI workflow existed.
 
 **Affected area:** `tests/`, `client/client.py`, project metadata, CI.
-
-## 7. Update stale and incorrect existing tests
-
-**Priority:** High — existing tests encode contracts that are already wrong
-
-Several concrete defects exist independently of the broader test redesign:
-
-- `tests/test_application.py` expects the obsolete unstructured error response,
-  while the current direct-callback contract begins with `"request"` and echoes
-  the failing address and arguments.
-- `tests/test_clip_slot.py` stops a clip-slot listener with only the track index;
-  the clip index is missing. The stop request fails and can leave the listener
-  registered until a reload.
-- `tests/__init__.py` shadows the imported `TICK_DURATION`, making timing policy
-  harder to understand and maintain.
-
-The committed tests must describe the current public contract accurately and
-must not leak listeners or other state when they pass. These corrections should
-be coordinated with the test-architecture issue so obsolete assumptions are
-not simply moved into a new harness.
-
-**Affected area:** `tests/__init__.py`, `tests/test_application.py`,
-`tests/test_clip_slot.py`.
 
 ## 8. Fix base handler initialization order
 

@@ -29,7 +29,30 @@ Activity logs will be output to a `logs` subdirectory. Logging granularity can b
 # Usage
 
 AbletonOSC listens for OSC messages on port **11000**, and sends replies on port **11001**. Replies will be sent to the
-same IP as the originating message. When querying properties, OSC wildcard patterns can be used; for example, `/live/clip/get/* 0 0` will query all the properties of track 0, clip 0.
+same IP as the originating message.
+
+## Wildcard queries
+
+When querying properties, a `*` wildcard can be used; for example, `/live/clip/get/* 0 0` will query all the properties of track 0, clip 0. The supported syntax is deliberately narrow:
+
+- `*` is the **only** metacharacter. OSC's other pattern characters (`?`, `[]`, `{}`) and regex characters are matched literally.
+- `*` matches **one or more** characters within a single address segment — it never matches an empty string and never crosses a `/`. So `/live/track/get/*` matches `/live/track/get/name` but not `/live/track/get/clips/name`.
+- A pattern must match a **complete** registered address; `/live/*/get/tempo` matches `/live/song/get/tempo` but not `/live/scene/get/tempo_enabled`.
+- Each matched endpoint replies on its own **concrete** address, not the pattern.
+- A matched endpoint whose arguments don't apply to the pattern request (e.g. a getter that needs an index the request omitted, or a listener on a property that can't be listened for) is skipped silently.
+- Any other failure in a matched endpoint is reported on `/live/error` (see below) with the **pattern** address — the address the client actually sent — and the concrete endpoint named in the error detail. A failing endpoint never prevents the remaining matches from replying. In particular, an out-of-range index is a failure, not a skip: `/live/track/get/* 99` reports rather than falling silent.
+
+A wildcard request is a **fan-out, not a query**: it produces one reply per matched endpoint, each on a different address, and possibly an error as well. A client helper that sends one request and awaits one reply cannot express that — it will resolve on whichever datagram arrives first and drop the rest, and if any matched endpoint fails, the error may be that first datagram even while the other endpoints are replying successfully. Use wildcards where all the replies are consumed as they arrive; for a fixed set of values, send the concrete addresses and correlate them individually.
+
+## Error handling
+
+When a request fails — an uncaught exception in a handler, a failure in the generic method/property paths (e.g. an invalid track index or a rejected property value), or a handler returning an invalid value — AbletonOSC sends a structured error that echoes the request that caused it:
+
+    /live/error ["request", address, message, arg_count, *args]
+
+where `address` is the request address as the client sent it (the pattern, for wildcard requests), `message` is the human-readable detail, and `args` are the request's arguments echoed back with their wire types (note that an OSC `f` is 32-bit). The failing request receives no other reply. Errors that have no originating request (parse failures, socket errors, internal handler logs) arrive as `/live/error ["log", message]` and cannot be correlated to a request.
+
+Two families of endpoints predate this contract and keep their own behaviour: some custom handlers (browser, return/master track) reply on their own address with endpoint-specific tuples containing `"error"`, and the view-steering setters (`/live/view/...`) fail silently by design, logging to `logs/abletonosc.log` only.
 
 ## Application API
 
@@ -52,7 +75,7 @@ These messages are sent to the client automatically when the application state c
 | Address       | Response params | Description                                                                                        |
 |:--------------|:----------------|:---------------------------------------------------------------------------------------------------|
 | /live/startup |                 | Sent to the client application when AbletonOSC is started                                          |
-| /live/error   | error_msg       | Sent to the client application when an error occurs. For more diagnostics, see logs/abletonosc.log |
+| /live/error   | see [Error handling](#error-handling) | Sent to the client application when an error occurs: `["request", address, message, arg_count, *args]` for failures correlated to a request, `["log", message]` otherwise. For more diagnostics, see logs/abletonosc.log |
 
 </details>
 

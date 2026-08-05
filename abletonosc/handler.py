@@ -24,25 +24,21 @@ class AbletonOSCHandler(Component):
     #--------------------------------------------------------------------------------
     # Generic callbacks
     #--------------------------------------------------------------------------------
+    #--------------------------------------------------------------------------------
+    # _call_method and _set_property let exceptions propagate: every callback
+    # invocation is caught per-message by OSCServer._dispatch, which sends the
+    # structured /live/error ("request", address, detail, argc, *args)
+    # envelope with the failing request still in hand, and process() has its
+    # own per-datagram catch — so a failure here never aborts the rest of the
+    # messages queued on this tick.
+    #--------------------------------------------------------------------------------
     def _call_method(self, target, method, params: Optional[Tuple] = ()):
         self.logger.info("Calling method for %s: %s (params %s)" % (self.class_identifier, method, str(params)))
-        #--------------------------------------------------------------------------------
-        # Log rather than raise. A failure here would otherwise unwind through the
-        # dispatcher and abort the rest of the messages queued on this tick — and
-        # clients commonly send ordered multi-message sequences where the later
-        # messages depend on the earlier ones having run.
-        #--------------------------------------------------------------------------------
-        try:
-            getattr(target, method)(*params)
-        except Exception as e:
-            self.logger.error("Error calling %s.%s: %s" % (self.class_identifier, method, e))
+        getattr(target, method)(*params)
 
     def _set_property(self, target, prop, params: Tuple) -> None:
         self.logger.info("Setting property for %s: %s (new value %s)" % (self.class_identifier, prop, params[0]))
-        try:
-            setattr(target, prop, params[0])
-        except Exception as e:
-            self.logger.error("Error setting %s.%s: %s" % (self.class_identifier, prop, e))
+        setattr(target, prop, params[0])
 
     def _get_property(self, target, prop, params: Optional[Tuple] = ()) -> Tuple[Any]:
         try:
