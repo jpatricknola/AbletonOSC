@@ -94,7 +94,14 @@ def _base_names(class_def):
 def _collect_classes():
     """
     Every top-level-or-nested ClassDef across abletonosc/*.py, as
-    {class name: (module filename, ClassDef)}.
+    {class name: [(module filename, ClassDef), ...]}.
+
+    Keyed by name only, and a name may have more than one occurrence - e.g. an
+    unrelated private helper class of the same name in two different modules,
+    nowhere near the handler hierarchy. Whether that duplication is actually a
+    problem depends on whether the name ever enters the AbletonOSCHandler
+    closure; `_handler_subclasses()` is where that is decided and asserted,
+    not here.
     """
     classes = {}
     sources = sorted(PACKAGE_DIR.glob("*.py"))
@@ -104,11 +111,7 @@ def _collect_classes():
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
-                assert node.name not in classes, (
-                    "class %s is defined in both %s and %s; this test keys "
-                    "classes by name" % (node.name, classes.get(node.name, (None,))[0], path.name)
-                )
-                classes[node.name] = (path.name, node)
+                classes.setdefault(node.name, []).append((path.name, node))
     return classes
 
 
@@ -130,17 +133,27 @@ def _handler_subclasses():
     changed = True
     while changed:
         changed = False
-        for name, (_filename, class_def) in classes.items():
+        for name, occurrences in classes.items():
             if name in reachable:
                 continue
-            if any(base in reachable for base in _base_names(class_def)):
+            if any(base in reachable
+                   for _filename, class_def in occurrences
+                   for base in _base_names(class_def)):
                 reachable.add(name)
                 changed = True
 
+    handler_names = reachable - {BASE_CLASS}
+    for name in handler_names:
+        occurrences = classes[name]
+        assert len(occurrences) == 1, (
+            "handler subclass %s is defined in more than one module (%s); "
+            "the subclass contract needs one unambiguous definition per name "
+            "to check invariants against" % (name, ", ".join(f for f, _ in occurrences))
+        )
+
     return {
-        (classes[name][0], name): classes[name][1]
-        for name in reachable
-        if name != BASE_CLASS
+        (classes[name][0][0], name): classes[name][0][1]
+        for name in handler_names
     }
 
 
@@ -230,7 +243,7 @@ def test_discovered_subclasses_match_expected_map():
 #    as a plain string constant matching the map. A computed identifier would
 #    defeat static verification; none exists today.
 #--------------------------------------------------------------------------------
-@pytest.mark.parametrize("key", sorted(EXPECTED_IDENTIFIERS))
+@pytest.mark.parametrize("key", sorted(EXPECTED_IDENTIFIERS), ids=lambda key: "%s::%s" % key)
 def test_subclass_declares_expected_class_identifier(key):
     filename, class_name = key
     class_def = SUBCLASSES.get(key)
@@ -266,7 +279,7 @@ def test_subclass_declares_expected_class_identifier(key):
 # 3. No subclass defines __init__. The base's constructor order is the only
 #    one that runs; init_state() is the documented home for subclass state.
 #--------------------------------------------------------------------------------
-@pytest.mark.parametrize("key", sorted(EXPECTED_IDENTIFIERS))
+@pytest.mark.parametrize("key", sorted(EXPECTED_IDENTIFIERS), ids=lambda key: "%s::%s" % key)
 def test_subclass_defines_no_init(key):
     filename, class_name = key
     class_def = SUBCLASSES.get(key)
@@ -292,7 +305,7 @@ def test_subclass_defines_no_init(key):
 #    class attribute after init_api() has already read it - and the same line
 #    pasted into init_state() shadows identity just as silently.
 #--------------------------------------------------------------------------------
-@pytest.mark.parametrize("key", sorted(EXPECTED_IDENTIFIERS))
+@pytest.mark.parametrize("key", sorted(EXPECTED_IDENTIFIERS), ids=lambda key: "%s::%s" % key)
 def test_subclass_never_assigns_self_class_identifier(key):
     filename, class_name = key
     class_def = SUBCLASSES.get(key)
