@@ -1,3 +1,12 @@
+**Archived 2026-08-27 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in
+`tests_unit/test_handler_subclass_contract.py` (a new, pure-`ast` Live-free
+test pinning every production handler's `class_identifier` and the
+no-`__init__`/no-shadowing invariants) plus updates to `SESHAT.md`'s
+merge-hazards section and `tests_unit/test_handler_lifecycle.py`'s
+docstring; no `API.md` rows (no address or shape change). No follow-ups were
+opened.
+
 # Plan: Verify handler `class_identifier` and lifecycle invariants without Live
 
 Roadmap item: **Verify handler `class_identifier` and lifecycle invariants
