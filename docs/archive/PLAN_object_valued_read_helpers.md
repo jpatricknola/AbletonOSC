@@ -1,5 +1,14 @@
 # Plan: Object-valued read helpers (A-4)
 
+> **Archived 2026-08-27 — shipped.** This is the plan as written *before*
+> implementation; the code as merged may differ. The change lives in
+> `abletonosc/track_identity.py` (the resolvers), `abletonosc/song.py`,
+> `abletonosc/track.py`, `abletonosc/clip_slot.py` and `abletonosc/view.py`
+> (the nine addresses), and `API.md` § "Object-valued reads" (the wire
+> contract). The queued follow-up — Live-free test coverage for the
+> `song.py`/`view.py` dispatch glue — is `ROADMAP.md` "#2 · Test coverage for
+> the object-read `song.py` / `view.py` glue".
+
 Roadmap item: **#1 · A-4 · Object-valued read helpers** — from
 `CLOSING_THE_GAPS.md` row A-4, closing FORK_GAPS "Object-valued reads
 returned as `None`". Planned 2026-08-27.

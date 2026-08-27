@@ -41,35 +41,7 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · A-4 · Object-valued read helpers
-
-**Plan:** [docs/PLAN_object_valued_read_helpers.md](docs/PLAN_object_valued_read_helpers.md)
-
-**Goal:** index-returning handlers for `Song.master_track`,
-`Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`,
-`Song.View.selected_chain`, `selected_parameter`, `mod_mapping_device` /
-`mod_mapping_parameter`, with `-1` for none.
-
-**Why:** small, and it establishes the object-read pattern every later PR uses
-— the generic property loop returns `None` for object-valued members today.
-Unblocks the groove bucket.
-
-**Planner notes:**
-
-- Source: `CLOSING_THE_GAPS.md`, row **A-4**; closes FORK_GAPS
-  "Object-valued reads returned as `None`".
-- `-1` for "none" is already the fork's convention, established by the shipped
-  selected-track identity item and written down in API.md § "`-1` is an
-  answer, never an argument" (`API.md:674`) — follow it, and keep its second
-  half: no setter accepts `-1` as input.
-- Precedent for the group-track read exists rather than needing invention:
-  `/live/song/export/structure` already resolves `track.group_track` to an
-  index into `song.tracks` (`song.py:177-184`). Reuse that resolution instead
-  of writing a second one.
-- No dependencies.
-
-
-## #2 · One `/live/song/undo` does not revert an OSC-created scene
+## #1 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -108,7 +80,7 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #3 · Test coverage for the object-read `song.py` / `view.py` glue
+## #2 · Test coverage for the object-read `song.py` / `view.py` glue
 
 **Goal:** give the `tests_unit/conftest.py` `Component` stub a settable
 `song` attribute so `load_song_module()` / `load_view_module()` can pin the
@@ -142,7 +114,7 @@ it untested.
 - No dependencies. Cheap — a stub extension plus two test modules, no
   production code changes expected.
 
-## #4 · B-2 · DeviceParameter rich reply
+## #3 · B-2 · DeviceParameter rich reply
 
 **Goal:** one richer `parameters` reply plus per-parameter addresses —
 `value_items`, `short_value_items`, `display_value` (get/set), `state`,
@@ -164,7 +136,7 @@ gap PR — it proves the batching conventions the rest reuse: handlers +
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #5 · C-3 · Application dialogs and versions
+## #4 · C-3 · Application dialogs and versions
 
 **Goal:** read-only dialog state (`open_dialog_count`,
 `current_dialog_message`, `current_dialog_button_count`, listen where
@@ -190,7 +162,7 @@ dialog may guard unsaved work.
   property loop the other handlers use or stays hand-rolled.
 - No dependencies.
 
-## #6 · B-1 · Notes extended
+## #5 · B-1 · Notes extended
 
 **Goal:** `/live/clip/get/notes_extended` and `/live/clip/add/notes_extended`
 carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`,
@@ -213,7 +185,7 @@ old five-field addresses unchanged; then the ID-keyed members
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #7 · Make a failed live code reload safe and reported
+## #6 · Make a failed live code reload safe and reported
 
 **Goal:** a reload that raises does not activate a partially reloaded module
 graph — `/live/api/reload` either preserves a usable previous API or fails in a
@@ -243,10 +215,10 @@ is told nothing went wrong.
   listener dict — decide in this item whether to close it or record it as
   accepted, since the code comment currently points here for the answer.
 - Every gap PR uses reload during development; move this up if it bites
-  during #2–#5.
+  during #1–#4.
 - No dependencies.
 
-## #8 · Stop masking Remote Script import failures
+## #7 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -265,7 +237,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #9 · Remove the process-global and shared-file risks from song structure export
+## #8 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -287,7 +259,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #10 · Add bounded log retention
+## #9 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -304,7 +276,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #11 · A-3 · Return / master `Track` parity
+## #10 · A-3 · Return / master `Track` parity
 
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
@@ -328,7 +300,7 @@ over the difference.
 - Prefer a shared track resolver over three copies of the handler table.
 - No dependencies.
 
-## #12 · C-1 · `Song` remainder
+## #11 · C-1 · `Song` remainder
 
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
@@ -346,7 +318,7 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
   `scale_intervals` and `is_ableton_link_start_stop_sync_enabled` only.
 - No dependencies.
 
-## #13 · D-2 · Groove
+## #12 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -360,12 +332,14 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 - `Clip.groove` is already known to be unreachable through the generic
   property loop and is commented out in place with the reason
   (`clip.py:123`: "Infered arg_value type is not supported") — that
-  commented line is the concrete thing this item replaces, and it is why the
-  dependency on #1's object-read pattern is real rather than tidiness.
+  commented line is the concrete thing this item replaces. The object-read
+  pattern it needs (index-or-`-1`, resolvers in `track_identity.py`) has
+  shipped and is available to use directly — see `API.md` § "Object-valued
+  reads".
   `song.groove_amount` (`song.py:65`) and `clip.has_groove`
   (`clip.py:110`) already work and stay as they are.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
-- Depends on #1 (object-read pattern).
+- No dependencies.
 
 ---
 
@@ -400,3 +374,11 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
   doc/code drift is found that the unit layer didn't catch.
 - The defect-shaped declines — the `pythonosc` escape sequence — are in
   `issues.md` § Declined with its reopen condition.
+- **`/live/song/get/master_track`.** Named in the object-valued read helpers
+  item's original Goal, deliberately not delivered: `Song.master_track` is
+  already reached under `/live/master/*` (never a FORK_GAPS row), and under
+  the shipped `(category, index)` identity convention the reply could only
+  ever be the constant `("master", 0)` — a wire address that answers one
+  value forever and that Seshat would have to tripwire for no return.
+  **Reopens when** a consumer actually needs the constant; a five-line
+  follow-up.
