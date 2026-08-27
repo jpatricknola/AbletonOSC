@@ -108,7 +108,41 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #3 · B-2 · DeviceParameter rich reply
+## #3 · Test coverage for the object-read `song.py` / `view.py` glue
+
+**Goal:** give the `tests_unit/conftest.py` `Component` stub a settable
+`song` attribute so `load_song_module()` / `load_view_module()` can pin the
+reply shapes, the listener push address and `stop_listen` bookkeeping for
+the object-valued read helpers (A-4) that live in `song.py` and `view.py` —
+`song_get_appointed_device`, `song_set_appointed_device` and its listen/
+stop_listen pair, and the four `view.py` getters (`selected_chain`,
+`selected_parameter`, `mod_mapping_device`, `mod_mapping_parameter`).
+
+**Why:** A-4 shipped nine object-valued addresses; two (`track/get/group_track`,
+`clip_slot/get/clip`) are pinned by `tests_unit/`, the other seven are not —
+and those seven carry the newest, least-exercised part of the contract
+(device/parameter/chain identity resolution, the `appointed_device` listen
+push, `stop_listen` bookkeeping across `/live/api/reload`). D-2 Groove and
+every later object-family PR (racks/chains, cue points) reuse this exact
+dispatch pattern, so a gap here compounds with each one that lands on top of
+it untested.
+
+**Planner notes:**
+- Source: pr-review finding on `object-valued-read-helpers` (2026-08-27):
+  `song.py`'s `init_api` reads `self.song` at registration time and the
+  `Component` stub has no `song` attribute, which is the actual blocker —
+  not `import Live`, since both modules dereference `Live.` only at call
+  time (`song.py:196`, `view.py:178/186/195`), the same shape `clip.py`
+  already handles with an empty `Live` stub.
+- `track_identity.py`'s resolvers themselves are already covered by
+  `tests_unit/test_track_identity.py`; this item is specifically the
+  dispatch-glue layer (`init_api`, address registration, the `partial(...)`
+  wiring, and reply/echo assembly) that only `song.py` and `view.py`
+  exercise.
+- No dependencies. Cheap — a stub extension plus two test modules, no
+  production code changes expected.
+
+## #4 · B-2 · DeviceParameter rich reply
 
 **Goal:** one richer `parameters` reply plus per-parameter addresses —
 `value_items`, `short_value_items`, `display_value` (get/set), `state`,
@@ -130,7 +164,7 @@ gap PR — it proves the batching conventions the rest reuse: handlers +
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #4 · C-3 · Application dialogs and versions
+## #5 · C-3 · Application dialogs and versions
 
 **Goal:** read-only dialog state (`open_dialog_count`,
 `current_dialog_message`, `current_dialog_button_count`, listen where
@@ -156,7 +190,7 @@ dialog may guard unsaved work.
   property loop the other handlers use or stays hand-rolled.
 - No dependencies.
 
-## #5 · B-1 · Notes extended
+## #6 · B-1 · Notes extended
 
 **Goal:** `/live/clip/get/notes_extended` and `/live/clip/add/notes_extended`
 carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`,
@@ -179,7 +213,7 @@ old five-field addresses unchanged; then the ID-keyed members
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #6 · Make a failed live code reload safe and reported
+## #7 · Make a failed live code reload safe and reported
 
 **Goal:** a reload that raises does not activate a partially reloaded module
 graph — `/live/api/reload` either preserves a usable previous API or fails in a
@@ -212,7 +246,7 @@ is told nothing went wrong.
   during #2–#5.
 - No dependencies.
 
-## #7 · Stop masking Remote Script import failures
+## #8 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -231,7 +265,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #8 · Remove the process-global and shared-file risks from song structure export
+## #9 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -253,7 +287,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #9 · Add bounded log retention
+## #10 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -270,7 +304,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #10 · A-3 · Return / master `Track` parity
+## #11 · A-3 · Return / master `Track` parity
 
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
@@ -294,7 +328,7 @@ over the difference.
 - Prefer a shared track resolver over three copies of the handler table.
 - No dependencies.
 
-## #11 · C-1 · `Song` remainder
+## #12 · C-1 · `Song` remainder
 
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
@@ -312,7 +346,7 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
   `scale_intervals` and `is_ableton_link_start_stop_sync_enabled` only.
 - No dependencies.
 
-## #12 · D-2 · Groove
+## #13 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -327,11 +361,11 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
   property loop and is commented out in place with the reason
   (`clip.py:123`: "Infered arg_value type is not supported") — that
   commented line is the concrete thing this item replaces, and it is why the
-  dependency on #2's object-read pattern is real rather than tidiness.
+  dependency on #1's object-read pattern is real rather than tidiness.
   `song.groove_amount` (`song.py:65`) and `clip.has_groove`
   (`clip.py:110`) already work and stay as they are.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
-- Depends on #2 (object-read pattern).
+- Depends on #1 (object-read pattern).
 
 ---
 
