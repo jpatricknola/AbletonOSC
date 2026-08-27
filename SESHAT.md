@@ -125,6 +125,16 @@ so treat any merge that reverts one as a regression, not a preference.
 
 ### Additions to upstream's code
 
+- **`introspection.py` + `application.py` — `/live/application/dump_lom
+  [path]`.** Upstream's `introspection.py` was an unused log-only helper;
+  it is now the walker behind FORK_GAPS.md. The handler writes every class
+  reachable from `Live` (members classified as property ro/rw, method,
+  listener), Max for Live's `_MxDCore.LomTypes` exposure tables, and this
+  server's registered addresses to one JSON file (default
+  `logs/lom_dump.json`). `tools/lom_gaps.py` diffs the two sides into the
+  generated inventory in `FORK_GAPS.md`. `manager.reload_imports` reloads
+  `introspection` so the walker is hot-reloadable like the handlers.
+
 - **`clip.py` — `quantize` in the generic methods list.** From upstream PR #198
   (that PR's warp-marker and extended-note work is not taken). Gives
   `/live/clip/quantize track_id, clip_id, grid, amount` via the existing

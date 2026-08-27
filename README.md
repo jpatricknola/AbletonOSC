@@ -63,6 +63,7 @@ Two families of endpoints predate this contract and keep their own behaviour: so
 |:------------------------------|:-------------|:-----------------------------|:-----------------------------------------------------------------------------------------|
 | /live/test                    |              | 'ok'                         | Display a confirmation message in Live, and sends an OSC reply to /live/test             |
 | /live/application/get/version |              | major_version, minor_version | Query Live's version                                                                     |
+| /live/application/dump_lom    | [path]       | path, class_count, address_count | Write the installed Live API surface and registered addresses to a JSON file (default `logs/lom_dump.json`); input to `tools/lom_gaps.py` |
 | /live/api/reload              |              |                              | Initiates a live reload of the AbletonOSC server code. Used in development only.         |
 | /live/api/get/log_level       |              | log_level                    | Returns the current log level. Default is `info`.                                        |
 | /live/api/set/log_level       | log_level    |                              | Set the log level, which can be one of: `debug`, `info`, `warning`, `error`, `critical`. |

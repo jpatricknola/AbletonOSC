@@ -1,4 +1,4 @@
-# Fork gaps — LOM members Live exposes that this fork does not
+# Fork gaps — what the installed Live API can do that this fork cannot
 
 _Living list. A **fork gap** is a capability present in the installed Live
 Object Model but with no OSC address in this repository. It is neither a
@@ -8,36 +8,86 @@ submodule pin bump in Seshat, `mix abletonosc.install`, Live restart),
 documented in Seshat's `docs/abletonosc-api-docs.md` and tripwired by
 Seshat's `vendored_addresses_test`._
 
+## Three layers, and how to classify a "can't"
+
+Seshat has three capability layers that are easy to collapse into one:
+
+1. **Live's installed Live Object Model** — what Live permits a Remote
+   Script to read or call.
+2. **This fork** — which LOM members have OSC addresses.
+3. **Seshat's tool layer** — which addresses the model can actually use.
+
+"Seshat cannot do X" may mean a tool is missing, a handler is missing, or
+Live exposes no API at all. Only the last justifies UI scripting. When a
+capability looks out of reach, classify it in this order:
+
+1. Check the [generated inventory](#generated-inventory) — is the member
+   on the class at all? (If not there and not in the apiref, it is a Live
+   limit.)
+2. Check the fork's Python registrations, not only the API markdown — the
+   inventory's address list is taken from the running server.
+3. Check whether Seshat already has a handler/tool for the address
+   ([false gaps](#already-in-the-fork-false-gaps) below lists the usual ones).
+4. Only then record it here as a fork gap, or in Seshat as a tool gap.
+
+## Three kinds of gap
+
+A member diff alone does not describe the fork's reach. Gaps come in three
+shapes, and each has its own section below:
+
+1. **Member gaps** — a LOM property or method with no address at all.
+   *Complete* list: the [generated inventory](#generated-inventory) at the
+   bottom, produced mechanically from the running Live. Curated write-ups
+   for the ones a plan has looked at are under [Curated entries](#curated-entries).
+2. **Addressing gaps** — the member has an address, but the address can
+   only reach *some* of the objects that carry it (e.g. `Clip` members work
+   for Session clips only). The generated inventory counts these as
+   covered; the [Addressing gaps](#addressing-gaps) section is the record.
+3. **Shape gaps** — the member has an address, but the reply or argument
+   flattens away part of what Live offers (e.g. note IDs). Also counted as
+   covered by the inventory; see [Shape gaps](#shape-gaps).
+
 ## How to use this file
 
-- **Add an entry** whenever research, a plan, or a review finds a LOM
-  member the fork lacks — Seshat's `/evaluate` skill (§2.3) produces these;
-  so does reading Live's shipped Python for anything. Verify against the
-  installed `_MxDCore/LomTypes.pyc` (string dump) or the Cycling '74 apiref
-  before recording; note which and when.
-- **Remove an entry** when the fork gains the address. Don't leave it
-  marked done — the address docs are the record of what exists.
+- **Regenerate the inventory** after every Live upgrade and after every
+  handler lands: in Live with this fork installed send
+  `/live/application/dump_lom` (writes `logs/lom_dump.json`), then
+  `python3 tools/lom_gaps.py <dump> --write`. It rewrites only the block
+  between the `lom-gaps` markers. Never edit that block by hand.
+- **Add a curated entry** whenever research, a plan, or a review picks a
+  gap up — Seshat's `/evaluate` skill (§2.3) produces these. Say what would
+  consume it and what shape the address should take, so a plan can find
+  the prerequisite. Verify the member in the generated inventory (owner
+  class, rw/ro, observable) before writing prose about it.
+- **Add an addressing or shape entry** when you find one; the tool cannot.
+  Both sections are hand-maintained.
+- **Remove an entry** when the fork gains the address, in the same commit.
+  Don't leave it marked done — the address docs are the record of what
+  exists. The inventory drops it on the next regeneration.
 - **Nothing here is prioritised.** A gap enters Seshat's `docs/ROADMAP.md`
-  only when a feature needs it; until then it is inventory. Say in the
-  entry what would consume it, so a plan can find the prerequisite.
+  only when a feature needs it; until then it is inventory.
 - **Object-valued members** (`Clip.groove`, `Song.cue_points`, `slices`)
   are the usual reason a member was skipped: the generic `properties_r/rw`
   machinery serialises scalars only. Closing such a gap means a
   hand-written handler that takes or returns an index, a name, or a
   flattened tuple — say which in the entry.
-- Seshat's `docs/evaluating/lom-to-fork-gap-audit.md` is the full
-  object-by-object audit taken 2026-07-31 against Live 12.4.3. It is a
-  snapshot, not this list; entries below cite it where it already named the
-  gap.
+- **History.** Seshat's `docs/evaluating/lom-to-fork-gap-audit.md`
+  (2026-07-31, hand-written from `strings` on `LomTypes.pyc` and the
+  apiref) was the first pass and has been folded into this file: its
+  dispositions and false-gap table are the two sections below the curated
+  entries, its membership claims are superseded by the generated inventory
+  (which read ~200 members it did not name and reflects addresses added
+  since). Entries that say "July audit" mean that document.
 
 ## Evidence tiers
 
 State which one each entry rests on; only the last means "works."
 
-1. **Name present** — `strings` on `LomTypes.pyc` matched. Proves the
-   member exists somewhere in the LOM type table, not its owner class or
-   signature (`export_to_clip_slot` matched this way and belonged to
-   Looper).
+1. **Name present** — read from the running Live's class objects (the
+   generated inventory) or matched by `strings` on `LomTypes.pyc`. The
+   inventory gives owner class, kind and setter/listener presence; a bare
+   `strings` match gives only the name (`export_to_clip_slot` matched that
+   way and belonged to Looper).
 2. **Documented** — apiref page or Ableton release notes name the owner,
    access mode and version.
 3. **Called from a Remote Script** — this fork's own code, Live's shipped
@@ -45,9 +95,13 @@ State which one each entry rests on; only the last means "works."
    `.claude/docs/ableton-osc-reference.md` ("Measuring the Live API without
    building the feature first"), with the answer read out of `Log.txt`.
 
-Every entry below as of 2026-08-27 is tier 1 or 2. None has been run.
+Every curated entry below as of 2026-08-27 is tier 1 or 2; the generated
+inventory is tier 1 by construction. **None has been run.** A member being
+present does not mean the generic setter accepts it (`Clip.groove` is
+listed rw and still fails with "Infered arg_value type is not supported")
+or that a `†` Remote-Script-only member does what its name suggests.
 
-## Open gaps
+## Curated entries
 
 ### `Clip.groove` — assign a Groove Pool groove to a clip
 
@@ -71,24 +125,28 @@ Every entry below as of 2026-08-27 is tier 1 or 2. None has been run.
   §2.5); makes `set_groove_amount` meaningful on plain MIDI (Seshat's
   CLAUDE.md currently says it can't assign — that sentence goes when this
   closes).
-- **Also in:** July audit, "Groove Pool enumeration and clip assignment",
+- **Also in:** [Dispositions](#dispositions-from-the-july-2026-audit),
   medium–low.
 
-### `Song.cue_points` — Arrangement locators
+### `Song.cue_points` — the remaining locator members
 
-- **LOM:** `Song.cue_points` (list, observable), `CuePoint.name`, `.time`,
-  `.jump()`; `Song.set_or_delete_cue`, `jump_to_next_cue`,
-  `jump_to_prev_cue`, `can_jump_to_next_cue`/`_prev_cue`,
-  `is_cue_point_selected`. Tier 2 (apiref Song); names verified 2026-08-27.
-- **Fork today:** nothing under `/live/song/` for cue points.
-- **Shape to build:** `/live/song/get/cue_points` → flattened
-  `(name, time)*` tuples; `/live/song/start_listen/cue_points`; the three
-  jump/set methods are plain method entries.
+- **LOM:** `Song.cue_points` (list, observable), `CuePoint.name` (rw,
+  observable), `.time` (ro, observable), `.jump()`; `Song.set_or_delete_cue`,
+  `jump_to_next_cue`, `jump_to_prev_cue`, `can_jump_to_next_cue`/`_prev_cue`
+  (observable), `is_cue_point_selected`. Tier 1 (inventory, 2026-08-27).
+- **Fork today:** `/live/song/get/cue_points` → flattened `(name, time)*`;
+  `/live/song/cue_point/jump <index|name>`; `/live/song/cue_point/add_or_delete`;
+  `/live/song/jump_to_next_cue`, `jump_to_prev_cue`. (An earlier version of
+  this entry said "nothing" — it was wrong; the inventory is what to check.)
+- **Still missing:** `start_listen/cue_points` (the list is observable, so
+  a locator added in the UI could push), `can_jump_to_next_cue`/`_prev_cue`,
+  `is_cue_point_selected`, `CuePoint.name` set, and per-cue `name`/`time`
+  listeners — see also [Shape gaps](#song-cue_points--index-keyed-no-timename-listen).
 - **Consumers:** live-improv section scheduling
   (`docs/evaluating/generative features/live-improv-exploration.md` §9 said
-  "not in the fork" and used scene names instead); arrangement-aware
-  anything.
-- **Also in:** July audit, `Song` state/guards list.
+  "not in the fork" and used scene names instead — also stale);
+  arrangement-aware anything.
+- **Also in:** [Dispositions](#dispositions-from-the-july-2026-audit), count-in row.
 
 ### `DrumChain.in_note` and rack chain insertion — read the Drum Rack pad map
 
@@ -124,17 +182,720 @@ Every entry below as of 2026-08-27 is tier 1 or 2. None has been run.
 - **Consumers:** "generate audio, keep it editable" output shape
   (`docs/evaluating/generative features/live-native-options.md` §2.4).
 
-### `Application` dialog members — see the July audit
+### `Application` dialog members
 
 - `open_dialog_count`, `current_dialog_message`,
   `current_dialog_button_count`, `press_current_dialog_button`. Tier 2.
-  Recorded in Seshat's `docs/evaluating/ui-scripting-options.md` and the
-  July audit; listed here so the inventory is in one place. Consumer: any
+  Recorded in Seshat's `docs/evaluating/ui-scripting-options.md`; the
+  July audit ranked it High (see [Dispositions](#dispositions-from-the-july-2026-audit)). Consumer: any
   UI-only command driven over AX that can raise a dialog (Stem
   Separation's mode chooser).
+
+## Dispositions (from the July 2026 audit)
+
+_Impact and architectural fit, carried over from Seshat's
+`lom-to-fork-gap-audit.md` (2026-07-31) so that file can go. Not a roadmap;
+a gap enters `docs/ROADMAP.md` only when a feature needs it. Rows whose
+fork side has since landed are marked._
+
+| Priority | Missing bridge surface | Why it matters | Disposition |
+|---|---|---|---|
+| High | `Application.open_dialog_count`, `current_dialog_message`, `current_dialog_button_count` | Detect and describe a blocking Live dialog without AX or pixels | Small read-only extension. Keep `press_current_dialog_button` out of the tool surface unless a separately reviewed, non-file use case proves safe — a current dialog may guard unsaved work |
+| High | Return/master mixer and device addressing | An empty return cannot become a usable reverb/delay path without human device loading | **Landed** (`/live/return_track/*`, `/live/master/*`) for top-level devices; the remaining subset is under [Addressing gaps](#addressing-gaps) |
+| High | `Application.View.is_view_visible`, `hide_view` | Closes `show_view`'s blind loop; makes view smoke tests self-verifying | **Landed.** `focused_document_view` (Session vs Arranger, exact) still open and belongs in the same handler |
+| Medium–high | `DeviceParameter.value_items`, `is_enabled`, `automation_state`, `default_value`, `original_name` | Tools expose raw min/max but cannot name enum choices, tell whether a parameter is disabled, or warn that automation owns it | Extend the parameter read surface as one unit before any device-specific API — see [Shape gaps](#device-parameters--numeric-only) |
+| Medium–high | Extended note identity and modification (`note_id`, `apply_note_modifications`, selection/by-ID methods) | Safe single-note edits; keeps probability, deviation, release velocity the flattened reply discards | Roadmap **Modify a note in place**; see [Shape gaps](#notes--liveclipgetnotes-flattens-to-five-fields) |
+| Medium | Count-in and automation state (`count_in_duration`, `is_counting_in`, `session_automation_record`, `re_enable_automation_enabled`) | Recording readiness and automation ownership are musically meaningful, exact, and invisible today | One focused transport/automation feature; the `re_enable_automation` action is already bridged |
+| Medium | `Song.View.draw_mode`, `follow_song` | Readable absolute state instead of focus-routed toggle shortcuts | Fold into a concrete view/automation workflow; no value as isolated knobs |
+| Medium–low | Groove Pool enumeration and clip assignment | Makes `set_groove_amount` useful without a groove assigned by hand | Curated entry above; index-based serialisation in Python |
+| Conditional | Arrangement clips and take lanes | LOM support is substantial; Seshat is deliberately Session-first | Declined until an Arrangement/comping workflow is chosen |
+| Conditional | Rack chains, Drum Pads, macros, variations | Deep sound design, but needs recursive addressing and a much larger tool contract | Declined until a named workflow needs inside-the-Rack control; the pad-map read is a curated entry above |
+| Conditional | Device-specific APIs (Simpler, Wavetable, Looper, Drift, Roar, …) | Large surface, uneven value; generic parameters already cover much | Only from a concrete feature, never as blanket parity work |
+
+Cautions the audit attached to individual members, kept because the
+inventory's one-line docstrings do not carry them:
+
+- `ClipSlot.create_audio_clip`, `Track.create_audio_clip`,
+  `SimplerDevice.replace_sample` take absolute file paths. Any handler
+  must follow the fork's path-safety rule: the model must not hand
+  arbitrary paths to code running with Live's privileges.
+- `Application.View.focus_view` overlaps `show_view`; `toggle_browse` is
+  inferior to absolute show/hide; `scroll_view`/`zoom_view` need a user
+  story before they earn tool surface.
+- `Song.appointed_device`, `groove_pool`, `tuning_system`, `tracks`,
+  `scenes`, `cue_points` are objects or collections — never put them in
+  the generic property loop.
+- `Application.control_surfaces` is an object list with little value to
+  Seshat today.
+
+## Already in the fork (false gaps)
+
+_Common sources of wrong "fork gap" claims. The missing layer is Seshat's,
+not Python's._
+
+| Capability | Existing fork surface | Actual missing layer |
+|---|---|---|
+| Read/set regular-track audio input | `/live/track/get|set/input_routing_type`, `input_routing_channel`, and the `available_*` lists | Tool layer |
+| Read/set regular-track output | Matching `output_routing_*` addresses | Tool layer |
+| Set monitoring mode | `/live/track/get|set/current_monitoring_state` | Tool layer |
+| Track colour | `/live/track/get|set/color`, `color_index` | Tool layer |
+| Read Arrangement clip summary | `/live/track/get/arrangement_clips/{name,length,start_time}` | A full Arrangement workflow, not the three reads |
+| Scene tempo / time signature | `/live/scene/get|set/*` | Tool layer |
+| Link enable | `is_ableton_link_enabled` get/set/listen | Tool/docs layer |
+| Scale root / name | `root_note`, `scale_name` get/set/listen | Tool choices; `scale_mode`, `scale_intervals`, `tuning_system` remain true fork gaps |
+| Cue points | `/live/song/get/cue_points`, `cue_point/jump`, `cue_point/add_or_delete`, `jump_to_next/prev_cue` | Tool layer, plus the listen/guard members in the curated entry |
+| Dialog detection needs AX | — | False: `Application.open_dialog_count` etc. are a fork gap, not a Live limit |
+| Drum Rack pad map unreadable | — | False: `DrumChain.in_note` is a fork gap (curated entry) |
+
+The audit also found eight registered addresses missing from Seshat's
+`docs/abletonosc-api-docs.md`; all eight are documented there now. The
+rule stands: before implementing any gap, reconcile the address rows with
+the Python source in the same change, and never infer an address name from
+AbletonOSC naming patterns.
+
+## Addressing gaps
+
+_Members the inventory counts as exposed, but whose address resolves only
+one location of the object. Hand-maintained; verified against the
+registered address table 2026-08-27._
+
+### `Clip` — Session clips only
+
+`/live/clip/*` resolves `song.tracks[t].clip_slots[s].clip`. The same
+`Clip` class is every Arrangement clip (`track.arrangement_clips[n]`) and
+every take-lane clip (`take_lane.arrangement_clips[n]`). None of the 86
+`Clip` members — notes, loop, warp, name, colour — are reachable there.
+The fork's only Arrangement reads are
+`/live/track/get/arrangement_clips/{name,length,start_time}`. Closing this
+means a second clip resolver keyed `(track, arrangement_index)`, not new
+members. `Clip.is_arrangement_clip`/`is_session_clip` exist to tell them
+apart.
+
+### `Device` / `DeviceParameter` — top-level devices only
+
+`/live/device/*` resolves `song.tracks[t].devices[d]`.
+`/live/return_track/device/*` and `/live/master/device/*` add the same
+five reads plus `set/parameter/value` for return and master top-level
+devices — a subset (no `class_name`, `type`, `parameters/min|max|is_quantized`,
+no listeners). Nothing reaches devices inside a Rack (`RackDevice.chains[c].devices[d]`),
+Drum Rack pads (`drum_pads[p].chains[c].devices[d]`), rack return chains,
+or Max-device `DeviceIO`. Needs a recursive path form; the whole
+`RackDevice`/`Chain`/`DrumPad`/`DrumChain` family in the inventory is
+unreachable until it exists.
+
+### `Track` — regular tracks get 107 addresses, return 20, master 15
+
+`/live/track/*` is `song.tracks` only. `Track` is also every return track
+and the master. `/live/return_track/*` restores `count`, `name`, `mute`,
+`solo`, `volume`, `panning`, `select`, `select_device`, `delete_device`,
+`devices`; `/live/master/*` restores `volume`, `panning`, `cue_volume` and
+the same device subset. Missing on returns/master: colour, routing,
+meters, `arm`-adjacent state, `has_*_input/output`, all `start_listen`
+addresses (mixer listeners exist for master volume/panning/cue_volume
+only), `insert_device`, `mixer_device.sends` on returns.
+
+### `MixerDevice` — three of eleven members, and only via `Track`
+
+`volume`, `panning`, `sends` reach `track.mixer_device`. `Chain.mixer_device`
+(`ChainMixerDevice`: volume, panning, sends, chain_activator) has no path,
+which is what makes rack chains silent even once devices are reachable.
+
+### `Song.View` / `Application.View` — `/live/view` is a fixed set
+
+`/live/view/*` exposes selected track/scene/clip/device, `detail_clip`
+set, `show_view`, `hide_view`, `is_view_visible`. `Track.View`,
+`Clip.View`, `Device.View`, `RackDevice.View` and `Eq8Device.View` members
+are not addressable because there is no per-object view resolver.
+
+## Shape gaps
+
+_Members the inventory counts as exposed, but whose wire form loses part
+of what Live provides. Hand-maintained._
+
+### Notes — `/live/clip/get/notes` flattens to five fields
+
+The handler calls `get_notes_extended` and emits
+`(pitch, start_time, duration, velocity, mute)` per note. Discarded:
+`note_id`, `probability`, `velocity_deviation`, `release_velocity`.
+Without `note_id` the ID-keyed members — `apply_note_modifications`,
+`get_notes_by_id`, `duplicate_notes_by_id`, `select_notes_by_id` — cannot
+be used from the client even if addresses were added; `remove_notes_by_id`
+is registered today but the client has no way to learn an ID.
+`/live/clip/add/notes` likewise takes five fields, so probability and
+deviation cannot be written. Fix is a widened reply (and a `notes_extended`
+address to keep the old shape stable), not a new member.
+
+### Device parameters — numeric only
+
+`/live/device/get/parameters/{name,value,min,max,is_quantized}` give the
+range but not the meaning: `value_items` (the enum labels a quantized
+parameter cycles through), `display_value`, `str_for_value`, `state`,
+`is_enabled`, `automation_state`, `default_value`, `original_name` are
+all member gaps in the inventory, but the *shape* gap is that a quantized
+parameter cannot be described to a user without them. Closing them
+together as one richer `parameters` reply is the natural unit.
+
+### Routing — names, not objects
+
+`/live/track/get/available_input_routing_types` etc. return names;
+`Track.input_routing_type` on the LOM is an object with `display_name`,
+`category` and `attached_object`. The fork resolves by display name when
+setting, so a routing whose display name is not unique (two identically
+named external instruments, two tracks called "Drums") is ambiguous. A
+stable identifier would need the object or its index.
+
+### `Song.cue_points` — index-keyed, no time/name listen
+
+`/live/song/get/cue_points` and `cue_point/jump`, `cue_point/add_or_delete`
+exist (see curated entry). `CuePoint.name`/`time` are observable in Live;
+the fork cannot listen to a cue moving or being renamed, and the index
+shifts when one is deleted. An ID or name-keyed form is the shape fix.
+
+### Object-valued reads returned as `None`
+
+The generic getter turns any value the OSC builder cannot encode into an
+error or `None`. Members whose type is another LOM object (`Song.master_track`,
+`Track.group_track`, `ClipSlot.clip`, `Device.view`, `Clip.groove`) will
+never work through `properties_r`; each needs an index-returning handler.
+The inventory marks none of these specially — check the docstring column.
 
 ## Closed
 
 _None yet. Move entries here only in the same commit that lands the
 address, then delete them at the next tidy — the address docs are the
 permanent record._
+
+## Generated inventory
+
+<!-- lom-gaps:begin -->
+_Generated by `tools/lom_gaps.py` from a `/live/application/dump_lom` taken against Live 12.4.3. Do not edit by hand; rerun the tool. 134 Live classes walked, 568 fork addresses registered._
+
+**Totals:** 205 members exposed, 494 gaps across 44 classes.
+
+Legend: **rw**/**ro** property, **method**; **obs** = Live offers an `add_<name>_listener` (a `start_listen` address is possible); **M4L** = also in Max for Live's `LomTypes` exposure table (members absent there are Remote-Script-only and undocumented in the apiref). Every row is tier 1 evidence (name and kind read from the running Live); nothing here has been called.
+
+## Core classes
+
+### `Live.Song.Song` — 96 members, 63 exposed, 33 gaps
+
+_Reached under another address:_ `get_current_beats_song_time` → /live/song/get/current_song_time; `master_track` → /live/master/*; `view` → /live/view/*
+
+| member | kind | obs | M4L | Live docstring |
+|---|---|---|---|---|
+| `appointed_device` | rw | yes | yes | Read, write, and listen access to the appointed Device |
+| `can_capture_midi` | ro | yes | yes | Get whether there currently is material to be captured on any tracks. |
+| `can_jump_to_next_cue` | ro | yes | yes | Returns true when there is a cue marker right to the playing pos that |
+| `can_jump_to_prev_cue` | ro | yes | yes | Returns true when there is a cue marker left to the playing pos that |
+| `count_in_duration` | ro | yes | yes | Get the count in duration. Returns an index, mapped as follows:  |
+| `exclusive_arm` | ro | yes | yes | Get if Tracks should be armed exclusively by default. |
+| `exclusive_solo` | ro |  | yes | Get if Tracks should be soloed exclusively by default. |
+| `file_path` | ro |  | yes | Get the current Live Set's path on disk. |
+| `find_device_position` | method |  | yes | find_device_position( (Song)arg1, (Device)device, (LomObject)target, (int)target_position) -> int : |
+| `get_beats_loop_length` | method |  | yes | get_beats_loop_length( (Song)arg1) -> BeatTime : |
+| `get_beats_loop_start` | method |  | yes | get_beats_loop_start( (Song)arg1) -> BeatTime : |
+| `get_current_smpte_song_time` | method |  | yes | get_current_smpte_song_time( (Song)arg1, (int)arg2) -> SmptTime : |
+| `get_data` | method |  |  | get_data( (Song)arg1, (object)key, (object)default_value) -> object : |
+| `groove_pool` | ro |  | yes | Get the groove pool. |
+| `is_ableton_link_start_stop_sync_enabled` | rw | yes | yes | Enable/disable Ableton Link Start Stop Sync. |
+| `is_counting_in` | ro | yes | yes | Get whether currently counting in. |
+| `is_cue_point_selected` | method |  | yes | is_cue_point_selected( (Song)arg1) -> bool : |
+| `last_event_time` | ro |  | yes | Return the time of the last set event in the song. In contrary to |
+| `move_device` | method |  | yes | move_device( (Song)arg1, (Device)device, (LomObject)target, (int)target_position) -> int : |
+| `overdub` | rw | yes | yes | Legacy hook for Live 8 overdub state. Now hooks to |
+| `play_selection` | method |  | yes | play_selection( (Song)arg1) -> None : |
+| `re_enable_automation_enabled` | ro | yes | yes | Returns true if some automated parameter has been overriden |
+| `scale_intervals` | ro | yes | yes | Reports the current scale's intervals as a list of integers, starting with the root and representing the number of halfsteps (e.g. Major -> 0, 2, 4, 5, 7, 9, 11) |
+| `scale_mode` | rw | yes | yes | Access to the Scale Mode setting in Live. When on, key tracks that belong to the currently selected scale are highlighted in Live's MIDI Note Editor, and pitch-based parameters in MIDI Tools and Devices can be edited in scale degrees rather than semitones. |
+| `scrub_by` | method |  | yes | scrub_by( (Song)arg1, (float)arg2) -> None : |
+| `select_on_launch` | ro |  | yes | Get if Scenes and Clips should be selected when fired. |
+| `session_automation_record` | rw | yes | yes | Returns true if automation recording is enabled. |
+| `set_data` | method |  |  | set_data( (Song)arg1, (object)key, (object)value) -> None : |
+| `start_time` | rw | yes | yes | Get/Set access to the songs current start time in beats. The set time |
+| `sync_parameter_changes` | method |  |  | sync_parameter_changes( (Song)arg1) -> None : |
+| `tempo_follower_enabled` | rw | yes | yes | Get/Set whether the Tempo Follower is controlling the tempo. The Tempo Follower Toggle must be made visible in the preferences for this property to be effective. |
+| `tuning_system` | ro | yes | yes | Access the currently active tuning system. |
+| `visible_tracks` | ro | yes | yes | Const access to a list of all visible Player Tracks in the Live Song, excluding |
+
+### `Live.Song.Song.View` — 11 members, 3 exposed, 8 gaps
+
+| member | kind | obs | M4L | Live docstring |
+|---|---|---|---|---|
+| `draw_mode` | rw | yes | yes | Get/Set if the Envelope/Note draw mode is enabled. |
+| `follow_song` | rw | yes | yes | Get/Set if the Arrangerview should scroll to show the playmarker. |
+| `highlighted_clip_slot` | rw |  | yes | Get/Set the clip slot, defined via the selected track and scene in the Session.Will be None for Main- and Sendtracks. |
+| `mod_mapping_device` | rw | yes | yes | The device that is waiting for a parameter (via mod_mapping_parameter) to modulate, or None if no device is waiting. |
+| `mod_mapping_parameter` | ro | yes | yes | Get the device parameter that's current selected to be mapped. |
+| `select_device` | method |  | yes | select_device( (View)arg1, (Device)arg2 [, (bool)ShouldAppointDevice=True]) -> None : |
+| `selected_chain` | rw | yes | yes | Get the highlighted chain if available. |
+| `selected_parameter` | ro | yes | yes | Get the currently selected device parameter. |
+
+### `Live.Song.CuePoint` — 3 members, 0 exposed, 3 gaps
+
+_Whole class unexposed._ 
+- **rw:** `name*`
+- **ro:** `time*`
+- **method:** `jump`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.Application.Application` — 21 members, 5 exposed, 16 gaps
+
+_Reached under another address:_ `browser` → /live/browser/*; `get_major_version` → /live/application/get/version; `get_minor_version` → /live/application/get/version; `view` → /live/view/*
+
+| member | kind | obs | M4L | Live docstring |
+|---|---|---|---|---|
+| `control_surfaces` | ro | yes | yes | Const access to a list of the control surfaces selected in preferences, in the same order. |
+| `current_dialog_button_count` | ro |  | yes | Number of buttons on the current dialog. |
+| `current_dialog_message` | ro |  | yes | Text of the last dialog that appeared; Empty if all dialogs just disappeared. |
+| `get_bugfix_version` | method |  | yes | get_bugfix_version( (Application)arg1) -> int : |
+| `get_build_id` | method |  |  | get_build_id( (Application)arg1) -> str : |
+| `get_document` | method |  | yes | get_document( (Application)arg1) -> Song : |
+| `get_variant` | method |  |  | get_variant( (Application)arg1) -> str : |
+| `get_version_string` | method |  | yes | get_version_string( (Application)arg1) -> str : |
+| `has_option` | method |  |  | has_option( (Application)arg1, (object)arg2) -> bool : |
+| `number_of_push_apps_running` | ro |  |  | Returns the number of connected Push apps. |
+| `open_dialog_count` | ro | yes | yes | The number of open dialogs in Live. 0 if not dialog is open. |
+| `peak_process_usage` | ro | yes | yes | Reports Live's peak CPU load. |
+| `press_current_dialog_button` | method |  | yes | press_current_dialog_button( (Application)arg1, (int)arg2) -> None : |
+| `show_message` | method |  |  | show_message( (Application)arg1, (Text)text [, (int)buttons=Application.MessageButtons.OK_BUTTON [, (bool)enable_markup=False [, (bool)show_success_icon=False]]]) -> int : |
+| `show_on_the_fly_message` | method |  |  | show_on_the_fly_message( (Application)arg1, (str)message [, (int)buttons=Application.MessageButtons.OK_BUTTON [, (bool)enable_markup=False [, (bool)show_success_icon=False [, (int)push_dialog_type=Application.PushDialogType.MESSAGE_BOX]]]]) -> int : |
+| `unavailable_features` | ro | yes |  | List of features that are unavailable due to limitations of the current Live edition. |
+
+### `Live.Application.Application.View` — 10 members, 3 exposed, 7 gaps
+
+| member | kind | obs | M4L | Live docstring |
+|---|---|---|---|---|
+| `available_main_views` | method |  | yes | available_main_views( (View)arg1) -> StringVector : |
+| `browse_mode` | ro | yes | yes | Return true if HotSwap mode is active for any target. |
+| `focus_view` | method |  | yes | focus_view( (View)arg1, (object)arg2) -> None : |
+| `focused_document_view` | ro | yes | yes | Return the name of the document view ('Session' or 'Arranger') |
+| `scroll_view` | method |  | yes | scroll_view( (View)arg1, (int)arg2, (object)arg3, (bool)arg4) -> None : |
+| `toggle_browse` | method |  | yes | toggle_browse( (View)arg1) -> None : |
+| `zoom_view` | method |  | yes | zoom_view( (View)arg1, (int)arg2, (object)arg3, (bool)arg4) -> None : |
+
+### `Live.Track.Track` — 69 members, 41 exposed, 28 gaps
+
+_Reached under another address:_ `clip_slots` → /live/clip_slot/*; `input_routings` → /live/track/get/available_input_routing_types (legacy string API superseded); `input_sub_routings` → /live/track/get/available_input_routing_channels; `mixer_device` → /live/track/get/volume, panning, send; `output_routings` → /live/track/get/available_output_routing_types; `output_sub_routings` → /live/track/get/available_output_routing_channels; `view` → /live/view/*
+
+| member | kind | obs | M4L | Live docstring |
+|---|---|---|---|---|
+| `back_to_arranger` | rw | yes | yes | Indicates if it's possible to go back to playing back the clips in the Arranger.Setting a value 0 will go back to the Arranger playback. Setting on grouptracks will go back to the Arranger on all grouped tracks. |
+| `can_be_frozen` | ro |  | yes | return True, if this Track can be frozen. |
+| `can_show_chains` | ro |  | yes | return True, if this Track contains a rack instrument device that is capable of showing its chains in session view. |
+| `create_audio_clip` | method |  | yes | create_audio_clip( (Track)arg1, (object)arg2, (float)arg3) -> Clip : |
+| `create_midi_clip` | method |  | yes | create_midi_clip( (Track)arg1, (float)arg2, (float)arg3) -> Clip : |
+| `create_take_lane` | method |  | yes | create_take_lane( (Track)arg1) -> LomObject : |
+| `current_input_routing` | rw | yes | yes | Get/Set the name of the current active input routing. |
+| `current_input_sub_routing` | rw | yes | yes | Get/Set the current active input sub routing. |
+| `current_output_routing` | rw | yes | yes | Get/Set the current active output routing. |
+| `current_output_sub_routing` | rw | yes | yes | Get/Set the current active output sub routing. |
+| `duplicate_clip_slot` | method |  | yes | duplicate_clip_slot( (Track)arg1, (int)arg2) -> int : |
+| `duplicate_clip_to_arrangement` | method |  | yes | duplicate_clip_to_arrangement( (Track)self, (Clip)clip, (float)destination_time) -> Clip : |
+| `duplicate_device` | method |  |  | duplicate_device( (Track)arg1, (int)arg2) -> None : |
+| `get_data` | method |  |  | get_data( (Track)arg1, (object)key, (object)default_value) -> object : |
+| `group_track` | ro |  | yes | return the group track if is_grouped. |
+| `implicit_arm` | rw | yes | yes | Arm the track for recording. When The track is implicitly armed, it showsin a weaker color in the live GUI and is not saved in the set. |
+| `input_meter_left` | ro | yes | yes | Momentary value of left input channel meter, 0.0 to 1.0. For Audio Tracks only. |
+| `input_meter_level` | ro | yes | yes | Return the MIDI or Audio meter value of the Tracks input, depending on the |
+| `input_meter_right` | ro | yes | yes | Momentary value of right input channel meter, 0.0 to 1.0. For Audio Tracks only. |
+| `insert_device` | method |  | yes | insert_device( (Track)arg1, (str)DeviceName [, (int)DeviceIndex=-1]) -> LomObject : |
+| `is_frozen` | ro | yes | yes | return True if this Track is currently frozen. No changes should be applied to the track's devices or clips while it is frozen. |
+| `is_part_of_selection` | ro |  | yes | return False if the track is not selected. |
+| `is_showing_chains` | rw | yes | yes | Get/Set whether a track with a rack device is showing its chains in session view. |
+| `jump_in_running_session_clip` | method |  | yes | jump_in_running_session_clip( (Track)arg1, (float)arg2) -> None : |
+| `muted_via_solo` | ro | yes | yes | Returns true if the track is muted because another track is soloed. |
+| `performance_impact` | ro | yes | yes | Reports the performance impact of this track. |
+| `set_data` | method |  |  | set_data( (Track)arg1, (object)key, (object)value) -> None : |
+| `take_lanes` | ro | yes | yes | returns the take lanes. |
+
+### `Live.Track.Track.View` — 4 members, 1 exposed, 3 gaps
+
+| member | kind | obs | M4L | Live docstring |
+|---|---|---|---|---|
+| `device_insert_mode` | rw | yes | yes | Get/Listen the device insertion mode of the track.  By default, it will insert devices at the end, but it can be changed to make it relative to current selection. |
+| `is_collapsed` | rw | yes | yes | Get/Set/Listen if the track is shown collapsed in the arranger view. |
+| `select_instrument` | method |  | yes | select_instrument( (View)arg1) -> bool : |
+
+### `Live.MixerDevice.MixerDevice` — 11 members, 4 exposed, 7 gaps
+
+_Reached under another address:_ `sends` → /live/track/get/send
+
+| member | kind | obs | M4L | Live docstring |
+|---|---|---|---|---|
+| `crossfade_assign` | rw | yes | yes | Player- and ReturnTracks only: Access to the Track's Crossfade Assign State. |
+| `crossfader` | ro |  | yes | MainTrack only: Const access to the Crossfader. |
+| `left_split_stereo` | ro |  | yes | Const access to the Track's Left Split Stereo Panning Device Parameter. |
+| `panning_mode` | rw | yes | yes | Access to the Track's Panning Mode. |
+| `right_split_stereo` | ro |  | yes | Const access to the Track's Right Split Stereo Panning Device Parameter. |
+| `song_tempo` | ro |  | yes | MainTrack only: Const access to the Song's Tempo. |
+| `track_activator` | ro |  | yes | Const access to the Tracks Activator Device Parameter. |
+
+### `Live.Clip.Clip` — 86 members, 46 exposed, 40 gaps
+
+_Reached under another address:_ `add_new_notes` → /live/clip/add/notes; `get_all_notes_extended` → /live/clip/get/notes (no args); `get_notes` → /live/clip/get/notes (this is the deprecated tuple form); `get_notes_extended` → /live/clip/get/notes; `remove_notes` → /live/clip/remove/notes (deprecated form); `remove_notes_extended` → /live/clip/remove/notes
+
+| member | kind | obs | M4L | Live docstring |
+|---|---|---|---|---|
+| `add_warp_marker` | method |  | yes | add_warp_marker( (Clip)self, (object)warp_marker) -> None : |
+| `apply_note_modifications` | method |  | yes | apply_note_modifications( (Clip)arg1, (MidiNoteVector)arg2) -> None : |
+| `automation_envelope` | method |  |  | automation_envelope( (Clip)arg1, (DeviceParameter)arg2) -> Envelope : |
+| `automation_envelopes` | ro |  |  | Const access to a list of all automation envelopes for this clip. |
+| `available_warp_modes` | ro |  | yes | Available for AudioClips only. |
+| `beat_to_sample_time` | method |  |  | beat_to_sample_time( (Clip)self, (float)beat_time) -> float : |
+| `clear_all_envelopes` | method |  | yes | clear_all_envelopes( (Clip)arg1) -> None : |
+| `clear_envelope` | method |  | yes | clear_envelope( (Clip)arg1, (DeviceParameter)arg2) -> None : |
+| `create_automation_envelope` | method |  |  | create_automation_envelope( (Clip)arg1, (DeviceParameter)arg2) -> Envelope : |
+| `crop` | method |  | yes | crop( (Clip)arg1) -> None : |
+| `deselect_all_notes` | method |  | yes | deselect_all_notes( (Clip)arg1) -> None : |
+| `duplicate_notes_by_id` | method |  | yes | duplicate_notes_by_id( (Clip)self, (object)note_ids [, (object)destination_time=None [, (int)transposition_amount=0]]) -> IntU64Vector : |
+| `duplicate_region` | method |  | yes | duplicate_region( (Clip)self, (float)region_start, (float)region_length, (float)destination_time [, (int)pitch=-1 [, (int)transposition_amount=0]]) -> None : |
+| `get_notes_by_id` | method |  | yes | get_notes_by_id( (Clip)arg1, (object)note_ids) -> MidiNoteVector : |
+| `get_selected_notes` | method |  | yes | get_selected_notes( (Clip)arg1) -> tuple : |
+| `get_selected_notes_extended` | method |  | yes | get_selected_notes_extended( (Clip)arg1) -> MidiNoteVector : |
+| `groove` | rw | yes | yes | Get the groove associated with this clip. |
+| `has_envelopes` | ro | yes | yes | Will notify if the clip gets his first envelope or the last envelope is removed. |
+| `is_arrangement_clip` | ro |  | yes | return true if this Clip is an Arrangement Clip. |
+| `is_session_clip` | ro |  |  | return true if this Clip is a Session Clip. |
+| `is_take_lane_clip` | ro |  |  | return true if this Clip is a Take Lane Clip. |
+| `move_playing_pos` | method |  | yes | move_playing_pos( (Clip)arg1, (float)arg2) -> None : |
+| `move_warp_marker` | method |  | yes | move_warp_marker( (Clip)self, (float)marker_beat_time, (float)beat_time_distance) -> None : |
+| `note_number_to_name` | method |  |  | note_number_to_name( (Clip)self, (int)midi_pitch) -> str : |
+| `quantize_pitch` | method |  | yes | quantize_pitch( (Clip)arg1, (int)arg2, (int)arg3, (float)arg4) -> None : |
+| `remove_warp_marker` | method |  | yes | remove_warp_marker( (Clip)self, (float)beat_time) -> None : |
+| `replace_selected_notes` | method |  | yes | replace_selected_notes( (Clip)arg1, (tuple)arg2) -> None : |
+| `sample_rate` | ro |  | yes | Available for AudioClips only. |
+| `sample_to_beat_time` | method |  |  | sample_to_beat_time( (Clip)self, (float)sample_time) -> float : |
+| `scrub` | method |  | yes | scrub( (Clip)self, (float)scrub_position) -> None : |
+| `seconds_to_sample_time` | method |  |  | seconds_to_sample_time( (Clip)self, (float)seconds) -> float : |
+| `select_all_notes` | method |  | yes | select_all_notes( (Clip)arg1) -> None : |
+| `select_notes_by_id` | method |  | yes | select_notes_by_id( (Clip)arg1, (object)arg2) -> None : |
+| `set_fire_button_state` | method |  | yes | set_fire_button_state( (Clip)arg1, (bool)arg2) -> None : |
+| `set_notes` | method |  | yes | set_notes( (Clip)arg1, (tuple)arg2) -> None : |
+| `signature_denominator` | rw | yes | yes | Get/Set access to the global signature denominator of the Clip. |
+| `signature_numerator` | rw | yes | yes | Get/Set access to the global signature numerator of the Clip. |
+| `stop_scrub` | method |  | yes | stop_scrub( (Clip)arg1) -> None : |
+| `view` | ro |  | yes | Get the view of the Clip. |
+| `warp_markers` | ro | yes | yes | Available for AudioClips only. |
+
+### `Live.Clip.Clip.View` — 6 members, 0 exposed, 6 gaps
+
+_Whole class unexposed._ 
+- **rw:** `grid_is_triplet`, `grid_quantization`
+- **method:** `hide_envelope`, `select_envelope_parameter`, `show_envelope`, `show_loop`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.ClipSlot.ClipSlot` — 19 members, 14 exposed, 5 gaps
+
+_Reached under another address:_ `clip` → /live/clip/*
+
+| member | kind | obs | M4L | Live docstring |
+|---|---|---|---|---|
+| `color` | ro | yes | yes | Returns the canonical color for the clip slot or None if it does not exist. |
+| `color_index` | ro | yes | yes | Returns the canonical color index for the clip slot or None if it does not exist. |
+| `create_audio_clip` | method |  | yes | create_audio_clip( (ClipSlot)arg1, (object)arg2) -> Clip : |
+| `is_recording` | ro |  | yes | Returns whether the clip associated with the slot is recording. |
+| `set_fire_button_state` | method |  | yes | set_fire_button_state( (ClipSlot)arg1, (bool)arg2) -> None : |
+
+### `Live.Scene.Scene` — 14 members, 13 exposed, 1 gaps
+
+_Reached under another address:_ `clip_slots` → /live/clip_slot/*
+
+| member | kind | obs | M4L | Live docstring |
+|---|---|---|---|---|
+| `set_fire_button_state` | method |  | yes | set_fire_button_state( (Scene)arg1, (bool)arg2) -> None : |
+
+### `Live.Device.Device` — 15 members, 4 exposed, 11 gaps
+
+| member | kind | obs | M4L | Live docstring |
+|---|---|---|---|---|
+| `can_compare_ab` | ro |  | yes | Returns true if the Device has the capability to AB compare. |
+| `can_have_chains` | ro |  | yes | Returns true if the device is a rack. |
+| `can_have_drum_pads` | ro |  | yes | Returns true if the device is a drum rack. |
+| `class_display_name` | ro |  | yes | Return const access to the name of the device's class name as displayed in Live's browser and device chain |
+| `is_active` | ro | yes | yes | Return const access to whether this device is active. This will be false bothwhen the device is off and when it's inside a rack device which is off. |
+| `is_using_compare_preset_b` | rw | yes | yes | Returns whether the Device has loaded the preset in compare slot B. Only relevant if can_compare_ab, otherwise errors. |
+| `latency_in_ms` | ro | yes | yes | Returns the latency of the device in ms. |
+| `latency_in_samples` | ro | yes | yes | Returns the latency of the device in samples. |
+| `save_preset_to_compare_ab_slot` | method |  | yes | save_preset_to_compare_ab_slot( (Device)arg1) -> None : |
+| `store_chosen_bank` | method |  | yes | store_chosen_bank( (Device)arg1, (int)arg2, (int)arg3) -> None : |
+| `view` | ro |  | yes | Representing the view aspects of a device. |
+
+### `Live.DeviceParameter.DeviceParameter` — 17 members, 5 exposed, 12 gaps
+
+| member | kind | obs | M4L | Live docstring |
+|---|---|---|---|---|
+| `automation_state` | ro | yes | yes | Returns state of type AutomationState. |
+| `begin_gesture` | method |  |  | begin_gesture( (DeviceParameter)arg1) -> None : |
+| `default_value` | ro |  | yes | Return the default value for this parameter.  A Default value is only |
+| `display_value` | rw | yes | yes | Get/Set the current value (as visible in the GUI) this parameter. |
+| `end_gesture` | method |  |  | end_gesture( (DeviceParameter)arg1) -> None : |
+| `is_enabled` | ro |  | yes | Returns false if the parameter has been macro mapped or disabled by Max. |
+| `original_name` | ro |  | yes | Returns const access the original name of this parameter, unaffected of |
+| `re_enable_automation` | method |  | yes | re_enable_automation( (DeviceParameter)arg1) -> None : |
+| `short_value_items` | ro |  |  | Return the list of possible values for this parameter. Like value_items, but prefers short value names if available. Raises an error if 'is_quantized' is False. |
+| `state` | ro | yes | yes | Returns the state of the parameter: |
+| `str_for_value` | method |  | yes | str_for_value( (DeviceParameter)arg1, (float)arg2) -> str : |
+| `value_items` | ro |  | yes | Return the list of possible values for this parameter. Raises an error if 'is_quantized' is False. |
+
+### `Live.DeviceIO.DeviceIO` — 5 members, 0 exposed, 5 gaps
+
+_Whole class unexposed._ 
+- **rw:** `default_external_routing_channel_is_none`, `routing_channel*`, `routing_type*`
+- **ro:** `available_routing_channels*`, `available_routing_types*`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.RackDevice.RackDevice` — 37 members, 0 exposed, 37 gaps
+
+_Whole class unexposed._ 
+- **rw:** `is_showing_chains*`, `is_using_compare_preset_b*`, `name*`, `selected_variation_index`
+- **ro:** `can_compare_ab`, `can_have_chains`, `can_have_drum_pads`, `can_show_chains`, `chain_selector`, `chains*`, `class_display_name`, `class_name`, `drum_pads*`, `has_drum_pads*`, `has_macro_mappings*`, `is_active*`, `latency_in_ms*`, `latency_in_samples*`, `macros_mapped*†`, `parameters*`, `return_chains*`, `type`, `variation_count*`, `view`, `visible_drum_pads*`, `visible_macro_count*`
+- **method:** `add_macro`, `copy_pad`, `delete_selected_variation`, `insert_chain`, `randomize_macros`, `recall_last_used_variation`, `recall_selected_variation`, `remove_macro`, `save_preset_to_compare_ab_slot`, `store_chosen_bank`, `store_variation`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.RackDevice.RackDevice.View` — 5 members, 0 exposed, 5 gaps
+
+_Whole class unexposed._ 
+- **rw:** `drum_pads_scroll_position*`, `is_collapsed*`, `is_showing_chain_devices*`, `selected_chain*`, `selected_drum_pad*`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.Chain.Chain` — 16 members, 0 exposed, 16 gaps
+
+_Whole class unexposed._ 
+- **rw:** `color*`, `color_index*`, `is_auto_colored*`, `mute*`, `name*`, `solo*`
+- **ro:** `devices*`, `has_audio_input`, `has_audio_output`, `has_midi_input`, `has_midi_output`, `mixer_device`, `muted_via_solo*`
+- **method:** `delete_device`, `duplicate_device†`, `insert_device`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.ChainMixerDevice.ChainMixerDevice` — 4 members, 0 exposed, 4 gaps
+
+_Whole class unexposed._ 
+- **ro:** `chain_activator`, `panning`, `sends*`, `volume`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.DrumPad.DrumPad` — 6 members, 0 exposed, 6 gaps
+
+_Whole class unexposed._ 
+- **rw:** `mute*`, `solo*`
+- **ro:** `chains*`, `name*`, `note`
+- **method:** `delete_all_chains`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.DrumChain.DrumChain` — 19 members, 0 exposed, 19 gaps
+
+_Whole class unexposed._ 
+- **rw:** `choke_group*`, `color*`, `color_index*`, `in_note*`, `is_auto_colored*`, `mute*`, `name*`, `out_note*`, `solo*`
+- **ro:** `devices*`, `has_audio_input`, `has_audio_output`, `has_midi_input`, `has_midi_output`, `mixer_device`, `muted_via_solo*`
+- **method:** `delete_device`, `duplicate_device†`, `insert_device`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.Browser.Browser` — 21 members, 3 exposed, 18 gaps
+
+| member | kind | obs | M4L | Live docstring |
+|---|---|---|---|---|
+| `audio_effects` | ro |  |  | Returns a browser item with access to all the Audio Effects content. |
+| `clips` | ro |  |  | Returns a browser item with access to all the Clips content. |
+| `colors` | ro |  |  | Returns a list of browser items containing the configured colors. |
+| `current_project` | ro |  |  | Returns a browser item with access to all the Current Project content. |
+| `drums` | ro |  |  | Returns a browser item with access to all the Drums content. |
+| `filter_type` | rw | yes |  | Bang triggered when the hotswap target has changed. |
+| `hotswap_target` | rw | yes |  | Bang triggered when the hotswap target has changed. |
+| `instruments` | ro |  |  | Returns a browser item with access to all the Instruments content. |
+| `legacy_libraries` | ro |  |  | Returns a list of browser items containing the installed legacy libraries. The list is always empty as legacy library handling has been removed. |
+| `max_for_live` | ro |  |  | Returns a browser item with access to all the Max For Live content. |
+| `midi_effects` | ro |  |  | Returns a browser item with access to all the Midi Effects content. |
+| `packs` | ro |  |  | Returns a browser item with access to all the Packs content. |
+| `plugins` | ro |  |  | Returns a browser item with access to all the Plugins content. |
+| `relation_to_hotswap_target` | method |  |  | relation_to_hotswap_target( (Browser)arg1, (BrowserItem)arg2) -> Relation : |
+| `samples` | ro |  |  | Returns a browser item with access to all the Samples content. |
+| `sounds` | ro |  |  | Returns a browser item with access to all the Sounds content. |
+| `user_folders` | ro |  |  | Returns a list of browser items containing all the user folders. |
+| `user_library` | ro |  |  | Returns a browser item with access to all the User Library content. |
+
+### `Live.Browser.BrowserItem` — 9 members, 0 exposed, 9 gaps
+
+_Whole class unexposed._ 
+- **ro:** `children†`, `is_device†`, `is_folder†`, `is_loadable†`, `is_selected†`, `iter_children†`, `name†`, `source†`, `uri†`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.Groove.Groove` — 6 members, 0 exposed, 6 gaps
+
+_Whole class unexposed._ 
+- **rw:** `base`, `name*`, `quantization_amount*`, `random_amount*`, `timing_amount*`, `velocity_amount*`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.GroovePool.GroovePool` — 1 members, 0 exposed, 1 gaps
+
+_Whole class unexposed._ 
+- **ro:** `grooves*`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.Sample.Sample` — 30 members, 0 exposed, 30 gaps
+
+_Whole class unexposed._ 
+- **rw:** `beats_granulation_resolution*`, `beats_transient_envelope*`, `beats_transient_loop_mode*`, `complex_pro_envelope*`, `complex_pro_formants*`, `end_marker*`, `gain*`, `slicing_beat_division*`, `slicing_region_count*`, `slicing_sensitivity*`, `slicing_style*`, `start_marker*`, `texture_flux*`, `texture_grain_size*`, `tones_grain_size*`, `warp_mode*`, `warping*`
+- **ro:** `file_path*`, `length`, `sample_rate`, `slices*`, `warp_markers*`
+- **method:** `beat_to_sample_time†`, `clear_slices`, `gain_display_string`, `insert_slice`, `move_slice`, `remove_slice`, `reset_slices`, `sample_to_beat_time†`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.TakeLane.TakeLane` — 4 members, 0 exposed, 4 gaps
+
+_Whole class unexposed._ 
+- **rw:** `name*`
+- **ro:** `arrangement_clips*`
+- **method:** `create_audio_clip`, `create_midi_clip`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.TuningSystem.TuningSystem` — 7 members, 0 exposed, 7 gaps
+
+_Whole class unexposed._ 
+- **rw:** `highest_note*`, `lowest_note*`, `name*`, `note_tunings*`, `reference_pitch*`
+- **ro:** `number_of_notes_in_pseudo_octave†`, `pseudo_octave_in_cents`
+
+_`*` observable, `†` not in M4L table._
+
+## Device subclasses and remaining M4L classes
+
+_Reachable only through `Live.Device.Device` today; the fork has no per-device-type addresses at all, so these are listed compactly._
+
+### `Live.CompressorDevice.CompressorDevice` — 4 members, 0 exposed, 4 gaps (+15 inherited from `Device`, see above)
+
+_Whole class unexposed._ 
+- **rw:** `input_routing_channel*`, `input_routing_type*`
+- **ro:** `available_input_routing_channels*`, `available_input_routing_types*`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.DriftDevice.DriftDevice` — 29 members, 0 exposed, 29 gaps (+15 inherited from `Device`, see above)
+
+_Whole class unexposed._ 
+- **rw:** `mod_matrix_filter_source_1_index*`, `mod_matrix_filter_source_2_index*`, `mod_matrix_lfo_source_index*`, `mod_matrix_pitch_source_1_index*`, `mod_matrix_pitch_source_2_index*`, `mod_matrix_shape_source_index*`, `mod_matrix_source_1_index*`, `mod_matrix_source_2_index*`, `mod_matrix_source_3_index*`, `mod_matrix_target_1_index*`, `mod_matrix_target_2_index*`, `mod_matrix_target_3_index*`, `pitch_bend_range*`, `voice_count_index*`, `voice_mode_index*`
+- **ro:** `mod_matrix_filter_source_1_list`, `mod_matrix_filter_source_2_list`, `mod_matrix_lfo_source_list`, `mod_matrix_pitch_source_1_list`, `mod_matrix_pitch_source_2_list`, `mod_matrix_shape_source_list`, `mod_matrix_source_1_list`, `mod_matrix_source_2_list`, `mod_matrix_source_3_list`, `mod_matrix_target_1_list`, `mod_matrix_target_2_list`, `mod_matrix_target_3_list`, `voice_count_list`, `voice_mode_list`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.DrumCellDevice.DrumCellDevice` — 1 members, 0 exposed, 1 gaps (+15 inherited from `Device`, see above)
+
+_Whole class unexposed._ 
+- **rw:** `gain*`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.Eq8Device.Eq8Device` — 3 members, 0 exposed, 3 gaps (+15 inherited from `Device`, see above)
+
+_Whole class unexposed._ 
+- **rw:** `edit_mode*`, `global_mode*`, `oversample*`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.Eq8Device.Eq8Device.View` — 2 members, 0 exposed, 2 gaps
+
+_Whole class unexposed._ 
+- **rw:** `is_collapsed*`, `selected_band*`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.HybridReverbDevice.HybridReverbDevice` — 8 members, 0 exposed, 8 gaps (+15 inherited from `Device`, see above)
+
+_Whole class unexposed._ 
+- **rw:** `ir_attack_time*`, `ir_category_index*`, `ir_decay_time*`, `ir_file_index*`, `ir_size_factor*`, `ir_time_shaping_on*`
+- **ro:** `ir_category_list`, `ir_file_list*`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.LooperDevice.LooperDevice` — 16 members, 0 exposed, 16 gaps (+15 inherited from `Device`, see above)
+
+_Whole class unexposed._ 
+- **rw:** `overdub_after_record*`, `record_length_index*`
+- **ro:** `loop_length*`, `record_length_list`, `tempo*`
+- **method:** `clear`, `double_length`, `double_speed`, `export_to_clip_slot`, `half_length`, `half_speed`, `overdub`, `play`, `record`, `stop`, `undo`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.MaxDevice.MaxDevice` — 8 members, 0 exposed, 8 gaps (+15 inherited from `Device`, see above)
+
+_Whole class unexposed._ 
+- **ro:** `audio_inputs*`, `audio_outputs*`, `midi_inputs*`, `midi_outputs*`
+- **method:** `get_bank_count`, `get_bank_name`, `get_bank_parameters`, `get_value_item_icons†`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.MeldDevice.MeldDevice` — 4 members, 0 exposed, 4 gaps (+15 inherited from `Device`, see above)
+
+_Whole class unexposed._ 
+- **rw:** `mono_poly*`, `poly_voices*`, `selected_engine*`, `unison_voices*`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.PluginDevice.PluginDevice` — 4 members, 0 exposed, 4 gaps (+15 inherited from `Device`, see above)
+
+_Whole class unexposed._ 
+- **rw:** `is_editor_open*`, `selected_preset_index*`
+- **ro:** `presets*`
+- **method:** `get_parameter_names†`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.RoarDevice.RoarDevice` — 3 members, 0 exposed, 3 gaps (+15 inherited from `Device`, see above)
+
+_Whole class unexposed._ 
+- **rw:** `env_listen*`, `routing_mode_index*`
+- **ro:** `routing_mode_list`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.ShifterDevice.ShifterDevice` — 3 members, 0 exposed, 3 gaps (+15 inherited from `Device`, see above)
+
+_Whole class unexposed._ 
+- **rw:** `pitch_bend_range*`, `pitch_mode_index*`
+- **ro:** `pitch_mode_list†`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.SimplerDevice.SimplerDevice` — 21 members, 0 exposed, 21 gaps (+15 inherited from `Device`, see above)
+
+_Whole class unexposed._ 
+- **rw:** `note_pitch_bend_range*†`, `pad_slicing*`, `pitch_bend_range*†`, `playback_mode*`, `retrigger*`, `slicing_playback_mode*`, `voices*`
+- **ro:** `can_warp_as*`, `can_warp_double*`, `can_warp_half*`, `multi_sample_mode*`, `playing_position*`, `playing_position_enabled*`, `sample*`
+- **method:** `crop`, `guess_playback_length`, `replace_sample`, `reverse`, `warp_as`, `warp_double`, `warp_half`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.SimplerDevice.SimplerDevice.View` — 9 members, 0 exposed, 9 gaps
+
+_Whole class unexposed._ 
+- **rw:** `is_collapsed*`, `selected_slice*`
+- **ro:** `sample_end*†`, `sample_env_fade_in*†`, `sample_env_fade_out*†`, `sample_loop_end*†`, `sample_loop_fade*†`, `sample_loop_start*†`, `sample_start*†`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.SpectralResonatorDevice.SpectralResonatorDevice` — 12 members, 0 exposed, 12 gaps (+15 inherited from `Device`, see above)
+
+_Whole class unexposed._ 
+- **rw:** `frequency_dial_mode*`, `midi_gate*`, `mod_mode*`, `mono_poly*`, `pitch_bend_range*`, `pitch_mode*`, `polyphony*`
+- **ro:** `frequency_dial_mode_list*†`, `midi_gate_list*†`, `mod_mode_list*†`, `mono_poly_list*†`, `pitch_mode_list*†`
+
+_`*` observable, `†` not in M4L table._
+
+### `Live.WavetableDevice.WavetableDevice` — 20 members, 0 exposed, 20 gaps (+15 inherited from `Device`, see above)
+
+_Whole class unexposed._ 
+- **rw:** `filter_routing*`, `mono_poly*`, `oscillator_1_effect_mode*`, `oscillator_1_wavetable_category*`, `oscillator_1_wavetable_index*`, `oscillator_2_effect_mode*`, `oscillator_2_wavetable_category*`, `oscillator_2_wavetable_index*`, `poly_voices*`, `unison_mode*`, `unison_voice_count*`
+- **ro:** `oscillator_1_wavetables*`, `oscillator_2_wavetables*`, `oscillator_wavetable_categories`, `visible_modulation_target_names*`
+- **method:** `add_parameter_to_modulation_matrix`, `get_modulation_target_parameter_name`, `get_modulation_value`, `is_parameter_modulatable`, `set_modulation_value`
+
+_`*` observable, `†` not in M4L table._
+
+<!-- lom-gaps:end -->

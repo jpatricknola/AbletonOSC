@@ -149,6 +149,7 @@ class Manager(ControlSurface):
 
     def reload_imports(self):
         try:
+            importlib.reload(abletonosc.introspection)
             importlib.reload(abletonosc.application)
             importlib.reload(abletonosc.clip)
             importlib.reload(abletonosc.clip_slot)
