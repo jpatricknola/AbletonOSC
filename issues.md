@@ -15,28 +15,6 @@ upstream must also be reflected in [SESHAT.md](SESHAT.md).
 
 ## Bugs — existing addresses misbehave
 
-### Define and repair multi-track wildcard getter responses
-
-
-**Priority:** Critical — confirmed live protocol defect
-
-The track callback wrapper accepts `"*"` as a track identifier and iterates all
-regular tracks. For getters, however, it returns as soon as the first callback
-produces a value. Live testing of `/live/track/get/name *` produced exactly one
-getter invocation for track 0. Setters appear to reach every track only because
-their callbacks return `None`.
-
-The intended wire contract for a multi-track getter is currently undefined. It
-must state whether the server emits one response per track or one aggregate
-response, including ordering, empty-set behavior, and partial-error behavior.
-After that contract is chosen, getters must report every selected track and
-single-track requests and wildcard setters must retain their existing behavior.
-Seshat compatibility must be checked before selecting or changing the response
-shape.
-
-**Affected area:** `abletonosc/track.py`, client expectations, README/SESHAT
-contract documentation, regression tests.
-
 ### Normalize device parameter listener identifiers
 
 

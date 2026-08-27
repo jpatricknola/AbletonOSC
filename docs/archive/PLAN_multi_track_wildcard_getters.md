@@ -1,3 +1,13 @@
+**Archived 2026-08-27 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in
+`abletonosc/track_callback.py` (the extracted `create_track_callback`
+factory) and `abletonosc/osc_server.py` (`OSCServer._dispatch`'s
+list-of-tuples reply contract), documented in `API.md` § Track API under
+"The track-index argument wildcard (`*`)" and § Status Messages. The two
+open questions this plan left (a ≥2-track live confirmation, and whether a
+Live set can reach zero regular tracks) were still open at ship time; no
+follow-up roadmap entry was added for them — see the PR for the reasoning.
+
 # Plan: Define and repair multi-track wildcard getter responses
 
 Roadmap item: **#1 · Define and repair multi-track wildcard getter responses**
