@@ -71,7 +71,7 @@ ongoing cost — merging upstream releases — is close to zero.
     per-dispatch resolution of `self.song`), it is imported by `track.py` and
     covered directly by `tests_unit/test_track_callback.py` — the first
     tests_unit coverage of shipped handler-side code rather than a
-    shape-replica. `track.py` keeps a one-line local helper of the original
+    shape-replica. `track.py` keeps a small local helper of the original
     name so every registration line is unchanged.
   - **`manager.py` reloads `abletonosc.track_callback` before
     `abletonosc.track`.** Without it, `/live/api/reload` re-executes track.py's
@@ -93,7 +93,13 @@ ongoing cost — merging upstream releases — is close to zero.
   exception class, so a composed `/live/track/get/* *` must still see a
   per-track `ValueError` as a `ValueError` to skip an arg-mismatch endpoint
   like `get/send` silently; a `RuntimeError` wrapper would turn every
-  documented skip into a per-endpoint error datagram.
+  documented skip into a per-endpoint error datagram. The same class-based
+  test is blind to *when* in the fan-out the exception arrived: a matched
+  getter that fails on track 1 after already succeeding on track 0 is
+  classified identically to the immediate arg-mismatch case, so it answers
+  with nothing at all under composition — not even the replies already
+  collected. Pinned by
+  `test_composed_wildcard_mid_fan_out_skip_class_failure_is_silent`.
 
   **Downstream: pin bump only.** No address added, renamed or removed; the
   single-index reply shape, setter silence and listener pushes are all
@@ -660,7 +666,7 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
 
 - **Anything touching `track.py`'s `create_track_callback`, or
   `manager.py`'s `reload_imports` list.** In this fork `create_track_callback`
-  is a two-line local helper delegating to `abletonosc/track_callback.py`; a
+  is a small local helper delegating to `abletonosc/track_callback.py`; a
   merge that takes upstream's nested closure restores the early `return` and
   every `/live/track/get/<prop> *` silently goes back to answering for track 0
   only — one plausible-looking reply, no error, nothing in a log to notice.

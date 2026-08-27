@@ -278,6 +278,42 @@ def test_composed_wildcard_reports_a_genuine_failure(server, receiver, tracks,
     assert "wildcard fan-out failed at track 0" in error[2]
 
 
+def test_composed_wildcard_mid_fan_out_skip_class_failure_is_silent(server, receiver, tracks,
+                                                                    create_track_callback):
+    # pr-review nit: under wildcard=True, _is_wildcard_skip decides by
+    # exception class alone, with no regard for *where* in the fan-out it was
+    # raised. A skip-classified exception (ValueError here) at track 1, after
+    # track 0 already succeeded, is indistinguishable from the immediate
+    # arg-mismatch case pinned above: OSCServer._dispatch never sees the
+    # replies collected for track 0, because they never left track_callback's
+    # local `replies` list before the exception propagated. So the matched
+    # endpoint answers with nothing at all — no reply, no error — even though
+    # it genuinely failed partway through, not merely "did not apply". This
+    # is the documented all-or-nothing contract doing its job (API.md § The
+    # track-index argument wildcard), just reachable through a path
+    # (composition with an address pattern) where it looks identical to a
+    # silent skip. See API.md and SESHAT.md for the one-sentence note this
+    # test pins.
+    def fails_from_track_one(track, params=()):
+        if track.name != "drums":
+            raise ValueError("not drums")
+        return track.name,
+
+    server.add_handler("/live/track/get/name",
+                       create_track_callback(lambda: tracks, get_name))
+    server.add_handler("/live/track/get/mute",
+                       create_track_callback(lambda: tracks, fails_from_track_one))
+    dispatch(server, "/live/track/get/*", "*")
+    messages = receiver.drain()
+    # The working endpoint is unaffected.
+    assert sorted(replies(messages)) == [("/live/track/get/name", (0, "drums")),
+                                         ("/live/track/get/name", (1, "bass")),
+                                         ("/live/track/get/name", (2, "keys"))]
+    # The failing endpoint produces nothing at all: not even the track-0
+    # reply it already collected before failing at track 1, and no error.
+    assert errors(messages) == []
+
+
 #--------------------------------------------------------------------------------
 # Track source resolution
 #--------------------------------------------------------------------------------

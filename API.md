@@ -808,7 +808,13 @@ query.** One request, one action per regular track.
   getter replies once per track on its own concrete address, and a matched
   endpoint whose arguments don't fit the request (e.g. `get/send`, which needs
   a send index the request omitted) is skipped silently under README's
-  wildcard rules.
+  wildcard rules. This composition can also hide a genuine failure: if a
+  matched getter fails on a later track after already succeeding on earlier
+  ones, `OSCServer._is_wildcard_skip`'s class-based test (which cannot see
+  *where* in the fan-out an exception was raised) treats it the same as an
+  immediate arg-mismatch, so that endpoint answers with nothing at all —
+  neither the replies already collected nor an error — while every other
+  matched endpoint is unaffected. Send the concrete address to see the error.
 - **A client helper that awaits a single reply cannot use this**, for the same
   reason it cannot use an address pattern. Seshat's `Transport.query/3` resolves
   on the first datagram and drops the rest; `query_batch/2` over concrete track

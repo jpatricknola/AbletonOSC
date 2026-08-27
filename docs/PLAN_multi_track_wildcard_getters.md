@@ -378,6 +378,30 @@ payload are covered Live-free by `tests_unit/`, and end-to-end only by a
 future Seshat-side check if Seshat ever consumes `*`. The all-or-nothing
 zero-reply guarantee on error is likewise pinned by unit tests only.
 
+**Review-phase status, 2026-08-27 (pr-review).** Checks 1-6: **all skipped by
+environment**, independently re-confirmed rather than taken on the
+implementer's word. The precondition fails at the first clause: `diff -rq
+--exclude=__pycache__ abletonosc "$HOME/Music/Ableton/User Library/Remote
+Scripts/AbletonOSC/abletonosc"` reports `osc_server.py` differs, `track.py`
+differs, and `track_callback.py` is present only in the checkout - so the
+installed copy is the pre-change code. Live is running (PID 70216), but this
+phase may not install into the Remote Scripts directory, restart Live, or bind
+11001, so the gap cannot be closed here. No probe of any kind was sent; no
+result is claimed for any check.
+
+- Check 1 (repaired fan-out, >=2 tracks) - **skipped by environment**: needs
+  the repaired code installed *and* a Live restart, plus a mutating
+  create/delete-track probe. Open question 1 stays open.
+- Check 2 (mixer path) - **skipped by environment**: same precondition.
+- Check 3 (single-track regression) - **skipped by environment**: same
+  precondition. Pinned Live-free by
+  `tests_unit/test_track_callback.py::test_single_index_getter_replies_once`.
+- Check 4 (setter regression) - **skipped by environment**: same precondition,
+  and mutating.
+- Check 5 (error case) - **skipped by environment**: same precondition.
+- Check 6 (reload picks up the wrapper) - **skipped by environment**: same
+  precondition, and `/live/api/reload` under a live session is a user action.
+
 ## Downstream
 
 **Pin bump only.** Verified against SESHAT.md: nothing in Seshat sends a

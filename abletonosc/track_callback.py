@@ -36,12 +36,17 @@ def _raise_with_track_context(exception: BaseException, track_index: int):
         #--------------------------------------------------------------------------------
         # Exotic exception types can refuse the assignment. Rebuild rather
         # than lose the track context; fall back to RuntimeError only if the
-        # class cannot be constructed from a single message.
+        # class cannot be constructed from a single message. Construct
+        # before raising: `except TypeError` here must catch a failed
+        # *construction*, not a successfully rebuilt exception that happens
+        # to be a TypeError itself — this is the one helper whose job is
+        # preserving the class, so it must not launder its own output.
         #--------------------------------------------------------------------------------
         try:
-            raise type(exception)(detail) from exception
-        except TypeError:
+            rebuilt = type(exception)(detail)
+        except Exception:
             raise RuntimeError(detail) from exception
+        raise rebuilt from exception
     raise exception
 
 
