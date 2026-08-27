@@ -291,11 +291,15 @@ unreachable until it exists.
 `/live/track/*` is `song.tracks` only. `Track` is also every return track
 and the master. `/live/return_track/*` restores `count`, `name`, `mute`,
 `solo`, `volume`, `panning`, `select`, `select_device`, `delete_device`,
-`devices`; `/live/master/*` restores `volume`, `panning`, `cue_volume` and
-the same device subset. Missing on returns/master: colour, routing,
-meters, `arm`-adjacent state, `has_*_input/output`, all `start_listen`
-addresses (mixer listeners exist for master volume/panning/cue_volume
-only), `insert_device`, `mixer_device.sends` on returns.
+`devices`, plus `start_listen`/`stop_listen` pairs for `name`, `volume`,
+`panning`, `mute` and `solo`; `/live/master/*` restores `volume`, `panning`,
+`cue_volume` with their listen pairs, and the same device subset. Missing on
+returns/master: colour, routing, meters, `arm`-adjacent state,
+`has_*_input/output`, every `start_listen` address beyond the mixer
+properties just listed, `insert_device`, `mixer_device.sends` on returns.
+
+_The address counts in this heading are pre-fork-work figures and are no
+longer accurate; recount before quoting them._
 
 ### `MixerDevice` — three of eleven members, and only via `Track`
 

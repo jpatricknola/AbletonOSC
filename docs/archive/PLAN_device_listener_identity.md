@@ -7,9 +7,10 @@ review raised — `scene.py`, `clip.py`, `clip_slot.py` never int-casting
 their listener args, and the property pair not truncating trailing
 arguments — were fixed in
 [docs/archive/PLAN_listener_identity_normalization.md](PLAN_listener_identity_normalization.md),
-which also left a further follow-up (`track.py` / `return_track.py`) on
-ROADMAP.md as "Normalize listener argument identity in track.py and
-return_track.py".
+which also left a further follow-up (`track.py` / `return_track.py`),
+closed in turn by
+[docs/archive/PLAN_track_callback_listener_identity.md](PLAN_track_callback_listener_identity.md):
+`track_callback.py` fixed, `return_track.py` audited clean.
 
 # Plan: Device listener identity — parameter indices and property listeners
 

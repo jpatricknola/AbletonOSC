@@ -166,6 +166,21 @@ def load_clip_slot_module():
     return load_module("abletonosc.clip_slot")
 
 
+def load_track_module():
+    """
+    Import the real `abletonosc.track` beneath the synthetic root. Like
+    device.py it imports nothing from Live — only typing, .handler and
+    .track_callback — so no stub beyond Component is needed.
+
+    Note that constructing `TrackHandler` registers its entire address table
+    (getters, setters, methods and both listen pairs, for every property in
+    its loops) on the server it is passed, so a test that builds one gets the
+    production dispatch surface, not a hand-picked subset.
+    """
+    load_handler_module()
+    return load_module("abletonosc.track")
+
+
 def load_clip_module():
     """
     Import the real `abletonosc.clip` beneath the synthetic root, after

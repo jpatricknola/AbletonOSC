@@ -292,6 +292,52 @@ ongoing cost — merging upstream releases — is close to zero.
   song/track/return_track/master) and every index it sends is an integer, so
   no well-formed client sees any difference at all.
 
+- **`track_callback.py` — the same identity rule, for the last wrapper that
+  still predated it.** `create_track_callback`'s `include_track_id` branch got
+  the index half right — `track_index` is `int(params[0])` on the concrete
+  path and a generated `range()` int on the wildcard path, so there was never
+  a float defect here — but it then appended the raw OSC tail after it:
+  `func(track, *args, tuple([track_index] + params[1:]))`. Nothing bounded
+  that tail, and because `handler.py` pushes `(*params, *value)`, every
+  argument past the index entered the bookkeeping key *and* every subsequent
+  push. Measured Live-free against the production `TrackHandler` on
+  2026-08-27:
+
+  1. **A trailing extra poisoned the key and leaked the listener.**
+     `start_listen/name 0 99` keyed `("name", (0, 99))` and pushed
+     `/live/track/get/name (0, 99, 'drums')` — a bogus third field a decoder
+     reads as data. The well-formed `stop_listen/name 0` missed the key ("No
+     listener function found"), leaking the subscription until reload.
+  2. **The mixer pair leaked the same way, silently.**
+     `start_listen/volume 0 7` keyed `("value", (0, 7, 'volume'))`;
+     `stop_listen/volume 0` missed it with **no** warning at all, because
+     `_stop_mixer_listen` is deliberately silent when nothing matches (that
+     silence is what makes re-listening idempotent).
+  3. **The wildcard amplified it set-wide.** `start_listen/name * 42` put the
+     stray argument into *every* track's key, so a well-formed
+     `stop_listen/name *` leaked one listener per track.
+  4. **Non-numeric extras were accepted and echoed.**
+     `start_listen/volume 1 junk` subscribed without error and pushed the
+     string `'junk'` as a field on `/live/track/get/volume` — the tail is
+     never cast, so garbage in the key and garbage on the wire, no
+     `/live/error`.
+
+  The branch now hands the callee exactly `(track_index,)`. That one edit
+  fixes both `include_track_id` pairs — the plain property pair and the mixer
+  pair — because all four call sites are listener registrations whose callees
+  treat `params` purely as identity plus push prefix; `handler.py`,
+  `track.py` and `manager.py` needed no change. The non-listener branch still
+  passes `tuple(params[1:])` untouched, which `get/send` reads its send index
+  out of. Pushes therefore always carry `track_index, value` in the
+  query-reply shape, and `stop` ends a subscription however the `start` was
+  spelled. `return_track.py` was audited at the same time and is clean: every
+  per-property pair there keys on the *parsed* index and the master triple on
+  a `"master"` sentinel, so no extra argument is ever read. Downstream:
+  **pin bump only** — Seshat sends `/live/track/start_listen/<prop>` with
+  exactly one integer index and no track `stop_listen` at all. Pinned by
+  `tests_unit/test_track_callback.py` and
+  `tests_unit/test_track_listener_identity.py`.
+
 - **`clip_slot.py` — logger format args.** Cherry-picked from upstream PR #213.
   `self.logger.info(track_index, clip_index, rv)` passes an `int` where a format
   string belongs, raising inside every clip-slot callback and flooding Live's
@@ -986,6 +1032,18 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   Losing `track_callback.py` itself fails loudly (the import breaks), but
   losing the *delegation* does not. `tests_unit/test_track_callback.py` fails
   on that hazard — run it on every merge.
+
+  A merge that restores upstream's nested closure now reverts **two** fork
+  behaviours, not one: the wildcard collection above, and the listener
+  identity truncation. The truncation lives in `track_callback.py`'s
+  `include_track_id` branch, which hands the callee `(track_index,)` where
+  upstream's closure appends the raw params tail — so losing it silently
+  reopens the key-poisoning leaks described under § Fixes, for the plain and
+  mixer listen pairs alike, and for every track at once through `*`. It is a
+  one-line difference inside a branch that otherwise reads identically, which
+  is exactly the kind of thing a conflict resolution takes from upstream
+  without noticing. `tests_unit/test_track_callback.py` and
+  `tests_unit/test_track_listener_identity.py` are the tripwires.
 
   `reload_imports` is a separate hazard on the same list, and no Live-free
   test catches it: nothing outside Live calls `reload_imports`, so it is
