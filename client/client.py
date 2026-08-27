@@ -26,7 +26,14 @@ class AbletonOSCClient:
         """
         dispatcher = Dispatcher()
         dispatcher.set_default_handler(self.handle_osc)
-        self.server = ThreadingOSCUDPServer(("0.0.0.0", client_port), dispatcher)
+        #--------------------------------------------------------------------------------
+        # Bind the reply socket to loopback only. AbletonOSC always answers to
+        # 127.0.0.1, so nothing is lost, and this fork's loopback-only policy (see
+        # SESHAT.md) then holds for the bundled client as well as for the server.
+        # A busy port raises OSError from here: run-console.py users get the real
+        # error, and the live suite's client fixture turns it into a skip.
+        #--------------------------------------------------------------------------------
+        self.server = ThreadingOSCUDPServer(("127.0.0.1", client_port), dispatcher)
         self.server_thread = threading.Thread(target=self.server.serve_forever)
         self.server_thread.daemon = True
         self.server_thread.start()

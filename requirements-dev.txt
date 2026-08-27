@@ -1,0 +1,11 @@
+#--------------------------------------------------------------------------------
+# Development dependencies for AbletonOSC.
+#
+# pytest is the only one: the Live-free gate (tests_unit/) uses nothing beyond
+# the standard library, and the live suite (tests/) additionally needs Ableton
+# Live itself, which pip cannot install. python-osc is vendored in pythonosc/.
+#
+#     pip install -r requirements-dev.txt
+#     python3 -m pytest tests_unit/
+#--------------------------------------------------------------------------------
+pytest>=7,<9

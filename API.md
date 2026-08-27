@@ -213,10 +213,14 @@ says", no probe handler is needed (validated 2026-08-03, Live 12.4.3):
   `is_playing`, `root_note`, `scale_name`, `groove_amount`, `swing_amount`,
   `tracks`, `return_tracks`, master mixer params). `metronome` is free.
 - Stray replies land on Seshat's socket; keep the volume low.
-- The committed pytest suite is not this: its client binds `0.0.0.0:11001`
-  (collides with Seshat) and importing `tests` sends `/live/api/reload` at
-  module scope, so even collection isn't read-only. See `issues.md`, "Make the
-  test suite safe".
+- The committed pytest suite is still not a substitute for this. It is now
+  safe to have around — `tests/` is inert unless `ABLETONOSC_LIVE_TESTS=1` is
+  set, its client binds `127.0.0.1:11001` rather than `0.0.0.0:11001`, and the
+  `/live/api/reload` it sends happens inside the opted-in session fixture
+  rather than at import time, so collection sends nothing — but it still needs
+  the reply port to itself. With Seshat holding 11001 the whole suite skips,
+  which is the interlock, not a workaround: reading the log file is the only
+  way to interrogate a Live that another client is already talking to.
 
 ---
 
