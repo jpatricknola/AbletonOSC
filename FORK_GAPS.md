@@ -66,7 +66,9 @@ shapes, and each has its own section below:
   exists. The inventory drops it on the next regeneration.
 - **Nothing here is prioritised.** A gap enters Seshat's `docs/ROADMAP.md`
   only when a feature needs it; until then it is inventory.
-  What is scheduled lives in this repo's [ROADMAP.md](ROADMAP.md).
+  Sequencing into PR-sized buckets lives in
+  [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md); what is scheduled, and in
+  what order, is [ROADMAP.md](ROADMAP.md).
 - **Object-valued members** (`Clip.groove`, `Song.cue_points`, `slices`)
   are the usual reason a member was skipped: the generic `properties_r/rw`
   machinery serialises scalars only. Closing such a gap means a

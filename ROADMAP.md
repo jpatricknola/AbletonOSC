@@ -28,9 +28,11 @@ all trace of it here and let the rest renumber (the `/ship` skill handles this),
 remove or update whatever source write-up the entry cited, and move its plan
 doc to [docs/archive/](docs/archive/) with a status banner. Nothing
 else about a ship stays here — this file documents future work only; ship
-history lives in git, `SESHAT.md`, and the archived plan. **Cite an item by its
-title, never by its rank.** A rank is correct only until the next ship, and a
-stale one doesn't look stale — it silently points at a different item.
+history lives in git, `SESHAT.md`, and the archived plan. **Outside this file, cite
+an item by its title, never by its rank.** A rank is correct only until the
+next ship, and a stale one doesn't look stale — it silently points at a
+different item. The `Depends on` notes below are the one place ranks are used,
+and `/ship` renumbers them with the entries.
 
 **[Deliberately not planned](#deliberately-not-planned)**
 The section at the end records work weighed and declined, each with the
@@ -188,6 +190,10 @@ dialog may guard unsaved work.
 
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **C-3**.
+- Fold in `issues.md`, "Remove the unsolicited average-process-usage startup
+  datagram" (Medium-low): `ApplicationHandler.init_api` sends an empty
+  `/live/application/get/average_process_usage` at startup that nothing
+  requested. Same file, same PR; remove that entry at ship time too.
 - Depends on #2.
 
 ## #9 · B-1 · Notes extended
@@ -223,7 +229,26 @@ uses reload during development; move this up if it bites during #6–#9.
   (Medium-high).
 - No dependencies.
 
-## #11 · Remove the process-global and shared-file risks from song structure export
+## #11 · Stop masking Remote Script import failures
+
+**Goal:** a failed import of `Manager` inside Live surfaces the original
+exception at startup, and the Live-free test layer imports what it needs
+without a blanket `ImportError` guard in the Remote Script entry point.
+
+**Why:** the package root swallows every `ImportError` so pytest can import it
+without Live's modules; in Live the same guard hides a real missing dependency
+or programming error, and `create_instance()` then fails with a `NameError` on
+the undefined `Manager` instead of the actionable cause. Every handler PR
+above is debugged through that startup path.
+
+**Planner notes:**
+- Source: `issues.md`, "Stop masking Remote Script import failures" (Medium).
+- Small: root `__init__.py` plus whatever `tests_unit/conftest.py` needs to
+  keep loading modules without Live. Check how the loader there imports today
+  before choosing the guard's replacement.
+- No dependencies.
+
+## #12 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -239,7 +264,24 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #12 · A-3 · Return / master `Track` parity
+## #13 · Add bounded log retention
+
+**Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
+with documented rotation, and `/live/api/reload` and disconnect neither stack
+duplicate handlers nor leak file descriptors.
+
+**Why:** `Manager.start_logging` uses an unbounded `FileHandler` and every
+getter request is logged, so a long-lived Seshat session grows the file
+without limit (≈855 KB at the time of the audit, still growing).
+
+**Planner notes:**
+- Source: `issues.md`, "Add bounded log retention" (Medium).
+- `manager.py` only, but `logs/abletonosc.log` is also the evidence channel
+  for `API.md` § "The no-probe variant" — rotation must not lose the tail a
+  reviewer is reading; name the rotated filenames in `API.md`.
+- No dependencies.
+
+## #14 · A-3 · Return / master `Track` parity
 
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
@@ -254,7 +296,7 @@ return/master feature downstream trips over the difference.
 - Prefer a shared track resolver over three copies of the handler table.
 - Depends on #5.
 
-## #13 · C-1 · `Song` remainder
+## #15 · C-1 · `Song` remainder
 
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
@@ -266,7 +308,7 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
 - Source: `CLOSING_THE_GAPS.md`, row **C-1**.
 - Depends on #2.
 
-## #14 · D-2 · Groove
+## #16 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -295,6 +337,21 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 - **Low-priority issues** — clip filtering, transport inconsistencies, module
   splits, the `dump_lom` path bound, the log-level assert. Opportunistic: fold
   into a PR that already touches the same file rather than ranking them.
+- **Correct and complete the public API documentation** (`issues.md`,
+  Medium). `API.md` is the fork's canonical contract and every address PR
+  adds its rows there, which is the substance of this item; what remains is
+  upstream-file housekeeping — the README download link points at
+  ideoforms, `CONTRIBUTING.md` says `/live/reload` instead of
+  `/live/api/reload`, the README track section predates the return/master
+  split. Opportunistic: fix a line when a PR already touches that file, and
+  never rewrite README's address tables (they are upstream's, kept for merge
+  fidelity). **Reopens when** `API.md` is found to disagree with the code.
+- **Establish a single authoritative endpoint contract inventory**
+  (`issues.md`, Medium). `API.md` plus Seshat's `vendored_addresses_test`
+  are the inventory and the tripwire today; a generated, machine-checked
+  one is only worth building once the test-suite item above has a
+  contract layer to check it against. **Reopens when** that item ships and
+  a doc/code drift is found that the unit layer didn't catch.
 - The defect-shaped declines — the import-time reload in `tests/`, the
   `pythonosc` escape sequence — are in `issues.md` § Declined with their
   reopen conditions.

@@ -35,9 +35,12 @@ no-ops, but check rather than assume.
    one drops the dependency.
 
 3. **Remove it from its source.** A defect: delete its entry from
-   `issues.md` ("Completed entries are removed"). A gap bucket: remove its reference `FORK_GAPS.md` 
-   once the gap no longer exists.
-   
+   `issues.md` ("Completed entries are removed"), and any second entry the
+   roadmap item said it folds in. A gap bucket: delete its row from
+   `CLOSING_THE_GAPS.md`, and delete the curated `FORK_GAPS.md` entries the
+   roadmap item named as closed (the generated inventory is handled in
+   step 4).
+
 4. **Confirm the same-commit obligations actually landed** — this is the
    check `/pr-review` made, repeated once more against the final branch,
    because a rebase or a late fix can drop them:
