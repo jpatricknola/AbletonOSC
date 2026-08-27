@@ -5,7 +5,7 @@ Object Model but with no OSC address in this repository. It is neither a
 Live limit nor a Seshat tool-layer gap, and it must never be planned as UI
 scripting — closing one is a handler here (one commit in this repo, one
 submodule pin bump in Seshat, `mix abletonosc.install`, Live restart),
-documented in Seshat's `docs/abletonosc-api-docs.md` and tripwired by
+documented in `API.md` and tripwired by
 Seshat's `vendored_addresses_test`._
 
 ## Three layers, and how to classify a "can't"
@@ -71,8 +71,8 @@ shapes, and each has its own section below:
   machinery serialises scalars only. Closing such a gap means a
   hand-written handler that takes or returns an index, a name, or a
   flattened tuple — say which in the entry.
-- **History.** Seshat's `docs/evaluating/lom-to-fork-gap-audit.md`
-  (2026-07-31, hand-written from `strings` on `LomTypes.pyc` and the
+- **History.** Seshat's former `docs/evaluating/lom-to-fork-gap-audit.md`
+  (2026-07-31, deleted 2026-08-27 once folded in here; hand-written from `strings` on `LomTypes.pyc` and the
   apiref) was the first pass and has been folded into this file: its
   dispositions and false-gap table are the two sections below the curated
   entries, its membership claims are superseded by the generated inventory
@@ -91,9 +91,9 @@ State which one each entry rests on; only the last means "works."
 2. **Documented** — apiref page or Ableton release notes name the owner,
    access mode and version.
 3. **Called from a Remote Script** — this fork's own code, Live's shipped
-   Python, or a probe handler run through the rig in Seshat's
-   `.claude/docs/ableton-osc-reference.md` ("Measuring the Live API without
-   building the feature first"), with the answer read out of `Log.txt`.
+   Python, or a probe handler run through the rig in
+   [API.md](API.md) ("Measuring the Live API without building the feature
+   first"), with the answer read out of `Log.txt`.
 
 Every curated entry below as of 2026-08-27 is tier 1 or 2; the generated
 inventory is tier 1 by construction. **None has been run.** A member being
@@ -248,7 +248,7 @@ not Python's._
 | Drum Rack pad map unreadable | — | False: `DrumChain.in_note` is a fork gap (curated entry) |
 
 The audit also found eight registered addresses missing from Seshat's
-`docs/abletonosc-api-docs.md`; all eight are documented there now. The
+`API.md`; all eight are documented there now. The
 rule stands: before implementing any gap, reconcile the address rows with
 the Python source in the same change, and never infer an address name from
 AbletonOSC naming patterns.

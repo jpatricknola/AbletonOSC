@@ -1,7 +1,7 @@
 """
 Regression tests for OSCServer.process_message's dispatch core:
-wildcard matching (#1), fan-out failure isolation (#2), and reply-type
-validation (#5). All drive process_message directly via conftest.dispatch;
+wildcard matching, fan-out failure isolation, and reply-type
+validation. All drive process_message directly via conftest.dispatch;
 no Live, no fixed ports.
 """
 
@@ -26,7 +26,7 @@ def addresses(messages):
 
 
 #--------------------------------------------------------------------------------
-# Wildcard matching (#1)
+# Wildcard matching
 #--------------------------------------------------------------------------------
 
 def test_wildcard_matches_whole_segment_only(server, receiver):
@@ -112,7 +112,7 @@ def test_direct_lookup_is_byte_exact(server, receiver):
 
 
 #--------------------------------------------------------------------------------
-# Fan-out failure isolation (#2)
+# Fan-out failure isolation
 #--------------------------------------------------------------------------------
 
 @pytest.fixture
@@ -205,7 +205,7 @@ def test_fanout_replies_carry_concrete_addresses(server, receiver):
 
 
 #--------------------------------------------------------------------------------
-# Reply-type validation (#5)
+# Reply-type validation
 #--------------------------------------------------------------------------------
 
 def test_direct_non_tuple_return_is_structured_error(server, receiver):

@@ -1,5 +1,5 @@
 """
-Regression tests for issue #4: failures in the generic method/property
+Regression tests for the dispatch/error-boundary rework: failures in the generic method/property
 paths reach the dispatcher boundary and come back as one correlated
 /live/error ("request", ...) envelope, without aborting the rest of the
 bundle or the tick's queue.
@@ -30,7 +30,7 @@ class RejectingTarget:
 
 
 def set_property_style_callback(target, prop):
-    # The exact shape of AbletonOSCHandler._set_property after issue #4:
+    # The exact shape of AbletonOSCHandler._set_property after the dispatch-boundary rework:
     # log-free here for brevity, no try/except, setattr propagates.
     def callback(params):
         setattr(target, prop, params[0])
@@ -64,7 +64,7 @@ def build_bundle_dgram(messages):
 
 
 def failing_method_callback(params):
-    # The shape of _call_method after issue #4: the method call propagates.
+    # The shape of _call_method after the dispatch-boundary rework: the method call propagates.
     raise RuntimeError("Invalid track index")
 
 

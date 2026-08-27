@@ -328,7 +328,7 @@ so treat any merge that reverts one as a regression, not a preference.
   mismatch — so they, and every other exception, become the structured
   `("request", <pattern>, "in <callback>: <detail>", …)` error above while the
   remaining matches still run. Widening the skip set waits on per-route
-  argument schemas (issue #15). The former "legacy uncorrelated error" outcome
+  argument schemas (`issues.md`, endpoint contract inventory). The former "legacy uncorrelated error" outcome
   for wildcard failures is gone entirely.
 
   **`IndexError` is qualified by argument count** (`_is_wildcard_skip`), because
@@ -347,7 +347,7 @@ so treat any merge that reverts one as a regression, not a preference.
   reaching an endpoint that wants one argument more than it sent (e.g.
   `/live/device/get/* 0 0` and an endpoint reading `params[2]`) reports instead
   of skipping — a correlated error naming that endpoint, with every other match
-  still replying. Issue #15's per-route schemas are what remove the guess.
+  still replying. The endpoint-contract-inventory item's per-route schemas are what remove the guess.
 
   **Wildcards are a fan-out, not a query — do not reach for them as a batching
   shortcut.** A pattern produces one reply per matched endpoint, each on its own
@@ -381,7 +381,7 @@ so treat any merge that reverts one as a regression, not a preference.
   return/master handlers deliberately reply with endpoint-specific tuples
   containing `"error"` (and their paired `logger.error` lines still relay a
   duplicate legacy `("log", …)` datagram for the same failure — known, left
-  for issues #4/#15 as an explicit behaviour change rather than smuggled in
+  for the endpoint-contract-inventory item in `issues.md` as an explicit behaviour change rather than smuggled in
   here); view-steering setters deliberately log and stay silent;
   `song/get/track_data` can log and return partial output. Only the
   dispatcher boundary sets the `osc_request_error` marker — it means "a
@@ -402,7 +402,7 @@ so treat any merge that reverts one as a regression, not a preference.
   renamed (the send now reads `("request", error_address, detail, …)`), so the
   guard will fail against this commit until it is updated to assert the
   refactored send semantically. The same companion change must update
-  `docs/abletonosc-api-docs.md` where wildcard failures are documented as
+  `API.md` where wildcard failures are documented as
   uncorrelated `"log"` messages, record there that wildcards must not be sent
   through `Transport.query/3` (see the fan-out note above — `query_batch/2` is
   the answer), re-run the Transport and vendored-address tests, and bump the

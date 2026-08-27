@@ -11,7 +11,7 @@ def capture_after_send(client, address, send, timeout=TICK_DURATION):
     Install a capture handler for `address` *before* calling `send`, so a
     reply that arrives faster than a subsequent await_message() could
     subscribe is not lost. Local to the live-integration tests; a shared
-    harness home is issue #6's call.
+    harness home is the test-suite item's call (issues.md).
     """
     rv = None
     _event = threading.Event()

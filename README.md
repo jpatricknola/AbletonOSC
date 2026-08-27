@@ -28,6 +28,13 @@ Activity logs will be output to a `logs` subdirectory. Logging granularity can b
 
 # Usage
 
+> **This fork's canonical address reference is [API.md](API.md).** The
+> tables below are upstream's and are kept for merge fidelity; they omit every
+> fork-only address (`/live/browser/*`, `/live/return_track/*`,
+> `/live/master/*`, the view and undo-step additions, the structure listeners)
+> and predate the behaviour measured against real Live that `API.md` records.
+> Where the two disagree, `API.md` is right.
+
 AbletonOSC listens for OSC messages on port **11000**, and sends replies on port **11001**. Replies will be sent to the
 same IP as the originating message.
 

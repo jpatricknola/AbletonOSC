@@ -8,7 +8,7 @@ docstring, which carries the signature), listener (add_X_listener, i.e. X is
 observable), nested class, or enum value. It also serialises the tables in
 _MxDCore.LomTypes, which are the exact member lists Max for Live exposes,
 and the OSC server's registered addresses, so a single file holds both
-sides of the gap diff. client/lom_gaps.py turns that file into the table in
+sides of the gap diff. tools/lom_gaps.py turns that file into the table in
 FORK_GAPS.md.
 
 Runs inside Live only (imports Live). Triggered by

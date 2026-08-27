@@ -100,7 +100,7 @@ class OSCServer:
     # further qualified by argument count. Deliberately narrow: TypeError and
     # KeyError commonly indicate a real handler defect, and no broad exception
     # class proves an argument-shape mismatch. Widening this set waits on
-    # per-route argument schemas (issue #15).
+    # per-route argument schemas (issues.md, endpoint contract inventory).
     #--------------------------------------------------------------------------------
     WILDCARD_SKIP_EXCEPTIONS = (ValueError, AttributeError, IndexError)
 
@@ -134,7 +134,7 @@ class OSCServer:
         params[2]) is reported rather than skipped: a correlated error
         naming that endpoint, while every other match still replies. Loud
         and wrong beats silent and wrong here; per-route argument schemas
-        (issue #15) are what removes the guess entirely.
+        (issues.md, endpoint contract inventory) are what removes the guess entirely.
         """
         if not isinstance(exception, self.WILDCARD_SKIP_EXCEPTIONS):
             return False
