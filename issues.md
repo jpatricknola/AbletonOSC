@@ -39,18 +39,23 @@ process usage should follow a clearly documented query or listener contract.
 
 **Priority:** Medium-high — development reload can create a mixed runtime
 
-`Manager.reload_imports` reloads several concrete handler modules before
-reloading their `handler` base. Those modules can remain subclasses of the old
-base class after `/live/api/reload`. In addition, a reload exception is logged
-but execution still clears and reinitializes the API, allowing a partially
-reloaded module graph to become active.
+**The ordering half of this entry shipped** with "Fix base handler
+initialization order": `Manager.reload_imports` now reloads `osc_server` and
+`handler` before every subclass module, `track_callback` before `track`, and
+`track_identity` before `view`, so a reloaded handler can no longer be built
+on a stale `AbletonOSCHandler`. What remains is failure-safety.
 
-A successful reload must produce a coherent set of modules whose handlers share
-the intended current base classes. A failed reload must preserve a usable
-previous API or fail in a clearly reported, recoverable state; it must not
-silently activate a mixture of old and new code. Listener cleanup and Seshat's
-extension registrations are especially important because reload is used during
-development and tests currently trigger it automatically.
+A reload exception is logged at warning level but execution still falls
+through to `clear_api()` / `init_api()`, allowing a partially reloaded module
+graph to become active, and the client that sent `/live/api/reload` is told
+nothing.
+
+A failed reload must preserve a usable previous API or fail in a clearly
+reported, recoverable state; it must not silently activate a mixture of old
+and new code. Listener cleanup and Seshat's extension registrations are
+especially important because reload is used during development and tests
+currently trigger it automatically. `abletonosc.midimap` is still never
+reloaded — decide here whether to close that or record it as accepted.
 
 **Affected area:** `manager.py`, `abletonosc/__init__.py`, reload tests.
 

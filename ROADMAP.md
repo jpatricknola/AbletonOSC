@@ -41,50 +41,53 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · Normalize listener argument identity in track.py and return_track.py
+## #1 · Normalize listener argument identity in `track_callback.py`
 
-**Goal:** `track_callback.py`'s `include_track_id` branch and
-`return_track.py`'s hand-rolled per-property `start_listen`/`stop_listen`
-pairs (including the index-less master triple) truncate their identity to
-exactly the arguments that are part of it — the same rule "Normalize listener
-argument identity in scene.py, clip.py, clip_slot.py, and the device.py
-property pair" established everywhere else: arguments past a subscription's
-identity are dropped from the bookkeeping key and the push, not merely
-appended after the cast indices.
+**Goal:** `track_callback.py`'s `include_track_id` branch truncates its
+identity to exactly the arguments that are part of it — the same rule
+"Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and
+the device.py property pair" established everywhere else: arguments past a
+subscription's identity are dropped from the bookkeeping key and the push, not
+merely appended after the cast index.
 
 **Why:** `track_callback.py:89` builds `tuple([track_index] + params[1:])` —
 the index is already an int (the wildcard fan-out generates ints too), but
 nothing bounds `params[1:]`, so `start_listen/<prop> <index> <extra>` keys
 `(prop, (index, extra))` while the well-formed `stop_listen/<prop> <index>`
-keys `(prop, (index,))` — the identical extra-arg leak the sibling item fixed
-in `device.py`, `scene.py`, `clip.py`, and `clip_slot.py`, reachable here by
-the same shape of malformed request. `return_track.py`'s per-property pairs
-(`name`, `volume`, `panning`, `mute`, `solo`, plus the parameterless master
-`volume`/`panning`/`cue_volume`) don't share `track_callback.py`'s helper at
-all — they are separate hand-rolled code with their own identity handling —
-so this is a second fix in that file, not a side effect of the first.
+keys `(prop, (index,))`. The stop misses, the listener leaks, and every push
+from the leaked listener carries the stray argument, because `handler.py:138`
+sends `(*params, *value)`. This is the identical extra-arg leak the sibling
+item fixed in `device.py`, `scene.py`, `clip.py`, and `clip_slot.py`, reachable
+here by the same shape of malformed request.
 
 **Planner notes:**
-- Source: `docs/archive/PLAN_listener_identity_normalization.md`, "Out of scope"
-  (both bullets), and that item's pr-review (branch
-  `listener-identity-normalization`, round 2, nit 4's third bullet) —
-  explicitly named there as real but deliberately excluded from that item's
-  diff to keep it to the four files its title named.
-- `track_callback.py`'s `include_track_id` path is shared by the mixer listen
-  pair too (`_start_mixer_listen`/`_stop_mixer_listen` in `track.py`) — fix
-  and test both, not just the plain property pair.
-- `return_track.py` needs its own audit: enumerate every
-  `_start_listen_<prop>`/`_stop_listen_<prop>` method (and the master trio)
-  and confirm each one's identity-building line, since there is no shared
-  wrapper to point at.
+- Source: `docs/archive/PLAN_listener_identity_normalization.md`, "Out of
+  scope", first bullet — named there as real but deliberately excluded from
+  that item's diff to keep it to the four files its title named.
+- Both call sites that pass `include_track_id=True` are in `track.py`: the
+  plain property pair (`track.py:66-68`) and the mixer pair (`track.py:84-86`,
+  `_start_mixer_listen`/`_stop_mixer_listen`) — fix and test both, not just
+  the plain property pair.
+- The fix belongs at the call site. `handler.py` does no truncation of its
+  own: `_start_listen` and `_stop_listen` key on `tuple(params)` exactly as
+  handed to them (`handler.py:141`, `handler.py:171`), which is why the four
+  files above were each fixed where they build the tuple.
+- **`return_track.py` is out of scope — audited 2026-08-27, already clean.**
+  Every per-property pair builds its key from the *parsed* index and never
+  from the params tail (`self._start_listen(track, "name", (index,))` at
+  `return_track.py:400`, `listener_params=(index, "<prop>")` for the mixer
+  properties), and the index-less master triple keys on a `"master"` sentinel
+  with `reply_prefix=()` (`return_track.py:486-510`). Extra arguments are
+  never read there, so nothing can leak. The out-of-scope bullet in that plan
+  raised return/master as an open "same residual question"; the answer is no,
+  and this entry no longer claims otherwise.
 - Verified 2026-08-27 against `/Users/patrick/seshat`:
   `lib/seshat/session/state.ex` sends `/live/track/start_listen/<prop>
-  <index>`, `/live/return_track/start_listen/<prop> <index>`, and
-  `/live/master/start_listen/<prop>` with exactly the documented argument
-  count, always an Elixir (int32) index, never floats or extras — so today's
-  only known caller is unaffected either way; the gap is reachable only by a
-  malformed or hand-crafted client. Re-confirm this before assuming "pin bump
-  only" if `lib/` has changed since.
+  <index>` with exactly the documented argument count, always an Elixir
+  (int32) index, never floats or extras — so today's only known caller is
+  unaffected either way; the gap is reachable only by a malformed or
+  hand-crafted client. Re-confirm this before assuming "pin bump only" if
+  `lib/` has changed since.
 - No dependencies.
 
 ## #2 · One `/live/song/undo` does not revert an OSC-created scene
@@ -104,10 +107,13 @@ its own writes is exposed, and the fork's `begin/end_undo_step` addresses make
 that a documented usage pattern rather than a hypothetical one.
 
 **Planner notes:**
-- Not a regression from any shipped item. The pre-change test at `ea6b719`
-  carries the identical one-undo assumption (hard-coded `8`/`9` instead of a
-  discovered baseline), and nothing in the five items shipped above touches
-  undo. The suite simply never ran before, so the assumption was never tested.
+- Not a regression from any shipped item.
+  `tests/test_song.py::test_song_undo_redo` has carried the one-undo
+  assumption since it was written; the regression-gate item only replaced its
+  hard-coded `8`/`9` with a discovered baseline and left the single `undo`
+  between the assertions untouched (`tests/test_song.py:256-278`). Nothing in
+  the five items shipped before it goes near undo. The suite simply never ran
+  before, so the assumption was never tested.
 - Source: the live-verification run recorded in
   `docs/archive/PLAN_test_suite_regression_gate.md` (2026-08-27).
 - First thing to establish: what the extra undo step *is*. Candidates worth
@@ -137,13 +143,21 @@ Unblocks the groove bucket.
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **A-4**; closes FORK_GAPS
   "Object-valued reads returned as `None`".
+- `-1` for "none" is already the fork's convention, established by the shipped
+  selected-track identity item and written down in API.md § "`-1` is an
+  answer, never an argument" (`API.md:674`) — follow it, and keep its second
+  half: no setter accepts `-1` as input.
+- Precedent for the group-track read exists rather than needing invention:
+  `/live/song/export/structure` already resolves `track.group_track` to an
+  index into `song.tracks` (`song.py:177-184`). Reuse that resolution instead
+  of writing a second one.
 - No dependencies.
 
 ## #4 · B-2 · DeviceParameter rich reply
 
 **Goal:** one richer `parameters` reply plus per-parameter addresses —
-`value_items`, `short_value_items`, `display_value` (get/set), `str_for_value`,
-`state`, `is_enabled`, `automation_state`, `default_value`, `original_name`,
+`value_items`, `short_value_items`, `display_value` (get/set), `state`,
+`is_enabled`, `automation_state`, `default_value`, `original_name`,
 `begin_gesture` / `end_gesture`.
 
 **Why:** the integration audit's Medium–high, with no dependencies on other
@@ -154,6 +168,10 @@ gap PR — it proves the batching conventions the rest reuse: handlers +
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **B-2**; closes FORK_GAPS "Device
   parameters — numeric only".
+- `str_for_value` is **already shipped** as
+  `/live/device/get/parameter/value_string` (`device.py:210`, calling
+  `str_for_value` at `device.py:166`). The B-2 row still lists it; do not
+  re-add the address, and delete that clause from the row at ship time.
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
@@ -175,7 +193,12 @@ dialog may guard unsaved work.
 - Fold in `issues.md`, "Remove the unsolicited average-process-usage startup
   datagram" (Medium-low): `ApplicationHandler.init_api` sends an empty
   `/live/application/get/average_process_usage` at startup that nothing
-  requested. Same file, same PR; remove that entry at ship time too.
+  requested (`application.py:39`). Same file, same PR; remove that entry at
+  ship time too.
+- `application.py` is a 40-line module registering three addresses today
+  (`version`, `average_process_usage`, `dump_lom`) — this item roughly
+  triples it, so it also decides whether `Application` gets the generic
+  property loop the other handlers use or stays hand-rolled.
 - No dependencies.
 
 ## #6 · B-1 · Notes extended
@@ -193,22 +216,45 @@ old five-field addresses unchanged; then the ID-keyed members
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **B-1**; closes FORK_GAPS "Notes —
   `/live/clip/get/notes` flattens to five fields".
+- The LOM call needs no change: `/live/clip/get/notes` already calls
+  `clip.get_notes_extended` (`clip.py:173`) and throws the extra fields away
+  when it flattens to five. Only the reply shape and the new addresses are
+  new work — which also means the old five-field addresses stay byte-identical
+  by construction, not by care.
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #7 · Make live code reload ordered and failure-safe
+## #7 · Make a failed live code reload safe and reported
 
-**Goal:** `/live/api/reload` produces a coherent module graph whose handlers
-share the current base classes, and a failed reload preserves a usable previous
-API or fails in a clearly reported, recoverable state.
+**Goal:** a reload that raises does not activate a partially reloaded module
+graph — `/live/api/reload` either preserves a usable previous API or fails in a
+clearly reported, recoverable state, and the failure reaches the client rather
+than only the log file.
 
-**Why:** `Manager.reload_imports` reloads concrete handler modules before their
-`handler` base and activates the result even after an exception. Every gap PR
-uses reload during development; move this up if it bites during #3–#6.
+**Why:** `Manager.reload_imports` wraps the whole reload sequence in one
+`try`, logs the traceback at warning level, and then falls through to
+`clear_api()` / `init_api()` regardless (`manager.py:196-202`). A module that
+failed to reload stays at its previous definition while its siblings advance,
+that mixture becomes the live API, and the caller who sent `/live/api/reload`
+is told nothing went wrong.
 
 **Planner notes:**
 - Source: `issues.md`, "Make live code reload ordered and failure-safe"
-  (Medium-high).
+  (Medium-high). **The ordering half of that entry has shipped** with "Fix
+  base handler initialization order": `reload_imports` now reloads
+  `osc_server` and `handler` before every subclass module, `track_callback`
+  before `track`, and `track_identity` before `view`, with the reasoning
+  written into the code (`manager.py:152-195`). Only failure-safety remains —
+  narrow that `issues.md` entry to the remainder at ship time rather than
+  deleting it.
+- `abletonosc.midimap` is deliberately absent from the reload list, so
+  `MidiMapHandler` keeps subclassing whatever `AbletonOSCHandler` was current
+  at Live startup, across every reload (`manager.py:163-169`). Harmless today
+  because `midimap`'s `init_api()` reads neither `class_identifier` nor a
+  listener dict — decide in this item whether to close it or record it as
+  accepted, since the code comment currently points here for the answer.
+- Every gap PR uses reload during development; move this up if it bites
+  during #3–#6.
 - No dependencies.
 
 ## #8 · Stop masking Remote Script import failures
@@ -242,6 +288,12 @@ browser exporter was hardened against.
 **Planner notes:**
 - Source: `issues.md`, "Remove the process-global and shared-file risks from
   song structure export" (Medium-high).
+- **The code is in `song.py:210-231`** (`song_export_structure`), *not* in
+  `abletonosc/song_structure.py` — that module is unrelated track and
+  return-track listener code that shares only the name. Do not start by
+  opening the file the item sounds like.
+- The behaviour is documented, so deleting or changing it is an API.md edit
+  too: `API.md:598-603` describes the reply and names the `TMPDIR` blanking.
 - Check Seshat consumers first: if the address is unused, deletion is a
   five-line PR that can go any time.
 - Depends on that consumer audit only.
@@ -269,12 +321,21 @@ without limit (≈855 KB at the time of the audit, still growing).
 address set — colour, routing, meters, `has_*_input/output`, every
 `start_listen`, `insert_device`, `mixer_device.sends` on returns.
 
-**Why:** regular tracks have 107 addresses, returns 20, master 15; every
-return/master feature downstream trips over the difference.
+**Why:** returns and master have the mixer surface (volume, panning, mute,
+solo, name, cue volume) and a device subset, and almost nothing else — no
+colour, no routing, no meters, no `has_*_input/output`, no `insert_device`, no
+`mixer_device.sends` on returns. Every return/master feature downstream trips
+over the difference.
 
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **A-3**; closes the FORK_GAPS Track
   addressing gap and the `MixerDevice` gap on returns/master.
+- **The "107 / 20 / 15" address counts in the FORK_GAPS heading and the A-3
+  row predate the fork's return/master work and are no longer accurate** —
+  `return_track.py` alone now registers about thirty addresses, including the
+  `name`/`volume`/`panning`/`mute`/`solo` listen pairs that FORK_GAPS still
+  describes as missing. Recount from the code before sizing the PR, and
+  regenerate or correct those figures as part of it.
 - Prefer a shared track resolver over three copies of the handler table.
 - No dependencies.
 
@@ -288,6 +349,12 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
 
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **C-1**.
+- Audited 2026-08-27: none of the row's members are registered yet, so the
+  row can be taken as written. Note that neighbouring members already exist
+  and are *not* this item — `root_note`, `scale_name`,
+  `is_ableton_link_enabled`, `clip_trigger_quantization`
+  (`song.py:63-78`) — so the scale and Link work here is `scale_mode`,
+  `scale_intervals` and `is_ableton_link_start_stop_sync_enabled` only.
 - No dependencies.
 
 ## #13 · D-2 · Groove
@@ -301,6 +368,13 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **D-2**.
+- `Clip.groove` is already known to be unreachable through the generic
+  property loop and is commented out in place with the reason
+  (`clip.py:123`: "Infered arg_value type is not supported") — that
+  commented line is the concrete thing this item replaces, and it is why the
+  dependency on #3's object-read pattern is real rather than tidiness.
+  `song.groove_amount` (`song.py:65`) and `clip.has_groove`
+  (`clip.py:110`) already work and stay as they are.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
 - Depends on #3 (object-read pattern).
 
@@ -323,9 +397,10 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
   Medium). `API.md` is the fork's canonical contract and every address PR
   adds its rows there, which is the substance of this item; what remains is
   upstream-file housekeeping — the README download link points at
-  ideoforms, `CONTRIBUTING.md` says `/live/reload` instead of
-  `/live/api/reload`, the README track section predates the return/master
-  split. Opportunistic: fix a line when a PR already touches that file, and
+  ideoforms, and the README track section predates the return/master split.
+  (The `CONTRIBUTING.md` `/live/reload` typo this bullet used to name was
+  fixed by the regression-gate item; that file says `/live/api/reload`
+  throughout now.) Opportunistic: fix a line when a PR already touches that file, and
   never rewrite README's address tables (they are upstream's, kept for merge
   fidelity). **Reopens when** `API.md` is found to disagree with the code.
 - **Establish a single authoritative endpoint contract inventory**
