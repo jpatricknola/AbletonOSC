@@ -367,6 +367,23 @@ new handler logs its resolution; that is deliberate, Part rules #7). Wrap
 every mutating check in `/live/song/begin_undo_step` / `end_undo_step` and
 restore what you change.
 
+> **Checks 1–9: skipped by environment (pr-review, 2026-08-27).**
+> Live 12.4.3 *is* running, but the precondition fails on the first clause:
+> the installed copy is **not** this checkout. `diff -rq --exclude=__pycache__
+> abletonosc "$HOME/Music/Ableton/User Library/Remote Scripts/AbletonOSC/abletonosc"`
+> reports six differing files — `clip_slot.py`, `song.py`, `track.py`,
+> `track_callback.py`, `track_identity.py`, `view.py`. Comparing hashes,
+> `clip_slot.py`, `song.py`, `track.py`, `track_identity.py` and `view.py`
+> installed are byte-identical to `1a6fef3d` (this branch's base), and
+> `track_callback.py` installed is older still. **None of this branch's code
+> is installed**, so nothing on the wire could be evidence for or against it,
+> and this phase may not install into Live or restart it. Every check below is
+> therefore skipped, not failed — no result is recorded for any of them, and
+> the ⚠️ open questions (1, 2, 3, 4, 5, 7) they were to decide all remain open.
+> The `dump_lom` + `tools/lom_gaps.py --write` regeneration at the end of this
+> section is skipped for the same reason (and there is still no
+> `lom_dump*.json` anywhere in the repo or in the installed `logs/`).
+
 1. **group_track**: in a set with a grouped track at index `i` inside a group
    at `g`: send `/live/track/get/group_track i` → log
    `group_track = g`; ungrouped track → `-1`; `* ` → one log line per track;
