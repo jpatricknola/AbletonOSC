@@ -21,9 +21,12 @@ uses none of its behaviour — so a stub whose Component.__init__ accepts and
 ignores everything makes the real base class testable without pretending to
 be Live. Nothing else stubs anything: osc_server.py and track_callback.py
 are imported exactly as they ship, and the stub is only installed when a
-test actually calls load_handler_module(). The production *subclasses*
+test actually calls load_handler_module(). Most production *subclasses*
 (track.py, song.py, ...) import Live itself at module scope and stay out of
-reach until that is addressed separately.
+reach until that is addressed separately — but device.py does not (it
+imports only typing and .handler), so load_device_module() can construct
+the real DeviceHandler on top of the same Component stub and drive it end
+to end; test_device_listeners.py does exactly that.
 
 test_import.py smoke-tests the loader so it cannot fail only when the
 first real dispatcher test is collected.
@@ -114,6 +117,20 @@ def load_handler_module():
         sys.modules["ableton.v2.control_surface.component"] = component
 
     return load_module("abletonosc.handler")
+
+
+def load_device_module():
+    """
+    Import the real `abletonosc.device` beneath the synthetic root.
+
+    Unlike the other handler subclasses, device.py imports nothing from Live
+    — only `typing` and `.handler` — so once load_handler_module() has put
+    the Component stub in place, the production DeviceHandler can be
+    constructed and dispatched against outside Live. Local fakes stand in
+    for the LOM objects its callbacks reach through `self.song`.
+    """
+    load_handler_module()
+    return load_module("abletonosc.device")
 
 
 class Receiver:

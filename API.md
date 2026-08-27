@@ -1237,26 +1237,6 @@ from the Live Object Model, not from a smoke test; `bypass_device` reads
 parameter 0's `value_string` and refuses unless it reads On/Off rather than
 trusting it blind.
 
-Every `get/` property in the table below (`name`, `type`, `class_name`) also
-has `/live/device/start_listen/<property> <track_id> <device_id>` and
-`/live/device/stop_listen/<property> <track_id> <device_id>` — but ⚠️ **these three pairs
-are hobbled as registered** (re-verified against `device.py` 2026-08-27). The registration strips both indices before they reach
-`_start_listen`, so the push arrives on the `get/` address carrying the
-**bare value only** — no track or device echo — and the listener is keyed per
-*property*, not per device, so subscribing a second device to the same
-property silently replaces the first. One subscription per property at a
-time, and a push cannot say which device it describes. Don't build on these
-three until the fork registers them with `include_ids=True` (the flag
-`parameter/value` below already uses correctly).
-
-Listen for parameter changes via
-`/live/device/start_listen/parameter/value <track_index> <device_index> <parameter_index>`,
-and stop with `stop_listen/parameter/value` (same three arguments). Each change
-pushes **two** datagrams: one on `/live/device/get/parameter/value` and one on
-`/live/device/get/parameter/value_string`, both echoing all three indices. The
-push echoes the indices **as sent** — the query reply int-casts them, the push
-does not, so a float index comes back as a float. Send ints.
-
 | Address | Query Params | Response Params | Description |
 |---|---|---|---|
 | `/live/device/get/name` | `track_id, device_id` | `track_id, device_id, name` | Device name |
@@ -1282,6 +1262,55 @@ does not, so a float index comes back as a float. Send ints.
   report 2). The first two were documented the other way round until then; if
   another source disagrees, it is repeating the old guess.
 - `class_name`: Live instrument/effect name (e.g., Operator, Reverb). External plugins: AuPluginDevice, PluginDevice. Racks: InstrumentGroupDevice, etc.
+
+### Device: Listening
+
+Every `get/` property in the table below (`name`, `type`, `class_name`) has
+`/live/device/start_listen/<property> <track_id> <device_id>` and
+`/live/device/stop_listen/<property> <track_id> <device_id>` registered — but
+only `name` is observable in Live, and it is also the only one of the three
+that can change (a device's `type` and `class_name` are fixed for its
+lifetime).
+
+- **`name`** subscribes **per device**. On subscribe and on every change it
+  pushes on `/live/device/get/name` with `(track_id, device_id, name)` — the
+  same shape as the query reply, so one decoder serves both. Two devices can
+  be subscribed at once; `stop_listen/name` with the same two indices ends
+  exactly that one subscription.
+- ⚠️ **`type` and `class_name` cannot be listened for.** Subscribing answers
+  a structured `/live/error ("request", <address>, <detail naming
+  add_type_listener / add_class_name_listener>, 2, track_id, device_id)` and
+  registers nothing. The addresses stay registered so the refusal is explicit
+  and correlatable rather than an unknown-address silence.
+
+> **Measured 2026-08-27, Live 12.4.3**, via `/live/application/dump_lom`:
+> `Live.Device.Device` exposes `add_name_listener`,
+> `add_parameters_listener`, `add_is_active_listener`,
+> `add_is_using_compare_preset_b_listener`, `add_latency_in_ms_listener` and
+> `add_latency_in_samples_listener` — and **no** `add_type_listener` or
+> `add_class_name_listener`. `type` and `class_name` are plain non-observable
+> read-only properties. Don't re-derive this from the apiref; if a future
+> Live version adds them, re-run the dump and update this note.
+
+Listen for parameter changes via
+`/live/device/start_listen/parameter/value <track_index> <device_index> <parameter_index>`,
+and stop with `stop_listen/parameter/value` (same three arguments). Each change
+pushes **two** datagrams: one on `/live/device/get/parameter/value` and one on
+`/live/device/get/parameter/value_string`, both echoing all three indices.
+
+**Indices are normalised to ints** (2026-08-27) — in the parameter lookup, in
+the subscription's identity, and in the echo. Clients that send floats by
+default (TouchOSC; upstream issue #33) can subscribe, a start sent as floats
+is stopped by a stop sent as ints, and both the query reply and the push echo
+ints either way. The same normalisation applies to the property listen pair
+above. Arguments past the third are not part of a parameter subscription's
+identity and are ignored; sending **fewer** than three is a malformed request
+and answers on `/live/error`.
+
+Subscribing pushes the current value immediately, before any change — true of
+every listener in this API, and how a client seeds its initial state without a
+separate query. Stopping a subscription that was never started is a logged
+warning and is silent on the wire.
 
 ---
 

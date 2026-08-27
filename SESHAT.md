@@ -176,6 +176,48 @@ ongoing cost — merging upstream releases — is close to zero.
   `NameError` in the no-listener warning path, which referenced an unbound
   `prop`.
 
+- **`device.py` — listener identity is a tuple of ints, normalised at the
+  callback boundary.** Two changes to `create_device_callback` and the
+  callbacks behind it, one rule:
+
+  *Parameter listeners.* Upstream's `include_ids` branch passed the raw OSC
+  arguments through, so `start_listen/parameter/value` indexed
+  `device.parameters[params[2]]` with whatever arrived. A float-sending
+  client (TouchOSC, upstream issue #33 — the reason every *other* device
+  callback int-casts) raised `TypeError` and could not subscribe at all, and
+  a start sent as floats keyed a different bookkeeping entry from a stop sent
+  as ints, so the stop missed and the listener leaked until reload. The
+  wrapper now hands the callee `(track_index, device_index, *params[2:])`
+  with the indices already cast, and the parameter listener pair casts the
+  third itself: exactly three ints, used for the `DeviceParameter` lookup,
+  the `("value", (track, device, parameter))` key and the echo in both
+  pushes.
+
+  *Property listeners.* Upstream registered
+  `/live/device/{start,stop}_listen/{name,type,class_name}` **without**
+  `include_ids`, so the wrapper stripped both indices before `_start_listen`
+  saw them. The push carried the bare value with no track or device echo, and
+  the key collapsed to `(prop, ())` — one subscription per property for the
+  whole process, where subscribing a second device silently stopped the
+  first. Both are now registered `include_ids=True`: `name` subscribes per
+  device and pushes `(track_id, device_id, name)` on `/live/device/get/name`,
+  the same shape as the query reply. `get/` and `set/` stay without ids —
+  their indices come from the wrapper's `(track_index, device_index, *rv)`
+  reply envelope, and adding ids there would echo them twice.
+
+  `type` and `class_name` are not observable in Live at all (measured
+  2026-08-27 against 12.4.3 via `dump_lom`: `Live.Device.Device` has no
+  `add_type_listener` / `add_class_name_listener`), so subscribing to those
+  two answers a structured `/live/error` and always did. They stay registered
+  for an explicit refusal rather than an unknown-address silence; the
+  measurement is recorded in `API.md` § Device API so it is not re-derived.
+
+  **Downstream: pin bump only.** No address added, renamed or removed. Seshat
+  sends no `/live/device/{start,stop}_listen` address from `lib/`; the only
+  thing it consumed here was `API.md`'s warning against these listeners,
+  which is replaced by the real contract in the same pin. Pinned by
+  `tests_unit/test_device_listeners.py`.
+
 - **`clip_slot.py` — logger format args.** Cherry-picked from upstream PR #213.
   `self.logger.info(track_index, clip_index, rv)` passes an `int` where a format
   string belongs, raising inside every clip-slot callback and flooding Live's
@@ -776,6 +818,19 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   reach `Log.txt` and `/live/error`, and clients just go back to timing out.
   `tests_unit/` fails loudly on most of this — run it on every merge. See the
   additions section above.
+
+- **`device.py`'s `create_device_callback` and its property registration
+  loop.** Upstream registers the three `{start,stop}_listen/<prop>` pairs
+  without `include_ids` and passes raw OSC arguments through the `include_ids`
+  branch. A merge that takes upstream's `init_api` reverts both halves of the
+  listener-identity fix **silently**: the `name` push goes back to carrying a
+  bare value with no device to attribute it to, every device collapses onto
+  one process-wide subscription per property, and float-indexed parameter
+  subscriptions start failing and leaking again. Nothing errors, nothing
+  logs, and a client only notices that its mirror is wrong.
+  `tests_unit/test_device_listeners.py` is the tripwire — run
+  `python3 -m pytest tests_unit/` on every merge. See the deliberate-changes
+  section above.
 
 - **Anything touching `track.py`'s `create_track_callback`, or
   `manager.py`'s `reload_imports` list.** In this fork `create_track_callback`
