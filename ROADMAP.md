@@ -121,7 +121,53 @@ review (`docs/archive/PLAN_device_listener_identity.md`, review of
   only".
 - No dependencies.
 
-## #3 · One `/live/song/undo` does not revert an OSC-created scene
+## #3 · Normalize listener argument identity in track.py and return_track.py
+
+**Goal:** `track_callback.py`'s `include_track_id` branch and
+`return_track.py`'s hand-rolled per-property `start_listen`/`stop_listen`
+pairs (including the index-less master triple) truncate their identity to
+exactly the arguments that are part of it — the same rule "Normalize listener
+argument identity in scene.py, clip.py, clip_slot.py, and the device.py
+property pair" established everywhere else: arguments past a subscription's
+identity are dropped from the bookkeeping key and the push, not merely
+appended after the cast indices.
+
+**Why:** `track_callback.py:89` builds `tuple([track_index] + params[1:])` —
+the index is already an int (the wildcard fan-out generates ints too), but
+nothing bounds `params[1:]`, so `start_listen/<prop> <index> <extra>` keys
+`(prop, (index, extra))` while the well-formed `stop_listen/<prop> <index>`
+keys `(prop, (index,))` — the identical extra-arg leak the sibling item fixed
+in `device.py`, `scene.py`, `clip.py`, and `clip_slot.py`, reachable here by
+the same shape of malformed request. `return_track.py`'s per-property pairs
+(`name`, `volume`, `panning`, `mute`, `solo`, plus the parameterless master
+`volume`/`panning`/`cue_volume`) don't share `track_callback.py`'s helper at
+all — they are separate hand-rolled code with their own identity handling —
+so this is a second fix in that file, not a side effect of the first.
+
+**Planner notes:**
+- Source: `docs/PLAN_listener_identity_normalization.md`, "Out of scope"
+  (both bullets), and that item's pr-review (branch
+  `listener-identity-normalization`, round 2, nit 4's third bullet) —
+  explicitly named there as real but deliberately excluded from that item's
+  diff to keep it to the four files its title named.
+- `track_callback.py`'s `include_track_id` path is shared by the mixer listen
+  pair too (`_start_mixer_listen`/`_stop_mixer_listen` in `track.py`) — fix
+  and test both, not just the plain property pair.
+- `return_track.py` needs its own audit: enumerate every
+  `_start_listen_<prop>`/`_stop_listen_<prop>` method (and the master trio)
+  and confirm each one's identity-building line, since there is no shared
+  wrapper to point at.
+- Verified 2026-08-27 against `/Users/patrick/seshat`:
+  `lib/seshat/session/state.ex` sends `/live/track/start_listen/<prop>
+  <index>`, `/live/return_track/start_listen/<prop> <index>`, and
+  `/live/master/start_listen/<prop>` with exactly the documented argument
+  count, always an Elixir (int32) index, never floats or extras — so today's
+  only known caller is unaffected either way; the gap is reachable only by a
+  malformed or hand-crafted client. Re-confirm this before assuming "pin bump
+  only" if `lib/` has changed since.
+- No dependencies.
+
+## #4 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -157,7 +203,7 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #4 · A-4 · Object-valued read helpers
+## #5 · A-4 · Object-valued read helpers
 
 **Goal:** index-returning handlers for `Song.master_track`,
 `Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`,
@@ -173,7 +219,7 @@ Unblocks the groove bucket.
   "Object-valued reads returned as `None`".
 - No dependencies.
 
-## #5 · B-2 · DeviceParameter rich reply
+## #6 · B-2 · DeviceParameter rich reply
 
 **Goal:** one richer `parameters` reply plus per-parameter addresses —
 `value_items`, `short_value_items`, `display_value` (get/set), `str_for_value`,
@@ -191,7 +237,7 @@ gap PR — it proves the batching conventions the rest reuse: handlers +
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #6 · C-3 · Application dialogs and versions
+## #7 · C-3 · Application dialogs and versions
 
 **Goal:** read-only dialog state (`open_dialog_count`,
 `current_dialog_message`, `current_dialog_button_count`, listen where
@@ -212,7 +258,7 @@ dialog may guard unsaved work.
   requested. Same file, same PR; remove that entry at ship time too.
 - No dependencies.
 
-## #7 · B-1 · Notes extended
+## #8 · B-1 · Notes extended
 
 **Goal:** `/live/clip/get/notes_extended` and `/live/clip/add/notes_extended`
 carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`,
@@ -230,7 +276,7 @@ old five-field addresses unchanged; then the ID-keyed members
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #8 · Make live code reload ordered and failure-safe
+## #9 · Make live code reload ordered and failure-safe
 
 **Goal:** `/live/api/reload` produces a coherent module graph whose handlers
 share the current base classes, and a failed reload preserves a usable previous
@@ -245,7 +291,7 @@ uses reload during development; move this up if it bites during #4–#7.
   (Medium-high).
 - No dependencies.
 
-## #9 · Stop masking Remote Script import failures
+## #10 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -264,7 +310,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #10 · Remove the process-global and shared-file risks from song structure export
+## #11 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -280,7 +326,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #11 · Add bounded log retention
+## #12 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -297,7 +343,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #12 · A-3 · Return / master `Track` parity
+## #13 · A-3 · Return / master `Track` parity
 
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
@@ -312,7 +358,7 @@ return/master feature downstream trips over the difference.
 - Prefer a shared track resolver over three copies of the handler table.
 - No dependencies.
 
-## #13 · C-1 · `Song` remainder
+## #14 · C-1 · `Song` remainder
 
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
@@ -324,7 +370,7 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
 - Source: `CLOSING_THE_GAPS.md`, row **C-1**.
 - No dependencies.
 
-## #14 · D-2 · Groove
+## #15 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -336,7 +382,7 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **D-2**.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
-- Depends on #4 (object-read pattern).
+- Depends on #5 (object-read pattern).
 
 ---
 

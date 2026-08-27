@@ -115,6 +115,7 @@ SPECS = {
         "ids": (0,),
         "floats": (0.0,),
         "nonintegral": (0.7,),
+        "too_few": (),
         "value": "Scene A",
         "new_value": "Renamed",
         "other_ids": (1,),
@@ -125,6 +126,7 @@ SPECS = {
         "ids": (0, 0),
         "floats": (0.0, 0.0),
         "nonintegral": (0.7, 0.2),
+        "too_few": (0,),
         "value": "Clip A",
         "new_value": "Renamed",
         "other_ids": (0, 1),
@@ -135,6 +137,7 @@ SPECS = {
         "ids": (0, 0),
         "floats": (0.0, 0.0),
         "nonintegral": (0.7, 0.2),
+        "too_few": (0,),
         "value": True,
         "new_value": False,
         "other_ids": (0, 1),
@@ -393,3 +396,35 @@ def test_query_reply_is_unchanged(handlers, server, receiver, key):
     messages = receiver.drain()
     assert messages == [(get_address(key), (*spec["ids"], spec["value"]))]
     assert_int_ids(messages[0][1], len(spec["ids"]))
+
+
+#--------------------------------------------------------------------------------
+# 9. Fewer than the identity's arity is a malformed request, not a listener
+#    leak — the same shape as device.py's parameter-pair regression in
+#    tests_unit/test_device_listeners.py, pinned here for scene/clip/clip_slot
+#    now that API.md documents it for all three.
+#--------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("key", HANDLER_KEYS)
+def test_start_listen_with_too_few_arguments_is_a_structured_error(
+        handlers, server, receiver, key):
+    spec = SPECS[key]
+    handler = handlers[key]
+    address = start_address(key)
+
+    dispatch(server, address, *spec["too_few"])
+
+    #--------------------------------------------------------------------------------
+    # API.md's "Sending fewer than <n> is a malformed request and answers on
+    # /live/error" for the scene/clip/clip_slot listen pairs: the missing
+    # index raises IndexError while casting, before any dict is written.
+    #--------------------------------------------------------------------------------
+    messages = receiver.drain()
+    assert len(messages) == 1
+    error_address, params = messages[0]
+    assert error_address == "/live/error"
+    assert params[0] == "request"
+    assert params[1] == address
+
+    assert handler.listener_functions == {}
+    assert handler.listener_objects == {}

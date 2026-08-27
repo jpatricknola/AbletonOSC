@@ -947,11 +947,14 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
 - **`device.py`'s `create_device_callback` and its property registration
   loop.** Upstream registers the three `{start,stop}_listen/<prop>` pairs
   without `include_ids` and passes raw OSC arguments through the `include_ids`
-  branch. A merge that takes upstream's `init_api` reverts both halves of the
-  listener-identity fix **silently**: the `name` push goes back to carrying a
-  bare value with no device to attribute it to, every device collapses onto
-  one process-wide subscription per property, and float-indexed parameter
-  subscriptions start failing and leaking again. Nothing errors, nothing
+  branch, with no `id_count` concept at all. A merge that takes upstream's
+  `init_api` reverts every layer of the listener-identity fix **silently**:
+  the `name` push goes back to carrying a bare value with no device to
+  attribute it to, every device collapses onto one process-wide subscription
+  per property, float-indexed parameter subscriptions start failing and
+  leaking again, and — the layer `id_count` added — a trailing extra argument
+  on the property pair once again keys a bogus subscription that a
+  well-formed two-argument stop can never reach. Nothing errors, nothing
   logs, and a client only notices that its mirror is wrong.
   `tests_unit/test_device_listeners.py` is the tripwire — run
   `python3 -m pytest tests_unit/` on every merge. See the deliberate-changes

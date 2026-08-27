@@ -28,8 +28,14 @@ class DeviceHandler(AbletonOSCHandler):
                     # DeviceParameter rather than the Device itself). Anything past that
                     # is dropped, so a stray trailing argument cannot key a second
                     # subscription that a well-formed stop can never reach.
+                    #
+                    # The first two identity elements are (track_index, device_index)
+                    # themselves, reused rather than recomputed from params, so the
+                    # lookup index and the identity index can never drift apart.
                     #--------------------------------------------------------------------------------
-                    rv = func(device, *args, tuple(int(param) for param in params[:id_count]))
+                    identity = (track_index, device_index) + tuple(
+                        int(param) for param in params[2:id_count])
+                    rv = func(device, *args, identity)
                 else:
                     rv = func(device, *args, params[2:])
 
