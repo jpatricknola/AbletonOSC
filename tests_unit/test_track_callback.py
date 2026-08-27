@@ -332,3 +332,75 @@ def test_track_source_is_resolved_per_dispatch(server, receiver, tracks,
                                 ("/live/track/get/name", (1, "bass")),
                                 ("/live/track/get/name", (2, "keys")),
                                 ("/live/track/get/name", (3, "vox"))]
+
+
+#--------------------------------------------------------------------------------
+# Listener identity truncation (include_track_id)
+#
+# The identity a listener registration is handed is exactly (track_index,).
+# Arguments past the index are not part of it: before the truncation they
+# entered the bookkeeping key and, via handler.py's (*params, *value) push,
+# every subsequent push — so a start with a stray extra keyed a subscription
+# no well-formed stop could reach.
+#--------------------------------------------------------------------------------
+
+def test_listener_registration_truncates_trailing_arguments(server, receiver, tracks,
+                                                            create_track_callback):
+    seen = []
+
+    def start_listen(track, prop, params=()):
+        seen.append((prop, params))
+
+    server.add_handler("/live/track/start_listen/name",
+                       create_track_callback(lambda: tracks, start_listen, "name",
+                                             include_track_id=True))
+    dispatch(server, "/live/track/start_listen/name", 0, 99)
+    assert receiver.drain() == []
+    assert seen == [("name", (0,))]
+
+
+def test_wildcard_listener_registration_truncates_trailing_arguments(
+        server, receiver, tracks, create_track_callback):
+    seen = []
+
+    def start_listen(track, prop, params=()):
+        seen.append((prop, params))
+
+    server.add_handler("/live/track/start_listen/name",
+                       create_track_callback(lambda: tracks, start_listen, "name",
+                                             include_track_id=True))
+    dispatch(server, "/live/track/start_listen/name", "*", 42)
+    assert receiver.drain() == []
+    assert seen == [("name", (0,)), ("name", (1,)), ("name", (2,))]
+
+
+def test_listener_registration_drops_non_numeric_extras(server, receiver, tracks,
+                                                        create_track_callback):
+    seen = []
+
+    def start_listen(track, prop, params=()):
+        seen.append((prop, params))
+
+    server.add_handler("/live/track/start_listen/name",
+                       create_track_callback(lambda: tracks, start_listen, "name",
+                                             include_track_id=True))
+    dispatch(server, "/live/track/start_listen/name", 1, "junk")
+    assert receiver.drain() == []
+    assert seen == [("name", (1,))]
+
+
+def test_non_listener_branch_still_receives_the_params_tail(server, receiver, tracks,
+                                                            create_track_callback):
+    # The include_track_id=False branch is untouched: get/send reads its send
+    # index out of exactly this tail.
+    seen = []
+
+    def get_send(track, params=()):
+        seen.append(params)
+        return params[0], "value"
+
+    server.add_handler("/live/track/get/send",
+                       create_track_callback(lambda: tracks, get_send))
+    dispatch(server, "/live/track/get/send", 1, 0)
+    assert receiver.drain() == [("/live/track/get/send", (1, 0, "value"))]
+    assert seen == [(0,)]

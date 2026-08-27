@@ -807,6 +807,22 @@ index subscribes every track — see **The track-index argument wildcard** below
 which is the contract for `*` on every `/live/track/...` address, not just the
 listeners.
 
+**A subscription's identity is one int** (2026-08-27) — `track_index` is
+normalised to an int at the callback boundary and that int alone is the
+subscription's identity, for every listen pair on this section including
+`volume` and `panning`. **Arguments past the index are not part of the
+identity and are ignored**: they enter neither the bookkeeping key nor any
+push, so a stray trailing argument can no longer key a subscription that a
+well-formed stop could never reach (nor, being uncast, echo a non-numeric
+value as a push field). Pushes on `/live/track/get/<property>` therefore
+always carry `track_index, value` in exactly the query-reply shape, whatever
+the subscribing request's tail looked like. The rule composes with `*`:
+extras after the wildcard are equally ignored, so every fanned-out
+subscription keys on its own `track_index` and a well-formed
+`/live/track/stop_listen/<property> *` ends whatever a malformed wildcard
+start began. Sending **no** index remains a malformed request and answers on
+`/live/error`.
+
 ⚠️ Listener pairs exist for the **scalar** properties only (the property loops
 in `track.py`, plus `volume` and `panning`). The composite getters — `send`,
 the routing properties, `clips/*`, `arrangement_clips/*`, `devices/*`,
