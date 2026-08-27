@@ -305,13 +305,22 @@ Consequences, all of them load-bearing:
 The `"request"` shape covers exactly four failures: an uncaught exception in an
 ordinary callback (direct dispatch *or* wildcard fan-out), an exception in the
 generic `_call_method` path, an exception in the generic `_set_property` path,
-and a handler returning something that is neither a tuple nor `None`. It does
-not cover every rejection in the fork — the browser and return/master handlers
+and a handler returning something that is neither a tuple, a list of tuples,
+nor `None`. It does not cover every rejection in the fork — the browser and
+return/master handlers
 reply with their own `"error"`-tagged envelopes, and the three fork-added
 `/live/view/...` setters (`show_view`, `hide_view`, `set/detail_clip`) fail
 silently by design. Upstream's four `/live/view/set/selected_*` setters have no
 guard: a bad index raises and comes back as a `"request"` error like any other
 callback.
+
+A handler's return value decides how many datagrams a request gets: `None`
+sends nothing, a tuple sends one reply, and a **list of tuples sends one reply
+per element**, in list order, all on the same reply address. The list form is
+what a fan-out request answers with — a track-index wildcard replies once per
+track (see [Track API](#track-api)). The whole list is validated before
+anything is sent, so a list containing a non-tuple produces the structured
+error above and **no** replies, never a partial fan-out.
 
 Those envelope handlers cost **two** datagrams per rejection, not one. Measured
 2026-08-05, Live 12.4.3 — `get_track_devices` with `target: "return"` on return
@@ -712,7 +721,9 @@ Volume, panning, send, mute, solo, devices, clips.
 Listen via `/live/track/start_listen/<property> <track_index>`, stop via
 `/live/track/stop_listen/<property> <track_index>`, and receive responses on
 `/live/track/get/<property>` with `<track_index> <value>`. `*` in place of the
-index subscribes every track.
+index subscribes every track — see **The track-index argument wildcard** below,
+which is the contract for `*` on every `/live/track/...` address, not just the
+listeners.
 
 ⚠️ Listener pairs exist for the **scalar** properties only (the property loops
 in `track.py`, plus `volume` and `panning`). The composite getters — `send`,
@@ -764,6 +775,69 @@ for that read-back:
 > Seshat used to fix this from outside, by re-registering the five affected
 > addresses from a `track_listeners.py` that had to be instantiated after
 > `TrackHandler`. That file no longer exists.
+
+### The track-index argument wildcard (`*`)
+
+Every `/live/track/...` address accepts `"*"` (the OSC string) in the
+track-index slot, and it means the same thing an address pattern means in
+[README § Wildcard queries](README.md#wildcard-queries): **a fan-out, not a
+query.** One request, one action per regular track.
+
+| Form | `*` behaviour |
+|---|---|
+| `/live/track/get/<prop> *` | **One reply datagram per regular track**, each on the concrete request address, each carrying the exact single-track payload `track_index, ...values`. Built and sent in ascending `track_index` order within a single tick. |
+| `/live/track/set/<prop> * <value>` | Applies to every regular track. No reply, exactly as the single-track form. |
+| `/live/track/<method> *`, `/live/track/delete_clip * <slot>` | Invoked on every regular track. No reply. |
+| `/live/track/start_listen/<prop> *` / `stop_listen` | Subscribes/unsubscribes every track. Pushes remain one per track, `track_index, value`, on `/live/track/get/<prop>`. Unchanged. |
+
+- **"Every regular track" means `song.tracks`** — audio and MIDI tracks. Return
+  and master tracks are not in this namespace at any index, wildcard included.
+- **Correlate on the leading `track_index`, not on arrival order.** The
+  datagrams are sent in index order, but UDP guarantees no delivery ordering.
+- **Zero regular tracks → zero replies, no error.**
+- **All-or-nothing on error.** Every track is read before anything is sent, so
+  a failure at any track produces **no replies at all** and exactly one
+  correlated error naming the track:
+  `/live/error ["request", "/live/track/get/<prop>", "wildcard fan-out failed at track <i>: <detail>", 1, "*"]`.
+  A partial fan-out is never left on the wire. To isolate which track is
+  refusing, fall back to per-index requests. (The per-track exception keeps its
+  class through the wrap, so the dispatcher's skip-vs-report decision for
+  composed pattern requests is unaffected — see below.)
+- **An address pattern and the argument wildcard compose.**
+  `/live/track/get/* *` fans out per endpoint *and* per track: each matched
+  getter replies once per track on its own concrete address, and a matched
+  endpoint whose arguments don't fit the request (e.g. `get/send`, which needs
+  a send index the request omitted) is skipped silently under README's
+  wildcard rules. This composition can also hide a genuine failure: if a
+  matched getter fails on a later track after already succeeding on earlier
+  ones, `OSCServer._is_wildcard_skip`'s class-based test (which cannot see
+  *where* in the fan-out an exception was raised) treats it the same as an
+  immediate arg-mismatch, so that endpoint answers with nothing at all —
+  neither the replies already collected nor an error — while every other
+  matched endpoint is unaffected. Send the concrete address to see the error.
+- **A client helper that awaits a single reply cannot use this**, for the same
+  reason it cannot use an address pattern. Seshat's `Transport.query/3` resolves
+  on the first datagram and drops the rest; `query_batch/2` over concrete track
+  indices is the answer. Nothing in Seshat sends `*` today (`SESHAT.md`).
+
+**Measured against Live 12.4.3:**
+
+- **2026-08-03** (`issues.md` code review, multi-track set): `/live/track/get/name *`
+  produced exactly **one** getter invocation, for track 0 — the defect. The
+  wildcard loop returned on the first track that produced a value, so every
+  wildcard getter answered for track 0 alone while setters, methods and
+  listeners (whose workers return nothing) iterated correctly.
+- **2026-08-27** (single-track set, installed copy code-identical to the
+  repository): `/live/track/get/name *` and `/live/track/get/mute *` each
+  produced exactly one `Getting property for track:` log line, confirming the
+  logged path is the dispatched one. A single-track set cannot distinguish the
+  defect from correct behaviour on its own.
+- ⚠️ **The repaired fan-out has not been confirmed inside Live.** The fix is
+  covered Live-free by `tests_unit/test_track_callback.py` against the real
+  factory, but no ≥2-track run has been made with the repaired code installed.
+  The check to run is in the plan's Live verification section; the reply
+  *datagrams* are in any case unobservable from this side, since replies go to
+  port 11001.
 
 ### Track Methods
 

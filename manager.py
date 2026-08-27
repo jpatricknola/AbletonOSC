@@ -158,6 +158,11 @@ class Manager(ControlSurface):
             importlib.reload(abletonosc.osc_server)
             importlib.reload(abletonosc.scene)
             importlib.reload(abletonosc.song)
+            #--------------------------------------------------------------------------------
+            # track_callback before track: track.py does a `from` import of the
+            # factory, so reloading it afterwards rebinds the new function.
+            #--------------------------------------------------------------------------------
+            importlib.reload(abletonosc.track_callback)
             importlib.reload(abletonosc.track)
             importlib.reload(abletonosc.view)
             importlib.reload(abletonosc.browser)

@@ -177,13 +177,29 @@ class OSCServer:
         """
         try:
             rv = callback(message.params)
-            if rv is not None and not isinstance(rv, tuple):
-                # An explicit raise, not an assert: the check must survive
-                # python -O, and it lands on the same structured-error path
-                # as any other callback failure.
+            #--------------------------------------------------------------------------------
+            # Reply-type validation. An explicit raise, not an assert: the
+            # check must survive python -O, and it lands on the same
+            # structured-error path as any other callback failure.
+            #
+            # A list means a multi-reply fan-out — one datagram per element,
+            # which is how a track-index wildcard answers for every track
+            # (see the argument-wildcard contract in API.md § Track API).
+            # The whole list is validated here, before anything is sent, so
+            # an invalid element never leaves a partial fan-out on the wire.
+            #--------------------------------------------------------------------------------
+            if rv is not None and not isinstance(rv, (tuple, list)):
                 raise TypeError("callback for %s returned %s; handlers must "
-                                "return a tuple or None"
+                                "return a tuple, a list of tuples, or None"
                                 % (callback_address, type(rv).__name__))
+            if isinstance(rv, list):
+                for element in rv:
+                    if not isinstance(element, tuple):
+                        raise TypeError("callback for %s returned a list "
+                                        "containing %s; a list reply must "
+                                        "contain only tuples"
+                                        % (callback_address,
+                                           type(element).__name__))
         except Exception as e:
             if wildcard and self._is_wildcard_skip(e, message):
                 self.logger.debug("AbletonOSC: Wildcard %s: skipping %s (%s: %s)"
@@ -205,9 +221,16 @@ class OSCServer:
         if rv is not None:
             remote_hostname, _ = remote_addr
             response_addr = (remote_hostname, self._response_port)
-            self.send(address=reply_address,
-                      params=rv,
-                      remote_addr=response_addr)
+            #--------------------------------------------------------------------------------
+            # A tuple is one reply; a list is one reply per element, sent in
+            # list order on the same reply address. An empty list sends
+            # nothing, exactly as None does.
+            #--------------------------------------------------------------------------------
+            replies = rv if isinstance(rv, list) else [rv]
+            for params in replies:
+                self.send(address=reply_address,
+                          params=params,
+                          remote_addr=response_addr)
 
     def process_message(self, message, remote_addr):
         if message.address in self._callbacks:

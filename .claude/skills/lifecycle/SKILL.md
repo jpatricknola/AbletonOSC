@@ -278,10 +278,9 @@ then —
 > not re-run the review and do not touch anything the nits did not name.
 >
 > Any nit you decline that is nonetheless a real problem worth doing later
-> gets an `issues.md` entry first (the roadmap ranks and never describes)
-> and then a self-contained ROADMAP.md entry (Goal, Why, Planner notes)
-> citing it, slotted by priority — the PR body is read once at merge, the
-> roadmap is the queue.
+> gets a self-contained ROADMAP.md entry (Goal, Why, Planner notes)
+> slotted by priority — the PR body is read once at merge, the roadmap is
+> the queue.
 >
 > Report every nit with its classification and one line of reasoning, so
 > the ship phase can write applied-vs-declined into the PR body.
