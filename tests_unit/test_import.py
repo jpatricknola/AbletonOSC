@@ -5,7 +5,8 @@ here by name rather than as collateral damage in the dispatcher tests.
 
 import sys
 
-from .conftest import ROOT_PACKAGE, load_module, load_osc_server_module
+from .conftest import (ROOT_PACKAGE, load_handler_module, load_module,
+                       load_osc_server_module)
 
 
 def test_osc_server_module_imports():
@@ -29,8 +30,30 @@ def test_abletonosc_package_init_never_executed():
     load_osc_server_module()
     package = sys.modules[ROOT_PACKAGE + ".abletonosc"]
     assert not hasattr(package, "SongHandler")
-    assert "ableton" not in sys.modules
     assert "Live" not in sys.modules
+    #--------------------------------------------------------------------------------
+    # No *real* Live-side module may be imported by anything in this suite.
+    # "ableton" itself can legitimately be present: load_handler_module()
+    # installs a synthetic stub of ableton.v2.control_surface.component so the
+    # real handler.py base class can be constructed (see conftest). Real
+    # modules are loaded from Live's Remote Scripts directory and carry a
+    # __file__; the stub is a bare ModuleType and does not.
+    #--------------------------------------------------------------------------------
+    for name, module in list(sys.modules.items()):
+        if name == "ableton" or name.startswith("ableton."):
+            assert not hasattr(module, "__file__"), \
+                "real Live module imported into tests_unit: %s" % name
+
+
+def test_handler_module_imports_over_the_component_stub():
+    module = load_handler_module()
+    assert hasattr(module, "AbletonOSCHandler")
+    #--------------------------------------------------------------------------------
+    # The real handler.py, not a replica: it still subclasses whatever
+    # ableton.v2 supplied, which under the stub is a no-op base.
+    #--------------------------------------------------------------------------------
+    assert module.__name__ == ROOT_PACKAGE + ".abletonosc.handler"
+    assert module.AbletonOSCHandler.class_identifier is None
 
 
 def test_server_starts_on_ephemeral_port(server):

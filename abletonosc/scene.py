@@ -3,9 +3,7 @@ from functools import partial
 from typing import Tuple, Any
 
 class SceneHandler(AbletonOSCHandler):
-    def __init__(self, manager):
-        super().__init__(manager)
-        self.class_identifier = "scene"
+    class_identifier = "scene"
 
     def init_api(self):
         # TODO: Needs unit tests

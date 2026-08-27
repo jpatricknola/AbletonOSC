@@ -41,25 +41,7 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · Fix base handler initialization order
-
-**Goal:** every handler enters route registration with `listener_functions`,
-`listener_objects` and `class_identifier` already set, and subclass-owned
-initialization has an explicit lifecycle.
-
-**Why:** `AbletonOSCHandler.__init__` calls the overridable `init_api()` before
-creating the base invariants, so every subclass registers against a partially
-built object — `BrowserHandler` already carries a workaround. Every gap PR below
-adds handlers on top of this; fix it before piling on.
-
-**Planner notes:**
-- Source: `issues.md`, "Fix base handler initialization order" (High).
-- Must preserve current route registration, listener cleanup, reload behaviour
-  and the fork's handler overrides — `tests_unit/` is the net for the dispatch
-  half; the reload half has no test yet.
-- No dependencies.
-
-## #2 · Make the test suite safe, isolated, and usable as a regression gate
+## #1 · Make the test suite safe, isolated, and usable as a regression gate
 
 **Goal:** a unit/contract layer that exercises routing, validation, reply
 shapes and listener bookkeeping without Live; Live-dependent tests opt-in,
@@ -80,6 +62,35 @@ item grows.
   the long-lived listeners.
 - No dependencies; items #3, #6 and #8 depend on it.
 
+## #2 · Verify handler `class_identifier` and lifecycle invariants without Live
+
+**Goal:** a Live-free test walks every `AbletonOSCHandler` subclass in
+`abletonosc/*.py` and asserts each declares a class-level `class_identifier`
+matching an expected address-prefix map, and that none defines its own
+`__init__`.
+
+**Why:** `tests_unit/test_handler_lifecycle.py` only ever constructs local
+`Probe` subclasses defined in the test file — the production subclasses
+(`TrackHandler` and the rest) import `Live` at module scope and are out of
+reach there. A typo in a class attribute (e.g. `class_identifier = "clipslot"`
+on the wrong handler) or a merge that restores a subclass `__init__` assigning
+`self.class_identifier` both pass every test green today; SESHAT.md's
+merge-hazard note for `AbletonOSCHandler.__init__` now says as much for the
+subclass case.
+
+**Planner notes:**
+- Source: pr-review of "Fix base handler initialization order"
+  (`docs/archive/PLAN_base_handler_init_order.md`), nits 2 and 3 — one
+  `ast`-based test closes both.
+- No Live and no construction needed: parse `abletonosc/*.py` with `ast`,
+  find every class whose bases include `AbletonOSCHandler`, and check its
+  body for a `class_identifier` assignment (value matches the expected map)
+  and the absence of a `def __init__`.
+- Once this lands, tighten SESHAT.md's `AbletonOSCHandler.__init__`
+  merge-hazard note to point at the new test for the subclass-`__init__`
+  case instead of describing it as uncovered.
+- No dependencies.
+
 ## #3 · Device listener identity — parameter indices and property listeners
 
 **Goal:** device parameter listeners key on normalized integer identifiers, and
@@ -98,7 +109,7 @@ float-valued OSC arguments leak listeners, and property listeners collapse to
 - The property-listener half is a wire-contract change (push gains two leading
   indices). Seshat subscribes to none of these today and its API doc warns
   against building on them; coordinate the doc removal in the pin bump.
-- Depends on #2 for the listener-lifecycle tests.
+- Depends on #1 for the listener-lifecycle tests.
 
 ## #4 · Define selected-track identity across regular, return, and master tracks
 
@@ -152,7 +163,7 @@ gap PR — it proves the batching conventions the rest reuse: handlers +
 - Source: `CLOSING_THE_GAPS.md`, row **B-2**; closes FORK_GAPS "Device
   parameters — numeric only".
 - Shape PR: the wire form is the review subject.
-- Depends on #1 (handler lifecycle) and #2 (tests).
+- Depends on #1 (tests).
 
 ## #7 · C-3 · Application dialogs and versions
 
@@ -173,7 +184,7 @@ dialog may guard unsaved work.
   datagram" (Medium-low): `ApplicationHandler.init_api` sends an empty
   `/live/application/get/average_process_usage` at startup that nothing
   requested. Same file, same PR; remove that entry at ship time too.
-- Depends on #1.
+- No dependencies.
 
 ## #8 · B-1 · Notes extended
 
@@ -191,7 +202,7 @@ old five-field addresses unchanged; then the ID-keyed members
 - Source: `CLOSING_THE_GAPS.md`, row **B-1**; closes FORK_GAPS "Notes —
   `/live/clip/get/notes` flattens to five fields".
 - Shape PR: the wire form is the review subject.
-- Depends on #2.
+- Depends on #1.
 
 ## #9 · Make live code reload ordered and failure-safe
 
@@ -285,7 +296,7 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
 
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **C-1**.
-- Depends on #1.
+- No dependencies.
 
 ## #15 · D-2 · Groove
 

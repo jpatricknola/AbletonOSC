@@ -149,13 +149,32 @@ class Manager(ControlSurface):
 
     def reload_imports(self):
         try:
+            #--------------------------------------------------------------------------------
+            # Base modules before the subclass modules, so a reload of any
+            # module in this list never constructs its handler on a stale
+            # AbletonOSCHandler: application, clip, clip_slot and device used
+            # to reload *before* handler, and a handler built on the previous
+            # base skips init_state() entirely and has its class-level
+            # class_identifier shadowed back to None — an AttributeError on
+            # one side, listener pushes silently addressed to
+            # /live/None/get/<prop> on the other. osc_server first, because
+            # handler.py does a `from` import of OSCServer.
+            #
+            # abletonosc.midimap is not in this list — it is never reloaded,
+            # so MidiMapHandler keeps subclassing whatever AbletonOSCHandler
+            # was current at Live startup, across every reload. Pre-existing
+            # reload-coverage gap, not a regression from this ordering fix;
+            # harmless today because midimap's init_api() reads neither
+            # class_identifier nor a listener dict. See ROADMAP.md "Make live
+            # code reload ordered and failure-safe".
+            #--------------------------------------------------------------------------------
+            importlib.reload(abletonosc.osc_server)
+            importlib.reload(abletonosc.handler)
             importlib.reload(abletonosc.introspection)
             importlib.reload(abletonosc.application)
             importlib.reload(abletonosc.clip)
             importlib.reload(abletonosc.clip_slot)
             importlib.reload(abletonosc.device)
-            importlib.reload(abletonosc.handler)
-            importlib.reload(abletonosc.osc_server)
             importlib.reload(abletonosc.scene)
             importlib.reload(abletonosc.song)
             #--------------------------------------------------------------------------------

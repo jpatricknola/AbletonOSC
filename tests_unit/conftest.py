@@ -11,7 +11,19 @@ anyway. So this file builds a synthetic root package whose __path__ is the
 repository root, imports pythonosc beneath it normally (its __init__.py is
 empty), and inserts a namespace-style abletonosc subpackage whose
 __init__.py is never executed. The production module's relative imports
-then resolve unchanged, with no rewriting and no Live stubs.
+then resolve unchanged, with no rewriting.
+
+One narrow exception to "no Live stubs": load_handler_module() installs a
+minimal ableton.v2.control_surface.component before importing the real
+handler.py. handler.py's only Live-side dependency is that trivial base
+class — it imports no Live module, calls Component with no arguments and
+uses none of its behaviour — so a stub whose Component.__init__ accepts and
+ignores everything makes the real base class testable without pretending to
+be Live. Nothing else stubs anything: osc_server.py and track_callback.py
+are imported exactly as they ship, and the stub is only installed when a
+test actually calls load_handler_module(). The production *subclasses*
+(track.py, song.py, ...) import Live itself at module scope and stay out of
+reach until that is addressed separately.
 
 test_import.py smoke-tests the loader so it cannot fail only when the
 first real dispatcher test is collected.
@@ -56,6 +68,52 @@ def load_module(name: str):
 
 def load_osc_server_module():
     return load_module("abletonosc.osc_server")
+
+
+def load_handler_module():
+    """
+    Import the real `abletonosc.handler` beneath the synthetic root, after
+    installing the minimal `ableton.v2.control_surface.component` stub it
+    needs (see the module docstring for why that is safe).
+
+    The stub is process-global for the rest of the pytest run, but it shadows
+    nothing importable outside Live, and no other module in this suite touches
+    the `ableton` namespace.
+    """
+    if "ableton.v2.control_surface.component" not in sys.modules:
+        class Component:
+            """
+            Stands in for ableton.v2's Component. The real one takes
+            (name=None, parent=None, register_component=None, song=None,
+            layer=None, is_enabled=True, *a, **k); AbletonOSCHandler calls it
+            with no arguments and uses nothing it provides.
+            """
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+        component = types.ModuleType("ableton.v2.control_surface.component")
+        component.Component = Component
+
+        control_surface = types.ModuleType("ableton.v2.control_surface")
+        control_surface.__path__ = []
+        control_surface.Component = Component
+        control_surface.component = component
+
+        v2 = types.ModuleType("ableton.v2")
+        v2.__path__ = []
+        v2.control_surface = control_surface
+
+        ableton = types.ModuleType("ableton")
+        ableton.__path__ = []
+        ableton.v2 = v2
+
+        sys.modules["ableton"] = ableton
+        sys.modules["ableton.v2"] = v2
+        sys.modules["ableton.v2.control_surface"] = control_surface
+        sys.modules["ableton.v2.control_surface.component"] = component
+
+    return load_module("abletonosc.handler")
 
 
 class Receiver:

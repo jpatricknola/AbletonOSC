@@ -146,21 +146,19 @@ EXPORT_STALE_SECONDS = 10 * 60
 
 
 class BrowserHandler(AbletonOSCHandler):
-    def __init__(self, manager):
-        super().__init__(manager)
-        self.class_identifier = "browser"
+    class_identifier = "browser"
+
+    def init_state(self):
+        #--------------------------------------------------------------------------------
+        # The base lifecycle contract (see AbletonOSCHandler) runs init_state()
+        # before init_api(), so the cache is guaranteed to exist by the time any
+        # registered callback can fire. It lives as long as the handler object
+        # does — /live/api/reload builds a fresh handler, which re-indexes.
+        #--------------------------------------------------------------------------------
+        # category name -> list of (name, path, uri, BrowserItem)
+        self._index_cache = {}
 
     def init_api(self):
-        #--------------------------------------------------------------------------------
-        # init_api() is called from AbletonOSCHandler.__init__, so it must not
-        # depend on anything assigned in our own __init__ body. The cache is
-        # created here and survives clear_api()/init_api() reload cycles only
-        # insofar as the handler object does — a fresh handler re-indexes.
-        #--------------------------------------------------------------------------------
-        if not hasattr(self, "_index_cache"):
-            # category name -> list of (name, path, uri, BrowserItem)
-            self._index_cache = {}
-
         self.osc_server.add_handler("/live/browser/get/items", self._get_items)
         self.osc_server.add_handler("/live/browser/load_item", self._load_item)
         self.osc_server.add_handler("/live/browser/load_item_on_return",

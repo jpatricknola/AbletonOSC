@@ -4,6 +4,8 @@ from typing import Any, Tuple
 from .handler import AbletonOSCHandler
 
 class ApplicationHandler(AbletonOSCHandler):
+    class_identifier = "application"
+
     def init_api(self):
         #--------------------------------------------------------------------------------
         # Generic callbacks

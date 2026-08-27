@@ -2,9 +2,9 @@ from .handler import AbletonOSCHandler
 from typing import Tuple, Any
 
 class MidiMapHandler(AbletonOSCHandler):
-    def __init__(self, manager):
-        super().__init__(manager)
-        self.class_identifier = "midimap"
+    class_identifier = "midimap"
+
+    def init_state(self):
         self.midi_map_handle = None
 
     def init_api(self):

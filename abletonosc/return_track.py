@@ -165,9 +165,7 @@ from .handler import AbletonOSCHandler
 
 
 class ReturnTrackHandler(AbletonOSCHandler):
-    def __init__(self, manager):
-        super().__init__(manager)
-        self.class_identifier = "return_track"
+    class_identifier = "return_track"
 
     def init_api(self):
         self.osc_server.add_handler("/live/return_track/get/count", self._get_count)

@@ -51,9 +51,7 @@ VIEW_NAMES = ("Browser", "Arranger", "Session", "Detail", "Detail/Clip", "Detail
 
 
 class ViewHandler(AbletonOSCHandler):
-    def __init__(self, manager):
-        super().__init__(manager)
-        self.class_identifier = "view"
+    class_identifier = "view"
 
     def init_api(self):
         def get_selected_scene(params: Optional[Tuple] = ()):

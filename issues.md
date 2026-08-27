@@ -104,25 +104,6 @@ process usage should follow a clearly documented query or listener contract.
 
 ## Robustness — code that works today but fails unsafely
 
-### Fix base handler initialization order
-
-
-**Priority:** High — architectural fragility in every handler
-
-`AbletonOSCHandler.__init__` invokes the overridable `init_api()` before it
-creates `listener_functions`, `listener_objects`, and `class_identifier`.
-Subclass route registration therefore runs against a partially initialized
-object. `BrowserHandler` already contains a workaround explaining that its
-registration cannot depend on state assigned by its own constructor.
-
-Every handler must enter route registration with its base invariants available,
-and subclass identity and subclass-owned initialization must have an explicit
-lifecycle. The corrected lifecycle must preserve current route registration,
-listener cleanup, reload behavior, and Seshat handler overrides.
-
-**Affected area:** `abletonosc/handler.py`, all handler constructors,
-registration and listener lifecycle tests.
-
 ### Make live code reload ordered and failure-safe
 
 

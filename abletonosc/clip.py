@@ -25,9 +25,9 @@ def note_name_to_midi(name):
     return None
 
 class ClipHandler(AbletonOSCHandler):
-    def __init__(self, manager):
-        super().__init__(manager)
-        self.class_identifier = "clip"
+    class_identifier = "clip"
+
+    def init_state(self):
         self._clip_notes_cache = []
 
     def init_api(self):
