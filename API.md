@@ -810,7 +810,9 @@ listeners.
 **A subscription's identity is one int** (2026-08-27) — `track_index` is
 normalised to an int at the callback boundary and that int alone is the
 subscription's identity, for every listen pair on this section including
-`volume` and `panning`. **Arguments past the index are not part of the
+`volume` and `panning`. Float-sending clients (TouchOSC; upstream issue #33)
+can start and stop interchangeably with int-sending ones, non-integral
+floats truncate toward zero. **Arguments past the index are not part of the
 identity and are ignored**: they enter neither the bookkeeping key nor any
 push, so a stray trailing argument can no longer key a subscription that a
 well-formed stop could never reach (nor, being uncast, echo a non-numeric

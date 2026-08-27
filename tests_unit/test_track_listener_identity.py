@@ -261,6 +261,8 @@ def test_start_listen_with_no_index_is_a_malformed_request(handler, server, rece
     error = errors(messages)[0]
     assert error[0] == "request"
     assert error[1] == "/live/track/start_listen/name"
+    assert error[3] == 0
+    assert error[4:] == ()
     assert handler.listener_functions == {}
     assert handler.listener_objects == {}
 
