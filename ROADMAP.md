@@ -70,29 +70,7 @@ subclass case.
   case instead of describing it as uncovered.
 - No dependencies.
 
-## #2 · Define selected-track identity across regular, return, and master tracks
-
-**Plan:** [docs/PLAN_selected_track_identity.md](docs/PLAN_selected_track_identity.md)
-
-**Goal:** one unambiguous representation of a selected regular, return or master
-track that selection, view, device and state-mirroring addresses all agree on;
-view setters and getters agree on whether setters are silent.
-
-**Why:** the fork's own `/live/return_track/select` and `/live/master/select`
-break `/live/view/get/selected_track`, which only knows `song.tracks`. The
-representation chosen here is a prerequisite for the return/master parity and
-object-read buckets, so it must be decided before they are built.
-
-**Planner notes:**
-- Source: `issues.md`, "Define selected-track identity across regular, return,
-  and master tracks" (High).
-- `/live/view/set/selected_device` currently replies despite being documented
-  silent — settle it here.
-- Assess consumers expecting a single regular-track index (Seshat's
-  `Session.State`).
-- No dependencies; #4 and the A-3 bucket depend on it.
-
-## #3 · Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and the device.py property pair
+## #2 · Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and the device.py property pair
 
 **Goal:** every `_start_listen`/`_stop_listen` call site builds its identity
 tuple the same way `abletonosc/device.py`'s parameter-listener pair now does
@@ -141,7 +119,7 @@ review (`docs/archive/PLAN_device_listener_identity.md`, review of
   only".
 - No dependencies.
 
-## #4 · A-4 · Object-valued read helpers
+## #3 · A-4 · Object-valued read helpers
 
 **Goal:** index-returning handlers for `Song.master_track`,
 `Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`,
@@ -155,9 +133,9 @@ Unblocks the groove bucket.
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **A-4**; closes FORK_GAPS
   "Object-valued reads returned as `None`".
-- Depends on #2 for the track-identity representation.
+- No dependencies.
 
-## #5 · B-2 · DeviceParameter rich reply
+## #4 · B-2 · DeviceParameter rich reply
 
 **Goal:** one richer `parameters` reply plus per-parameter addresses —
 `value_items`, `short_value_items`, `display_value` (get/set), `str_for_value`,
@@ -175,7 +153,7 @@ gap PR — it proves the batching conventions the rest reuse: handlers +
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #6 · C-3 · Application dialogs and versions
+## #5 · C-3 · Application dialogs and versions
 
 **Goal:** read-only dialog state (`open_dialog_count`,
 `current_dialog_message`, `current_dialog_button_count`, listen where
@@ -196,7 +174,7 @@ dialog may guard unsaved work.
   requested. Same file, same PR; remove that entry at ship time too.
 - No dependencies.
 
-## #7 · B-1 · Notes extended
+## #6 · B-1 · Notes extended
 
 **Goal:** `/live/clip/get/notes_extended` and `/live/clip/add/notes_extended`
 carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`,
@@ -214,7 +192,7 @@ old five-field addresses unchanged; then the ID-keyed members
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #8 · Make live code reload ordered and failure-safe
+## #7 · Make live code reload ordered and failure-safe
 
 **Goal:** `/live/api/reload` produces a coherent module graph whose handlers
 share the current base classes, and a failed reload preserves a usable previous
@@ -222,14 +200,14 @@ API or fails in a clearly reported, recoverable state.
 
 **Why:** `Manager.reload_imports` reloads concrete handler modules before their
 `handler` base and activates the result even after an exception. Every gap PR
-uses reload during development; move this up if it bites during #4–#7.
+uses reload during development; move this up if it bites during #3–#6.
 
 **Planner notes:**
 - Source: `issues.md`, "Make live code reload ordered and failure-safe"
   (Medium-high).
 - No dependencies.
 
-## #9 · Stop masking Remote Script import failures
+## #8 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -248,7 +226,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #10 · Remove the process-global and shared-file risks from song structure export
+## #9 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -264,7 +242,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #11 · Add bounded log retention
+## #10 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -281,7 +259,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #12 · A-3 · Return / master `Track` parity
+## #11 · A-3 · Return / master `Track` parity
 
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
@@ -294,9 +272,9 @@ return/master feature downstream trips over the difference.
 - Source: `CLOSING_THE_GAPS.md`, row **A-3**; closes the FORK_GAPS Track
   addressing gap and the `MixerDevice` gap on returns/master.
 - Prefer a shared track resolver over three copies of the handler table.
-- Depends on #2.
+- No dependencies.
 
-## #13 · C-1 · `Song` remainder
+## #12 · C-1 · `Song` remainder
 
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
@@ -308,7 +286,7 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
 - Source: `CLOSING_THE_GAPS.md`, row **C-1**.
 - No dependencies.
 
-## #14 · D-2 · Groove
+## #13 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -320,7 +298,7 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **D-2**.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
-- Depends on #4 (object-read pattern).
+- Depends on #3 (object-read pattern).
 
 ---
 

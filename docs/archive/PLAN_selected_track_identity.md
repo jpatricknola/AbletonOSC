@@ -1,3 +1,14 @@
+**Archived 2026-08-27 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in
+`abletonosc/track_identity.py` (the new `identify_track` resolver),
+`abletonosc/view.py` (the identity getter and its `start_listen`/
+`stop_listen` pair, and the three rewired legacy getters) and
+`abletonosc/handler.py` (`_start_listen`'s `lom_property` aliasing), documented
+in `API.md` § View API and its "Selected-track identity" subsection. No new
+follow-up items were opened; the roadmap items that depended on this one
+("A-4 · Object-valued read helpers" and "A-3 · Return / master `Track`
+parity") had that dependency dropped since it is now satisfied.
+
 # Plan: Define selected-track identity across regular, return, and master tracks
 
 Roadmap item: **Define selected-track identity across regular, return, and
