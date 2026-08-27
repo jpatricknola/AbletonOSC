@@ -72,6 +72,8 @@ subclass case.
 
 ## #2 · Device listener identity — parameter indices and property listeners
 
+**Plan:** [docs/PLAN_device_listener_identity.md](docs/PLAN_device_listener_identity.md)
+
 **Goal:** device parameter listeners key on normalized integer identifiers, and
 device *property* listeners (`name`, `type`, `class_name`) push with their track
 and device indices and subscribe per device instead of one per property
