@@ -1,6 +1,6 @@
 import threading
 
-from . import wait_one_tick, TICK_DURATION
+from . import TICK_DURATION
 from .conftest import require
 
 #--------------------------------------------------------------------------------

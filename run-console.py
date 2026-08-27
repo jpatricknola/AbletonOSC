@@ -338,7 +338,12 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Console client for AbletonOSC with tab completion. Takes OSC commands and parameters, and prints the return value.")
-    parser.add_argument("--hostname", type=str, default="127.0.0.1")
+    parser.add_argument("--hostname", type=str, default="127.0.0.1",
+                         help="remote AbletonOSC host to send to. The reply socket binds "
+                              "loopback only (see client/client.py), so a non-loopback "
+                              "host only works against a server that answers on 127.0.0.1, "
+                              "e.g. via an SSH tunnel or port forward - not a LAN server "
+                              "replying to this machine's own address")
     parser.add_argument("--port", type=int, default=11000)
     parser.add_argument("--verbose", "-v", action="store_true", help="verbose mode: prints all OSC messages")
     args = parser.parse_args()

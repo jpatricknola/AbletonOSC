@@ -201,7 +201,7 @@ ongoing cost — merging upstream releases — is close to zero.
 ### Deliberate changes to upstream's behaviour
 
 Not bug fixes and not extensions: places where upstream works as intended and
-this fork intends something different. Both of these are **security** changes,
+this fork intends something different. All of these are **security** changes,
 so treat any merge that reverts one as a regression, not a preference.
 
 - **`osc_server.py` — the OSC socket binds loopback only.** Upstream's
@@ -747,6 +747,17 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   upstream, and reverting either is invisible from the machine Live runs on —
   loopback keeps working exactly as before. See the deliberate-changes section
   above.
+
+- **`client/client.py`'s reply socket bind.** Also a one-liner against
+  upstream (`127.0.0.1` in place of `0.0.0.0`), and also invisible on the
+  machine Live runs on: loopback traffic to this fork's own server is
+  unaffected either way. A merge that takes upstream's `client.py` unchanged
+  silently re-exposes the reply port on every interface — the same regression
+  as the `osc_server.py` bullet above, just on the client side.
+  `tests_unit/test_live_suite_inert.py::test_client_reply_socket_binds_loopback_only`
+  greps this file for `0.0.0.0` for exactly this reason — run
+  `python3 -m pytest tests_unit/` on every merge. See the deliberate-changes
+  section above.
 
 - **Anything touching `process_message()`, `_dispatch`, or
   `LiveOSCErrorLogHandler.emit`.** The structured `/live/error` payload lives

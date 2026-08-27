@@ -1,6 +1,6 @@
 from . import wait_one_tick, TICK_DURATION
 from .conftest import (require, restored_track_property, restored_song_property,
-                       restored_send, find_tracks, _find_empty_slot,
+                       restored_send, find_tracks,
                        _delete_clip_if_present)
 
 #--------------------------------------------------------------------------------
@@ -19,24 +19,30 @@ def _test_track_property(client, track_id, property, values):
             wait_one_tick()
             assert client.query("/live/track/get/%s" % property, [track_id]) == (track_id, value,)
 
-def test_track_property_panning(client, audio_track):
-    _test_track_property(client, audio_track, "panning", [0.5, 0.0])
+#--------------------------------------------------------------------------------
+# None of these properties are specific to a track's input type, so they're
+# tested against midi_track rather than audio_track - the latter would skip
+# needlessly on a MIDI-only set.
+#--------------------------------------------------------------------------------
 
-def test_track_property_volume(client, audio_track):
-    _test_track_property(client, audio_track, "volume", [0.5, 1.0])
+def test_track_property_panning(client, midi_track):
+    _test_track_property(client, midi_track, "panning", [0.5, 0.0])
 
-def test_track_property_color(client, audio_track):
+def test_track_property_volume(client, midi_track):
+    _test_track_property(client, midi_track, "volume", [0.5, 1.0])
+
+def test_track_property_color(client, midi_track):
     # Only specific colors from the color picker can be used
-    _test_track_property(client, audio_track, "color", [0x001AFF2F, 0x001A2F96])
+    _test_track_property(client, midi_track, "color", [0x001AFF2F, 0x001A2F96])
 
-def test_track_property_mute(client, audio_track):
-    _test_track_property(client, audio_track, "mute", [1, 0])
+def test_track_property_mute(client, midi_track):
+    _test_track_property(client, midi_track, "mute", [1, 0])
 
-def test_track_property_solo(client, audio_track):
-    _test_track_property(client, audio_track, "solo", [1, 0])
+def test_track_property_solo(client, midi_track):
+    _test_track_property(client, midi_track, "solo", [1, 0])
 
-def test_track_property_name(client, audio_track):
-    _test_track_property(client, audio_track, "name", ["Test", "Track"])
+def test_track_property_name(client, midi_track):
+    _test_track_property(client, midi_track, "name", ["Test", "Track"])
 
 #--------------------------------------------------------------------------------
 # Test track properties - sends

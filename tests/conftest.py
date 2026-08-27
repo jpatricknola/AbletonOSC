@@ -174,8 +174,8 @@ def restored_send(client, track_id, send_id):
 @contextlib.contextmanager
 def restored_view_selection(client):
     """
-    Snapshot and restore the session view's selection. selected_clip is only
-    restorable when a clip is actually selected, so it is best-effort.
+    Snapshot and restore the session view's selected track and scene.
+    selected_clip is not restored: it isn't queried or reset here at all.
     """
     scene = client.query("/live/view/get/selected_scene")[0]
     track = client.query("/live/view/get/selected_track")[0]

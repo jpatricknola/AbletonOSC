@@ -27,9 +27,13 @@ class AbletonOSCClient:
         dispatcher = Dispatcher()
         dispatcher.set_default_handler(self.handle_osc)
         #--------------------------------------------------------------------------------
-        # Bind the reply socket to loopback only. AbletonOSC always answers to
-        # 127.0.0.1, so nothing is lost, and this fork's loopback-only policy (see
-        # SESHAT.md) then holds for the bundled client as well as for the server.
+        # Bind the reply socket to loopback only. This fork's own server always
+        # answers to 127.0.0.1 (see SESHAT.md), so nothing is lost talking to it, and
+        # this fork's loopback-only policy then holds for the bundled client as well
+        # as for the server. A remote `hostname` only works if that server itself
+        # replies to 127.0.0.1 - e.g. reached through an SSH tunnel or port forward -
+        # since a server that answers the client's real LAN address (upstream's
+        # default behaviour) will never be heard on this socket.
         # A busy port raises OSError from here: run-console.py users get the real
         # error, and the live suite's client fixture turns it into a skip.
         #--------------------------------------------------------------------------------

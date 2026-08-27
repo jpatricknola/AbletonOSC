@@ -1,4 +1,3 @@
-from . import wait_one_tick
 from .conftest import require, restored_view_selection
 
 #--------------------------------------------------------------------------------

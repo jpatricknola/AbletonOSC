@@ -111,3 +111,17 @@ def test_live_suite_is_gated_on_the_opt_in_environment_variable():
     #--------------------------------------------------------------------------------
     source = (LIVE_SUITE_DIR / "conftest.py").read_text()
     assert "ABLETONOSC_LIVE_TESTS" in source
+
+
+def test_client_reply_socket_binds_loopback_only():
+    #--------------------------------------------------------------------------------
+    # client/client.py binds its reply socket to 127.0.0.1 rather than upstream's
+    # 0.0.0.0 (see SESHAT.md, "Deliberate changes to upstream's behaviour" and
+    # "Merge hazards"). A merge that takes upstream's client.py unchanged restores
+    # the wildcard bind silently - nothing fails, loopback traffic keeps working -
+    # so this is a plain source grep, the same style as the environment-variable
+    # check above, rather than a behavioural test.
+    #--------------------------------------------------------------------------------
+    source = (LIVE_SUITE_DIR.parent / "client" / "client.py").read_text()
+    assert '"0.0.0.0"' not in source
+    assert "'0.0.0.0'" not in source
