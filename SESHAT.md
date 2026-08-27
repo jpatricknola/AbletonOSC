@@ -457,8 +457,9 @@ so treat any merge that reverts one as a regression, not a preference.
 - **`view.py` — `/live/view/show_view`, `/live/view/hide_view`,
   `/live/view/get/is_view_visible`, `/live/view/set/detail_clip` and the
   selected-track identity trio.** The first Seshat addresses to live in an
-  upstream file rather than in a handler of our own: they belong to the View API by every other measure, and splitting them
-  into a fourth module would put two `ViewHandler`s in `manager.py`. Upstream can
+  upstream file rather than in a handler of our own: they belong to the View
+  API by every other measure, and splitting them into a fourth module would
+  put two `ViewHandler`s in `manager.py`. Upstream can
   *select* a track, scene, clip or device but cannot bring the pane those live in
   into view, put a pane away, or report which panes are open —
   `Application.View.show_view`, `.hide_view`, `.is_view_visible` and
@@ -920,15 +921,18 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   every `/live/track/get/<prop> *` silently goes back to answering for track 0
   only — one plausible-looking reply, no error, nothing in a log to notice.
   Losing `track_callback.py` itself fails loudly (the import breaks), but
-  losing the *delegation* does not. `reload_imports` is a list upstream also
-  edits, and dropping its `abletonosc.track_callback` line is invisible until
-  someone edits the wrapper and `/live/api/reload` appears not to take. The
-  same list carries a second fork-owned line, `abletonosc.track_identity`,
-  which must stay *before* `abletonosc.view` because view.py `from`-imports the
-  selection resolvers — same silent failure mode.
-  `tests_unit/test_track_callback.py` fails on the first of these — run it on
-  every merge. Nothing outside Live calls `reload_imports`, so the ordering
-  lines themselves are covered by this file and the in-code comments alone.
+  losing the *delegation* does not. `tests_unit/test_track_callback.py` fails
+  on that hazard — run it on every merge.
+
+  `reload_imports` is a separate hazard on the same list, and no Live-free
+  test catches it: nothing outside Live calls `reload_imports`, so it is
+  covered only by this file and the in-code comments. The list is one
+  upstream also edits, and dropping its `abletonosc.track_callback` line is
+  invisible until someone edits the wrapper and `/live/api/reload` appears
+  not to take. The same list carries a second fork-owned line,
+  `abletonosc.track_identity`, which must stay *before* `abletonosc.view`
+  because view.py `from`-imports the selection resolvers — same silent
+  failure mode, and the same missing test coverage.
 
 - **Anything touching `song.py`'s generic methods list or `properties_rw`.**
   Three entries there are ours — `begin_undo_step`, `end_undo_step` and

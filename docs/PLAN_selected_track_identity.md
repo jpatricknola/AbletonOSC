@@ -449,3 +449,35 @@ build it on — new work there, not an obligation of this pin.
    structured `/live/error` — a loud, attributable answer to a state the
    plan believes unreachable. Listed here only because it cannot be proven
    unreachable from outside Live's source.
+
+### Result — 2026-08-27 (pr-review): **skipped by environment**
+
+Checks 1–7 were **all skipped by environment**; none was run, and no result
+is recorded for any of them. Nothing about the design, the resolver or the
+listener aliasing is confirmed or refuted on real Live objects by this
+review, and open questions 1 and 2 remain open.
+
+Precondition state at review time:
+
+- **Live is running** — PID 70216, `Ableton Live 12 Suite`.
+- **The installed copy is not this checkout.** `diff -rq
+  --exclude=__pycache__ abletonosc "$HOME/Music/Ableton/User Library/Remote
+  Scripts/AbletonOSC/abletonosc"` reports 14 differing files —
+  `application.py`, `browser.py`, `clip.py`, `clip_slot.py`, `device.py`,
+  `handler.py`, `midimap.py`, `osc_server.py`, `return_track.py`,
+  `scene.py`, `song.py`, `song_structure.py`, `track.py`, `view.py` — and
+  two files present only in the checkout: `track_callback.py` and
+  `track_identity.py`. The install predates at least the previous two
+  shipped items, so it carries neither the `lom_property` alias nor
+  `track_identity.py`, and `/live/view/get/selected_track_identity` would
+  answer `Unknown OSC address` for the trivial reason that the code is not
+  there.
+- **Restart therefore cannot be established either** — moot while the copy
+  differs.
+
+Installing this checkout into Remote Scripts and restarting Live are both
+outside a review's bounds (as is binding 11001, which Seshat holds), so no
+UDP was sent and the installed `logs/abletonosc.log` was not appended to by
+this review. Checks 1–7 remain the gate they were written to be, and must
+run against an installed, restarted copy of this branch before the
+behaviour is claimed anywhere as measured.

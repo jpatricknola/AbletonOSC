@@ -671,6 +671,18 @@ to use next, and the index is already in that family's coordinates.
   unreachable and upstream's getters simply raised `ValueError` on it; they now
   answer instead. `-1` is the same "not in this index space" sentinel used
   elsewhere for object-valued reads.
+- **`-1` is an answer, never an argument.** None of the three setters
+  (`set/selected_track`, `set/selected_clip`, `set/selected_device`) reject
+  it: they index `song.tracks`/`song.return_tracks`/`.devices` directly with
+  whatever `track_index` they are given, and Python resolves a negative index
+  from the end of the list rather than raising. Sending back a `-1` read from
+  `get/selected_track` therefore does not restore "a return track or the
+  master was selected" — it silently selects the **last regular track**
+  instead. Restore a snapshot through the category it actually names:
+  `/live/view/set/selected_track` for `"track"`,
+  `/live/return_track/select` for `"return_track"`, `/live/master/select`
+  for `"master"` — i.e. round-trip through `get/selected_track_identity`,
+  not the legacy getters.
 - `get/selected_device` also answers `(track_index, -1)` when a regular track
   is selected but there is no **top-level** device to report — either nothing
   is selected in the device chain, or the selected device is nested inside a
