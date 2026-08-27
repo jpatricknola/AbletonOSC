@@ -72,6 +72,8 @@ subclass case.
 
 ## #2 · Define selected-track identity across regular, return, and master tracks
 
+**Plan:** [docs/PLAN_selected_track_identity.md](docs/PLAN_selected_track_identity.md)
+
 **Goal:** one unambiguous representation of a selected regular, return or master
 track that selection, view, device and state-mirroring addresses all agree on;
 view setters and getters agree on whether setters are silent.
