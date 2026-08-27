@@ -41,7 +41,33 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · One `/live/song/undo` does not revert an OSC-created scene
+## #1 · A-4 · Object-valued read helpers
+
+**Goal:** index-returning handlers for `Song.master_track`,
+`Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`,
+`Song.View.selected_chain`, `selected_parameter`, `mod_mapping_device` /
+`mod_mapping_parameter`, with `-1` for none.
+
+**Why:** small, and it establishes the object-read pattern every later PR uses
+— the generic property loop returns `None` for object-valued members today.
+Unblocks the groove bucket.
+
+**Planner notes:**
+
+- Source: `CLOSING_THE_GAPS.md`, row **A-4**; closes FORK_GAPS
+  "Object-valued reads returned as `None`".
+- `-1` for "none" is already the fork's convention, established by the shipped
+  selected-track identity item and written down in API.md § "`-1` is an
+  answer, never an argument" (`API.md:674`) — follow it, and keep its second
+  half: no setter accepts `-1` as input.
+- Precedent for the group-track read exists rather than needing invention:
+  `/live/song/export/structure` already resolves `track.group_track` to an
+  index into `song.tracks` (`song.py:177-184`). Reuse that resolution instead
+  of writing a second one.
+- No dependencies.
+
+
+## #2 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -79,30 +105,6 @@ that a documented usage pattern rather than a hypothetical one.
 - If it proves to be a Live fact, the fix is an API.md contract paragraph plus
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
-
-## #2 · A-4 · Object-valued read helpers
-
-**Goal:** index-returning handlers for `Song.master_track`,
-`Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`,
-`Song.View.selected_chain`, `selected_parameter`, `mod_mapping_device` /
-`mod_mapping_parameter`, with `-1` for none.
-
-**Why:** small, and it establishes the object-read pattern every later PR uses
-— the generic property loop returns `None` for object-valued members today.
-Unblocks the groove bucket.
-
-**Planner notes:**
-- Source: `CLOSING_THE_GAPS.md`, row **A-4**; closes FORK_GAPS
-  "Object-valued reads returned as `None`".
-- `-1` for "none" is already the fork's convention, established by the shipped
-  selected-track identity item and written down in API.md § "`-1` is an
-  answer, never an argument" (`API.md:674`) — follow it, and keep its second
-  half: no setter accepts `-1` as input.
-- Precedent for the group-track read exists rather than needing invention:
-  `/live/song/export/structure` already resolves `track.group_track` to an
-  index into `song.tracks` (`song.py:177-184`). Reuse that resolution instead
-  of writing a second one.
-- No dependencies.
 
 ## #3 · B-2 · DeviceParameter rich reply
 
