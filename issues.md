@@ -15,25 +15,6 @@ upstream must also be reflected in [SESHAT.md](SESHAT.md).
 
 ## Bugs — existing addresses misbehave
 
-### Normalize device parameter listener identifiers
-
-
-**Priority:** High — listener leaks and float-valued OSC compatibility
-
-Individual device parameter getters and setters convert the parameter index to
-an integer, but the parameter listener path indexes with raw `params[2]` and
-stores the raw values in its listener key. Interfaces such as TouchOSC commonly
-send numeric arguments as floats. A float parameter index can fail when indexing
-Live's parameter collection, and start/stop calls using numerically equivalent
-but differently typed paths can fail to find the same listener.
-
-The listener contract must normalize track, device, and parameter identifiers
-consistently before Live lookup, response echoing, and bookkeeping. Starting,
-restarting, stopping, clearing, and renumbering listeners must all address the
-same underlying `DeviceParameter` without leaks.
-
-**Affected area:** `abletonosc/device.py`, listener lifecycle tests.
-
 ### Define selected-track identity across regular, return, and master tracks
 
 
@@ -56,34 +37,6 @@ silent setter.
 
 **Affected area:** `abletonosc/view.py`, `abletonosc/return_track.py`, Seshat
 session state, view and selection documentation/tests.
-
-### Give device property listeners their identity back
-
-
-**Priority:** Medium — defective listener contract, found in the 2026-08-03
-integration review follow-up (PR #62 review on the Seshat side)
-
-`/live/device/start_listen/{name,type,class_name}` are registered through
-`create_device_callback(self._start_listen, prop)` without `include_ids=True`,
-so the wrapper strips the track and device indices before `_start_listen` sees
-them. Two consequences: the asynchronous push on the corresponding `get/`
-address carries the bare value with no indices, so a client cannot tell which
-device changed; and the listener key collapses to `(prop, ())` for every
-device, so subscribing a second device to the same property silently stops and
-replaces the first — one subscription per property, process-wide.
-
-`start_listen/parameter/value` already handles this correctly with
-`include_ids=True`. The property listeners need the same treatment, with the
-caveat that this is a wire-contract change: the push gains two leading indices
-and subscription identity becomes per-device, so any existing subscriber's
-decoding and unsubscribe calls must be checked (Seshat currently subscribes to
-none of these — its API doc documents the hobbled behavior and warns against
-building on it until this issue is fixed). Regression coverage should share
-the listener-lifecycle tests that "Normalize device parameter listener
-identifiers" calls for.
-
-**Affected area:** `abletonosc/device.py`, listener lifecycle tests, Seshat
-API documentation (remove the warning once fixed), SESHAT.md.
 
 ### Remove the unsolicited average-process-usage startup datagram
 

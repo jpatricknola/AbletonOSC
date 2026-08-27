@@ -70,29 +70,7 @@ subclass case.
   case instead of describing it as uncovered.
 - No dependencies.
 
-## #2 · Device listener identity — parameter indices and property listeners
-
-**Plan:** [docs/PLAN_device_listener_identity.md](docs/PLAN_device_listener_identity.md)
-
-**Goal:** device parameter listeners key on normalized integer identifiers, and
-device *property* listeners (`name`, `type`, `class_name`) push with their track
-and device indices and subscribe per device instead of one per property
-process-wide.
-
-**Why:** two listener-key bugs in the same file with the same lifecycle tests:
-float-valued OSC arguments leak listeners, and property listeners collapse to
-`(prop, ())` so a second device's subscription silently replaces the first.
-
-**Planner notes:**
-- Sources: `issues.md`, "Normalize device parameter listener identifiers" (High)
-  **and** "Give device property listeners their identity back" (Medium) — one
-  PR, both entries close together.
-- The property-listener half is a wire-contract change (push gains two leading
-  indices). Seshat subscribes to none of these today and its API doc warns
-  against building on them; coordinate the doc removal in the pin bump.
-- No dependencies.
-
-## #3 · Define selected-track identity across regular, return, and master tracks
+## #2 · Define selected-track identity across regular, return, and master tracks
 
 **Goal:** one unambiguous representation of a selected regular, return or master
 track that selection, view, device and state-mirroring addresses all agree on;
@@ -110,24 +88,26 @@ object-read buckets, so it must be decided before they are built.
   silent — settle it here.
 - Assess consumers expecting a single regular-track index (Seshat's
   `Session.State`).
-- No dependencies; #5 and the A-3 bucket depend on it.
+- No dependencies; #4 and the A-3 bucket depend on it.
 
-## #4 · Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and the device.py property pair
+## #3 · Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and the device.py property pair
 
 **Goal:** every `_start_listen`/`_stop_listen` call site builds its identity
 tuple the same way `abletonosc/device.py`'s parameter-listener pair now does
-(#2's fix): indices cast to int at the callback boundary, and truncated to
+(shipped in "Device listener identity — parameter indices and property
+listeners"): indices cast to int at the callback boundary, and truncated to
 exactly the arguments that are part of the identity, before that tuple is
 used for the LOM lookup, the bookkeeping key, and the push echo.
 
-**Why:** two related gaps left after #2 landed, both raised by its review
-(`docs/PLAN_device_listener_identity.md`, review of `5d0ec50`):
+**Why:** two related gaps left after that item landed, both raised by its
+review (`docs/archive/PLAN_device_listener_identity.md`, review of
+`5d0ec50`):
 - `scene.py:16`, `clip.py:57` and `clip_slot.py:15` still pass raw OSC
   arguments into `_start_listen`/`_stop_listen` via `params[0:]`, with no
   int-cast — a float-sending client (TouchOSC-style, upstream issue #33)
   leaks a scene/clip/clip-slot listener exactly the way the device parameter
-  listener used to before #2, because a start keyed on floats and a stop
-  keyed on ints never share a bookkeeping entry.
+  listener used to before that fix, because a start keyed on floats and a
+  stop keyed on ints never share a bookkeeping entry.
 - `device.py`'s property listen pair (`name`/`type`/`class_name`) normalizes
   its two indices but does not truncate: `create_device_callback`'s
   `include_ids` branch hands the callee `(track_index, device_index,
@@ -149,17 +129,17 @@ used for the LOM lookup, the bookkeeping key, and the push echo.
   each property callback, matching the pattern parameter/value already uses.
 - `scene.py`, `clip.py`, `clip_slot.py` currently key listeners on
   `tuple(params)` with no cast at all (not just no truncation) — closer to
-  defect 1 in #2's plan than to its residual. Confirm via
+  defect 1 in that item's plan than to its residual. Confirm via
   `tests_unit/` fakes before assuming int-casting alone closes the gap; check
   whether any of the three also has a property-listen pair with the same
-  missing-`include_ids`/collapsed-key shape #2 fixed for `device.py`.
+  missing-`include_ids`/collapsed-key shape that item fixed for `device.py`.
 - Wire-visible change only for malformed/float-typed requests; well-formed
   clients see no difference. Confirm with Seshat whether any of its `lib/`
   code sends float indices to these addresses before assuming "pin bump
   only".
 - No dependencies.
 
-## #5 · A-4 · Object-valued read helpers
+## #4 · A-4 · Object-valued read helpers
 
 **Goal:** index-returning handlers for `Song.master_track`,
 `Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`,
@@ -173,9 +153,9 @@ Unblocks the groove bucket.
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **A-4**; closes FORK_GAPS
   "Object-valued reads returned as `None`".
-- Depends on #3 for the track-identity representation.
+- Depends on #2 for the track-identity representation.
 
-## #6 · B-2 · DeviceParameter rich reply
+## #5 · B-2 · DeviceParameter rich reply
 
 **Goal:** one richer `parameters` reply plus per-parameter addresses —
 `value_items`, `short_value_items`, `display_value` (get/set), `str_for_value`,
@@ -193,7 +173,7 @@ gap PR — it proves the batching conventions the rest reuse: handlers +
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #7 · C-3 · Application dialogs and versions
+## #6 · C-3 · Application dialogs and versions
 
 **Goal:** read-only dialog state (`open_dialog_count`,
 `current_dialog_message`, `current_dialog_button_count`, listen where
@@ -214,7 +194,7 @@ dialog may guard unsaved work.
   requested. Same file, same PR; remove that entry at ship time too.
 - No dependencies.
 
-## #8 · B-1 · Notes extended
+## #7 · B-1 · Notes extended
 
 **Goal:** `/live/clip/get/notes_extended` and `/live/clip/add/notes_extended`
 carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`,
@@ -232,7 +212,7 @@ old five-field addresses unchanged; then the ID-keyed members
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #9 · Make live code reload ordered and failure-safe
+## #8 · Make live code reload ordered and failure-safe
 
 **Goal:** `/live/api/reload` produces a coherent module graph whose handlers
 share the current base classes, and a failed reload preserves a usable previous
@@ -240,14 +220,14 @@ API or fails in a clearly reported, recoverable state.
 
 **Why:** `Manager.reload_imports` reloads concrete handler modules before their
 `handler` base and activates the result even after an exception. Every gap PR
-uses reload during development; move this up if it bites during #5–#8.
+uses reload during development; move this up if it bites during #4–#7.
 
 **Planner notes:**
 - Source: `issues.md`, "Make live code reload ordered and failure-safe"
   (Medium-high).
 - No dependencies.
 
-## #10 · Stop masking Remote Script import failures
+## #9 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -266,7 +246,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #11 · Remove the process-global and shared-file risks from song structure export
+## #10 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -282,7 +262,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #12 · Add bounded log retention
+## #11 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -299,7 +279,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #13 · A-3 · Return / master `Track` parity
+## #12 · A-3 · Return / master `Track` parity
 
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
@@ -312,9 +292,9 @@ return/master feature downstream trips over the difference.
 - Source: `CLOSING_THE_GAPS.md`, row **A-3**; closes the FORK_GAPS Track
   addressing gap and the `MixerDevice` gap on returns/master.
 - Prefer a shared track resolver over three copies of the handler table.
-- Depends on #3.
+- Depends on #2.
 
-## #14 · C-1 · `Song` remainder
+## #13 · C-1 · `Song` remainder
 
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
@@ -326,7 +306,7 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
 - Source: `CLOSING_THE_GAPS.md`, row **C-1**.
 - No dependencies.
 
-## #15 · D-2 · Groove
+## #14 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -338,7 +318,7 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **D-2**.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
-- Depends on #5 (object-read pattern).
+- Depends on #4 (object-read pattern).
 
 ---
 

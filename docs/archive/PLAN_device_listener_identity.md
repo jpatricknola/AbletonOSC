@@ -1,3 +1,13 @@
+**Archived 2026-08-27 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in
+`abletonosc/device.py` (`create_device_callback`, the parameter-listener
+pair, and the property `start_listen`/`stop_listen` registration loop) and
+`API.md` § Device API → "Device: Listening". The follow-up gaps its own
+review raised — `scene.py`, `clip.py`, `clip_slot.py` never int-casting
+their listener args, and the property pair not truncating trailing
+arguments — went to ROADMAP.md as "Normalize listener argument identity in
+scene.py, clip.py, clip_slot.py, and the device.py property pair".
+
 # Plan: Device listener identity — parameter indices and property listeners
 
 Roadmap item: **Device listener identity — parameter indices and property
