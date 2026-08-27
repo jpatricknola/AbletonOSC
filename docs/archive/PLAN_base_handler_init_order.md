@@ -4,8 +4,9 @@ implementation; the code as merged may differ. The change lives in
 class-level `class_identifier`, the new `init_state()` hook) and
 `abletonosc/manager.py` (`reload_imports`'s module order), with no `API.md`
 changes — no address, request-shape or reply-shape changed. The pr-review
-follow-up this plan's nits produced lives on as ROADMAP.md's "Verify
-handler `class_identifier` and lifecycle invariants without Live".
+follow-up this plan's nits produced shipped as "Verify handler
+`class_identifier` and lifecycle invariants without Live"; see
+`docs/archive/PLAN_handler_class_identifier_invariants.md`.
 
 # Plan: Fix base handler initialization order
 
