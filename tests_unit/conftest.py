@@ -169,8 +169,9 @@ def load_clip_slot_module():
 def load_track_module():
     """
     Import the real `abletonosc.track` beneath the synthetic root. Like
-    device.py it imports nothing from Live — only typing, .handler and
-    .track_callback — so no stub beyond Component is needed.
+    device.py it imports nothing from Live — only typing, .handler,
+    .track_callback and .track_identity — so no stub beyond Component is
+    needed.
 
     Note that constructing `TrackHandler` registers its entire address table
     (getters, setters, methods and both listen pairs, for every property in

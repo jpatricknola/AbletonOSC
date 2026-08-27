@@ -47,7 +47,7 @@ from .track_identity import (selected_track_identity, selected_track_index,
 # guard timeout. The boolean goes on the wire as 1/0, matching the convention
 # every other AbletonOSC boolean uses.
 #
-# The last three are the selected-track identity trio, and three *upstream*
+# The next three are the selected-track identity trio, and three *upstream*
 # getters in this file change with them. This fork can select a return track or
 # the master (/live/return_track/select, /live/master/select), which the LOM
 # accepts on song.view.selected_track — but upstream's getters resolve the

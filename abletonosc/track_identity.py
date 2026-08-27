@@ -282,7 +282,11 @@ def parameter_identity(song: Any, parameter: Any) -> Tuple[str, int, int, int]:
     - a mixer or send parameter, or a parameter of a device nested in a rack
       chain -> (category, track_index, -1, -1): the owning track is known,
       but the parameter's parent is not a member of `track.devices`, so there
-      is no device index to report it under.
+      is no device index to report it under;
+    - a parameter of a top-level device that is not itself in that device's
+      `parameters` -> (category, track_index, device_index, -1). Live has no
+      such state; this is a can't-happen defended by `_index_of` rather than
+      an assumption baked into the return shape.
     """
     if parameter is None:
         return (CATEGORY_NONE, NO_INDEX, NO_INDEX, NO_INDEX)
@@ -310,7 +314,11 @@ def chain_identity(song: Any, chain: Any) -> Tuple[str, int, int, int]:
       `chains`;
     - a chain absent from its parent's `chains` (a drum rack's DrumChain may
       only appear under `drum_pads[*].chains` — unmeasured, see the API.md
-      row) -> chain_index -1.
+      row) -> chain_index -1;
+    - a chain with no `canonical_parent` rack -> (category, track_index, -1,
+      -1). Live has no such state for a non-`None` chain; this is a
+      can't-happen defended by the same shape as the none-quad, not an
+      assumption baked into the return shape.
     """
     if chain is None:
         return (CATEGORY_NONE, NO_INDEX, NO_INDEX, NO_INDEX)

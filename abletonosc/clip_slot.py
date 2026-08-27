@@ -16,14 +16,14 @@ class ClipSlotHandler(AbletonOSCHandler):
                     # Hand the callee the *normalised, truncated* identity, not the raw
                     # OSC args. pass_clip_index is used by the listen pair and by
                     # get/clip, the one getter whose *reply* contains its own slot
-                    # index; either way the identity has to be canonical: it is the
-                    # bookkeeping key,
-                    # the LOM subscript and the echo in the push, and those three must
-                    # agree across a start/stop pair sent by different clients. TouchOSC
-                    # -style clients send floats by default (upstream issue #33). A clip
-                    # slot subscription's identity is exactly two ints; anything past
-                    # them is dropped, so a stray trailing argument cannot key a second
-                    # subscription that a well-formed stop can never reach.
+                    # index; either way the identity has to be canonical — it is the
+                    # bookkeeping key and the LOM subscript, and for the listen pair
+                    # also the echo in the push, so it must agree across a start/stop
+                    # pair sent by different clients. TouchOSC-style clients send
+                    # floats by default (upstream issue #33). A clip slot subscription's
+                    # identity is exactly two ints; anything past them is dropped, so a
+                    # stray trailing argument cannot key a second subscription that a
+                    # well-formed stop can never reach.
                     #--------------------------------------------------------------------------------
                     rv = func(clip_slot, *args, (track_index, clip_index))
                 else:

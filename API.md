@@ -616,7 +616,7 @@ Listen via `/live/song/start_listen/<property>`, stop via
 
 | Address | Query Params | Description |
 |---|---|---|
-| `/live/song/set/appointed_device` | `category, track_index, device_index` | ⚠️ **Seshat extension** — appoint a top-level device, by the same triple the getter replies. Every argument is validated: `"none"`, an unknown category, a negative or out-of-range index, or a master index other than `0` each answer on `/live/error` and change nothing. There is no un-appoint |
+| `/live/song/set/appointed_device` | `category, track_index, device_index` | ⚠️ **Seshat extension** — appoint a top-level device, by the same triple the getter replies. Every argument is validated: `"none"`, an unknown category, a negative or out-of-range index, or a master index other than `0` each answer on `/live/error` and change nothing. There is no un-appoint. Only `"track"` has been exercised against a running Live; whether Live accepts a return-track or master device as `appointed_device` is unmeasured |
 | `/live/song/set/arrangement_overdub` | `arrangement_overdub` | Set arrangement overdub (1=on, 0=off) |
 | `/live/song/set/back_to_arranger` | `back_to_arranger` | Set back to arranger (1=on, 0=off) |
 | `/live/song/set/clip_trigger_quantization` | `clip_trigger_quantization` | Set clip trigger quantization |
