@@ -1,16 +1,15 @@
 ---
 name: ship
-description: Close out a shipped roadmap item — remove it from ROADMAP.md and its source (issues.md entry or CLOSING_THE_GAPS.md row), archive its plan doc, confirm the documentation obligations landed, and state what the downstream consumer must do. Use after an item lands, when the user says something "shipped" or "is done", or when ROADMAP.md still lists work that exists in the code.
+description: Close out a shipped roadmap item — remove it from ROADMAP.md and any source write-up its entry cites, archive its plan doc, confirm the documentation obligations landed, and state what the downstream consumer must do. Use after an item lands, when the user says something "shipped" or "is done", or when ROADMAP.md still lists work that exists in the code.
 argument-hint: [what shipped, e.g. "wildcard getters" or "B-2"]
 ---
 
 Close out a shipped item: **$ARGUMENTS**
 
 [ROADMAP.md](ROADMAP.md) is the single living list of what's *not done yet*,
-and it only works if shipping updates it — and so do its two sources,
-[issues.md](issues.md) and [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md), which
-other documents cite by title and row id. Walk every step; several are often
-no-ops, but check rather than assume.
+and it only works if shipping updates it — and so does any source write-up
+an entry cites, which other documents may reference by title. Walk every
+step; several are often no-ops, but check rather than assume.
 
 1. **Confirm it actually shipped.** Find the implementing code (grep for the
    address or the handler) and confirm it is present on the branch you're
@@ -21,9 +20,8 @@ no-ops, but check rather than assume.
 
 2. **Remove it from [ROADMAP.md](ROADMAP.md).** Delete the entry. If only
    part shipped, rewrite it to just the remainder. If the work surfaced
-   follow-ups worth doing later, add them where they fit — with a source
-   entry written first (an `issues.md` item or a `CLOSING_THE_GAPS.md` row),
-   because the roadmap ranks and never describes.
+   follow-ups worth doing later, add them where they fit, as
+   self-contained entries (Goal, Why, Planner notes).
 
    **Do not leave a "shipped" banner or recap in ROADMAP.md.** It documents
    future work only; ship history belongs in git, `SESHAT.md`, and the
@@ -34,12 +32,12 @@ no-ops, but check rather than assume.
    Then the **Depends on** notes: any remaining entry that depended on this
    one drops the dependency.
 
-3. **Remove it from its source.** A defect: delete its entry from
-   `issues.md` ("Completed entries are removed"), and any second entry the
-   roadmap item said it folds in. A gap bucket: delete its row from
-   `CLOSING_THE_GAPS.md`, and delete the curated `FORK_GAPS.md` entries the
-   roadmap item named as closed (the generated inventory is handled in
-   step 4).
+3. **Remove it from its source, if it cited one.** Delete the entry in
+   whatever write-up the roadmap entry pointed at, and any second entry the
+   roadmap item said it folds in; if only part shipped, rewrite that entry
+   to the remainder. For a gap, also delete the curated `FORK_GAPS.md`
+   entries the roadmap item named as closed (the generated inventory is
+   handled in step 4). If the entry cited nothing, this step is a no-op.
 
 4. **Confirm the same-commit obligations actually landed** — this is the
    check `/pr-review` made, repeated once more against the final branch,
