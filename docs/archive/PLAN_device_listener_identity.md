@@ -5,8 +5,11 @@ pair, and the property `start_listen`/`stop_listen` registration loop) and
 `API.md` § Device API → "Device: Listening". The follow-up gaps its own
 review raised — `scene.py`, `clip.py`, `clip_slot.py` never int-casting
 their listener args, and the property pair not truncating trailing
-arguments — went to ROADMAP.md as "Normalize listener argument identity in
-scene.py, clip.py, clip_slot.py, and the device.py property pair".
+arguments — were fixed in
+[docs/archive/PLAN_listener_identity_normalization.md](PLAN_listener_identity_normalization.md),
+which also left a further follow-up (`track.py` / `return_track.py`) on
+ROADMAP.md as "Normalize listener argument identity in track.py and
+return_track.py".
 
 # Plan: Device listener identity — parameter indices and property listeners
 

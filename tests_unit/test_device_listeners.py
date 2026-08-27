@@ -389,3 +389,44 @@ def test_parameter_subscribe_with_too_few_arguments_is_a_structured_error(
 
     assert handler.listener_functions == {}
     assert handler.listener_objects == {}
+
+
+#--------------------------------------------------------------------------------
+# 13. Arguments past the second are ignored on a property subscription
+#--------------------------------------------------------------------------------
+
+def test_name_subscribe_ignores_arguments_past_the_second(handler, server,
+                                                          receiver):
+    dispatch(server, "/live/device/start_listen/name", 0, 1, "bogus")
+
+    #--------------------------------------------------------------------------------
+    # The property pair used to normalise its two indices but not truncate:
+    # the wrapper passed (track_index, device_index, *params[2:]), so this
+    # keyed ("name", (0, 1, "bogus")), pushed the stray field as if it were
+    # data, and leaked against the well-formed stop below. Truncation is now
+    # uniform, declared per callee by create_device_callback's id_count.
+    #--------------------------------------------------------------------------------
+    assert list(handler.listener_functions.keys()) == [("name", (0, 1))]
+    assert receiver.drain() == [("/live/device/get/name", (0, 1, "Reverb"))]
+
+    dispatch(server, "/live/device/stop_listen/name", 0, 1)
+
+    assert devices_of(handler, 0)[1].listeners == []
+    assert handler.listener_functions == {}
+    assert handler.listener_objects == {}
+
+
+#--------------------------------------------------------------------------------
+# 14. ...and on the stop half too, so the pair stays symmetric
+#--------------------------------------------------------------------------------
+
+def test_name_stop_ignores_arguments_past_the_second(handler, server, receiver):
+    dispatch(server, "/live/device/start_listen/name", 0, 1)
+    receiver.drain()
+
+    dispatch(server, "/live/device/stop_listen/name", 0, 1, "bogus")
+
+    assert devices_of(handler, 0)[1].listeners == []
+    assert handler.listener_functions == {}
+    assert handler.listener_objects == {}
+    assert receiver.drain() == []

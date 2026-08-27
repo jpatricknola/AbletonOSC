@@ -43,6 +43,15 @@ class ClipHandler(AbletonOSCHandler):
             evils for scenarios where the track/clip index is needed (as a clip is unable
             to query its own index). Other alternatives include _always_ passing track/clip
             index to the callback, but this adds arg clutter to every single callback.
+
+            pass_clip_index hands the callee the *normalised, truncated* identity
+            (track_index, clip_index), not the raw OSC args. It is used by the
+            start_listen/stop_listen registrations only, and a listener's identity has
+            to be canonical: it is the bookkeeping key, the LOM subscript and the echo
+            in the push, and those three must agree across a start/stop pair sent by
+            different clients. Anything past the second argument is not part of the
+            identity and is dropped, so a stray trailing argument cannot key a second
+            subscription that a well-formed stop can never reach.
             """
 
             def clip_callback(params: Tuple[Any]) -> Tuple:
@@ -54,7 +63,7 @@ class ClipHandler(AbletonOSCHandler):
                 track = self.song.tracks[track_index]
                 clip = track.clip_slots[clip_index].clip
                 if pass_clip_index:
-                    rv = func(clip, *args, tuple(params[0:]))
+                    rv = func(clip, *args, (track_index, clip_index))
                 else:
                     rv = func(clip, *args, tuple(params[2:]))
 

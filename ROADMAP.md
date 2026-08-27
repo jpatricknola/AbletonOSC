@@ -41,53 +41,50 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and the device.py property pair
+## #1 · Normalize listener argument identity in track.py and return_track.py
 
-**Goal:** every `_start_listen`/`_stop_listen` call site builds its identity
-tuple the same way `abletonosc/device.py`'s parameter-listener pair now does
-(shipped in "Device listener identity — parameter indices and property
-listeners"): indices cast to int at the callback boundary, and truncated to
-exactly the arguments that are part of the identity, before that tuple is
-used for the LOM lookup, the bookkeeping key, and the push echo.
+**Goal:** `track_callback.py`'s `include_track_id` branch and
+`return_track.py`'s hand-rolled per-property `start_listen`/`stop_listen`
+pairs (including the index-less master triple) truncate their identity to
+exactly the arguments that are part of it — the same rule "Normalize listener
+argument identity in scene.py, clip.py, clip_slot.py, and the device.py
+property pair" established everywhere else: arguments past a subscription's
+identity are dropped from the bookkeeping key and the push, not merely
+appended after the cast indices.
 
-**Why:** two related gaps left after that item landed, both raised by its
-review (`docs/archive/PLAN_device_listener_identity.md`, review of
-`5d0ec50`):
-- `scene.py:16`, `clip.py:57` and `clip_slot.py:15` still pass raw OSC
-  arguments into `_start_listen`/`_stop_listen` via `params[0:]`, with no
-  int-cast — a float-sending client (TouchOSC-style, upstream issue #33)
-  leaks a scene/clip/clip-slot listener exactly the way the device parameter
-  listener used to before that fix, because a start keyed on floats and a
-  stop keyed on ints never share a bookkeeping entry.
-- `device.py`'s property listen pair (`name`/`type`/`class_name`) normalizes
-  its two indices but does not truncate: `create_device_callback`'s
-  `include_ids` branch hands the callee `(track_index, device_index,
-  *params[2:])` unconditionally, so a malformed `start_listen/name <t> <d>
-  <extra>` keys on `(name, (t, d, extra))` — a push with a bogus third field,
-  and a well-formed two-argument `stop_listen/name` that misses the key and
-  leaks the listener until reload.
+**Why:** `track_callback.py:89` builds `tuple([track_index] + params[1:])` —
+the index is already an int (the wildcard fan-out generates ints too), but
+nothing bounds `params[1:]`, so `start_listen/<prop> <index> <extra>` keys
+`(prop, (index, extra))` while the well-formed `stop_listen/<prop> <index>`
+keys `(prop, (index,))` — the identical extra-arg leak the sibling item fixed
+in `device.py`, `scene.py`, `clip.py`, and `clip_slot.py`, reachable here by
+the same shape of malformed request. `return_track.py`'s per-property pairs
+(`name`, `volume`, `panning`, `mute`, `solo`, plus the parameterless master
+`volume`/`panning`/`cue_volume`) don't share `track_callback.py`'s helper at
+all — they are separate hand-rolled code with their own identity handling —
+so this is a second fix in that file, not a side effect of the first.
 
 **Planner notes:**
-- Source: pr-review of `device-listener-identity` (branch, `5d0ec50`),
-  findings 1 and 7 — both filed non-blocking (a malformed or float-typed
-  request is needed to reach either), and explicitly recommended as a
-  follow-up.
-- The `device.py` half needs `create_device_callback`'s `include_ids` branch
-  to know how many trailing arguments belong to a given callee's identity
-  (2 for the property pair, 3 for parameter/value) rather than passing
-  `params[2:]` through unbounded — decide whether that arity is a new
-  parameter on `create_device_callback` or a per-callee truncation inside
-  each property callback, matching the pattern parameter/value already uses.
-- `scene.py`, `clip.py`, `clip_slot.py` currently key listeners on
-  `tuple(params)` with no cast at all (not just no truncation) — closer to
-  defect 1 in that item's plan than to its residual. Confirm via
-  `tests_unit/` fakes before assuming int-casting alone closes the gap; check
-  whether any of the three also has a property-listen pair with the same
-  missing-`include_ids`/collapsed-key shape that item fixed for `device.py`.
-- Wire-visible change only for malformed/float-typed requests; well-formed
-  clients see no difference. Confirm with Seshat whether any of its `lib/`
-  code sends float indices to these addresses before assuming "pin bump
-  only".
+- Source: `docs/archive/PLAN_listener_identity_normalization.md`, "Out of scope"
+  (both bullets), and that item's pr-review (branch
+  `listener-identity-normalization`, round 2, nit 4's third bullet) —
+  explicitly named there as real but deliberately excluded from that item's
+  diff to keep it to the four files its title named.
+- `track_callback.py`'s `include_track_id` path is shared by the mixer listen
+  pair too (`_start_mixer_listen`/`_stop_mixer_listen` in `track.py`) — fix
+  and test both, not just the plain property pair.
+- `return_track.py` needs its own audit: enumerate every
+  `_start_listen_<prop>`/`_stop_listen_<prop>` method (and the master trio)
+  and confirm each one's identity-building line, since there is no shared
+  wrapper to point at.
+- Verified 2026-08-27 against `/Users/patrick/seshat`:
+  `lib/seshat/session/state.ex` sends `/live/track/start_listen/<prop>
+  <index>`, `/live/return_track/start_listen/<prop> <index>`, and
+  `/live/master/start_listen/<prop>` with exactly the documented argument
+  count, always an Elixir (int32) index, never floats or extras — so today's
+  only known caller is unaffected either way; the gap is reachable only by a
+  malformed or hand-crafted client. Re-confirm this before assuming "pin bump
+  only" if `lib/` has changed since.
 - No dependencies.
 
 ## #2 · One `/live/song/undo` does not revert an OSC-created scene

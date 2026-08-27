@@ -13,20 +13,34 @@ empty), and inserts a namespace-style abletonosc subpackage whose
 __init__.py is never executed. The production module's relative imports
 then resolve unchanged, with no rewriting.
 
-One narrow exception to "no Live stubs": load_handler_module() installs a
-minimal ableton.v2.control_surface.component before importing the real
-handler.py. handler.py's only Live-side dependency is that trivial base
-class — it imports no Live module, calls Component with no arguments and
-uses none of its behaviour — so a stub whose Component.__init__ accepts and
-ignores everything makes the real base class testable without pretending to
-be Live. Nothing else stubs anything: osc_server.py and track_callback.py
-are imported exactly as they ship, and the stub is only installed when a
-test actually calls load_handler_module(). Most production *subclasses*
-(track.py, song.py, ...) import Live itself at module scope and stay out of
-reach until that is addressed separately — but device.py does not (it
-imports only typing and .handler), so load_device_module() can construct
-the real DeviceHandler on top of the same Component stub and drive it end
-to end; test_device_listeners.py does exactly that.
+There are two narrow exceptions to "no Live stubs", both import-only shims
+that pretend to no Live *behaviour* whatsoever:
+
+1. load_handler_module() installs a minimal
+   ableton.v2.control_surface.component before importing the real
+   handler.py. handler.py's only Live-side dependency is that trivial base
+   class — it imports no Live module, calls Component with no arguments and
+   uses none of its behaviour — so a stub whose Component.__init__ accepts
+   and ignores everything makes the real base class testable without
+   pretending to be Live.
+2. load_clip_module() installs an *empty* module as sys.modules["Live"]
+   before importing the real clip.py. clip.py does `import Live` at module
+   scope, but the only thing it ever dereferences off it is
+   Live.Clip.MidiNoteSpecification, inside clip_add_notes at call time — so
+   an empty module satisfies the import and any test that dispatched
+   clip_add_notes would fail loudly on the missing attribute rather than
+   quietly exercising a fake Live.
+
+Nothing else stubs anything: osc_server.py and track_callback.py are
+imported exactly as they ship, and each stub is only installed when a test
+actually calls the loader that needs it. Most production *subclasses*
+(track.py, song.py, ...) import Live itself at module scope and use it for
+real, so they stay out of reach until that is addressed separately — but
+device.py, scene.py and clip_slot.py import only typing/functools and
+.handler, so load_device_module(), load_scene_module() and
+load_clip_slot_module() construct the real handlers on top of the same
+Component stub and drive them end to end; test_device_listeners.py and
+test_listener_identity.py do exactly that.
 
 test_import.py smoke-tests the loader so it cannot fail only when the
 first real dispatcher test is collected.
@@ -131,6 +145,47 @@ def load_device_module():
     """
     load_handler_module()
     return load_module("abletonosc.device")
+
+
+def load_scene_module():
+    """
+    Import the real `abletonosc.scene` beneath the synthetic root. Like
+    device.py it imports nothing from Live — only typing, functools and
+    .handler — so no stub beyond Component is needed.
+    """
+    load_handler_module()
+    return load_module("abletonosc.scene")
+
+
+def load_clip_slot_module():
+    """
+    Import the real `abletonosc.clip_slot` beneath the synthetic root. Like
+    device.py it imports nothing from Live — only typing and .handler.
+    """
+    load_handler_module()
+    return load_module("abletonosc.clip_slot")
+
+
+def load_clip_module():
+    """
+    Import the real `abletonosc.clip` beneath the synthetic root, after
+    installing an empty `Live` module to satisfy its module-scope
+    `import Live` (see the module docstring for why that is safe: the only
+    dereference is Live.Clip.MidiNoteSpecification, inside clip_add_notes at
+    call time, and no test in this suite dispatches that address).
+
+    Guarded like the Component stub, and installed only when this loader is
+    called. `sys.modules` is process-global for the whole pytest session,
+    though, so once installed the stub is visible to every test collected
+    afterwards, not just ones that call this loader — test_import.py's
+    test_abletonosc_package_init_never_executed accounts for that by
+    tolerating a `Live` module in sys.modules as long as it carries no
+    `__file__` (a real Live module, loaded from disk, always would).
+    """
+    load_handler_module()
+    if "Live" not in sys.modules:
+        sys.modules["Live"] = types.ModuleType("Live")
+    return load_module("abletonosc.clip")
 
 
 class Receiver:

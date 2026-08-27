@@ -13,7 +13,20 @@ class SceneHandler(AbletonOSCHandler):
                 scene_index = int(params[0])
                 scene = self.song.scenes[scene_index]
                 if (include_ids):
-                    rv = func(scene, *args, params[0:])
+                    #--------------------------------------------------------------------------------
+                    # Hand the callee the *normalised, truncated* identity, not the raw
+                    # OSC args. Every include_ids callee is a listener path, and a
+                    # listener's identity has to be canonical: it is the bookkeeping key,
+                    # the LOM subscript and the echo in the push, and those three must
+                    # agree across a start/stop pair sent by different clients. TouchOSC
+                    # -style clients send floats by default (upstream issue #33), so
+                    # start_listen (0.0,) and stop_listen (0,) name the same subscription
+                    # only if the cast happens here, once, before the callee sees
+                    # anything. A scene subscription's identity is exactly one int:
+                    # anything past it is dropped, so a stray trailing argument cannot
+                    # key a second subscription that a well-formed stop can never reach.
+                    #--------------------------------------------------------------------------------
+                    rv = func(scene, *args, (scene_index,))
                 else:
                     rv = func(scene, *args, params[1:])
 

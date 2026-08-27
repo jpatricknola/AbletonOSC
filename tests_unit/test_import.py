@@ -30,17 +30,18 @@ def test_abletonosc_package_init_never_executed():
     load_osc_server_module()
     package = sys.modules[ROOT_PACKAGE + ".abletonosc"]
     assert not hasattr(package, "SongHandler")
-    assert "Live" not in sys.modules
     #--------------------------------------------------------------------------------
     # No *real* Live-side module may be imported by anything in this suite.
-    # "ableton" itself can legitimately be present: load_handler_module()
+    # "ableton" and "Live" can each legitimately be present: load_handler_module()
     # installs a synthetic stub of ableton.v2.control_surface.component so the
-    # real handler.py base class can be constructed (see conftest). Real
-    # modules are loaded from Live's Remote Scripts directory and carry a
-    # __file__; the stub is a bare ModuleType and does not.
+    # real handler.py base class can be constructed, and load_clip_module()
+    # (used by other tests in the same session) installs an empty "Live"
+    # stub so clip.py's module-scope `import Live` resolves (see conftest).
+    # Real modules are loaded from Live's Remote Scripts directory and carry
+    # a __file__; the stubs are bare ModuleType instances and do not.
     #--------------------------------------------------------------------------------
     for name, module in list(sys.modules.items()):
-        if name == "ableton" or name.startswith("ableton."):
+        if name == "ableton" or name.startswith("ableton.") or name == "Live" or name.startswith("Live."):
             assert not hasattr(module, "__file__"), \
                 "real Live module imported into tests_unit: %s" % name
 
