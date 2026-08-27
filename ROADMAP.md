@@ -41,58 +41,7 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · Normalize listener argument identity in `track_callback.py`
-
-**Plan:** [docs/PLAN_track_callback_listener_identity.md](docs/PLAN_track_callback_listener_identity.md)
-
-**Goal:** `track_callback.py`'s `include_track_id` branch truncates its
-identity to exactly the arguments that are part of it — the same rule
-"Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and
-the device.py property pair" established everywhere else: arguments past a
-subscription's identity are dropped from the bookkeeping key and the push, not
-merely appended after the cast index.
-
-**Why:** `track_callback.py:89` builds `tuple([track_index] + params[1:])` —
-the index is already an int (the wildcard fan-out generates ints too), but
-nothing bounds `params[1:]`, so `start_listen/<prop> <index> <extra>` keys
-`(prop, (index, extra))` while the well-formed `stop_listen/<prop> <index>`
-keys `(prop, (index,))`. The stop misses, the listener leaks, and every push
-from the leaked listener carries the stray argument, because `handler.py:138`
-sends `(*params, *value)`. This is the identical extra-arg leak the sibling
-item fixed in `device.py`, `scene.py`, `clip.py`, and `clip_slot.py`, reachable
-here by the same shape of malformed request.
-
-**Planner notes:**
-- Source: `docs/archive/PLAN_listener_identity_normalization.md`, "Out of
-  scope", first bullet — named there as real but deliberately excluded from
-  that item's diff to keep it to the four files its title named.
-- Both call sites that pass `include_track_id=True` are in `track.py`: the
-  plain property pair (`track.py:66-68`) and the mixer pair (`track.py:84-86`,
-  `_start_mixer_listen`/`_stop_mixer_listen`) — fix and test both, not just
-  the plain property pair.
-- The fix belongs at the call site. `handler.py` does no truncation of its
-  own: `_start_listen` and `_stop_listen` key on `tuple(params)` exactly as
-  handed to them (`handler.py:141`, `handler.py:171`), which is why the four
-  files above were each fixed where they build the tuple.
-- **`return_track.py` is out of scope — audited 2026-08-27, already clean.**
-  Every per-property pair builds its key from the *parsed* index and never
-  from the params tail (`self._start_listen(track, "name", (index,))` at
-  `return_track.py:400`, `listener_params=(index, "<prop>")` for the mixer
-  properties), and the index-less master triple keys on a `"master"` sentinel
-  with `reply_prefix=()` (`return_track.py:486-510`). Extra arguments are
-  never read there, so nothing can leak. The out-of-scope bullet in that plan
-  raised return/master as an open "same residual question"; the answer is no,
-  and this entry no longer claims otherwise.
-- Verified 2026-08-27 against `/Users/patrick/seshat`:
-  `lib/seshat/session/state.ex` sends `/live/track/start_listen/<prop>
-  <index>` with exactly the documented argument count, always an Elixir
-  (int32) index, never floats or extras — so today's only known caller is
-  unaffected either way; the gap is reachable only by a malformed or
-  hand-crafted client. Re-confirm this before assuming "pin bump only" if
-  `lib/` has changed since.
-- No dependencies.
-
-## #2 · One `/live/song/undo` does not revert an OSC-created scene
+## #1 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -131,7 +80,7 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #3 · A-4 · Object-valued read helpers
+## #2 · A-4 · Object-valued read helpers
 
 **Goal:** index-returning handlers for `Song.master_track`,
 `Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`,
@@ -155,7 +104,7 @@ Unblocks the groove bucket.
   of writing a second one.
 - No dependencies.
 
-## #4 · B-2 · DeviceParameter rich reply
+## #3 · B-2 · DeviceParameter rich reply
 
 **Goal:** one richer `parameters` reply plus per-parameter addresses —
 `value_items`, `short_value_items`, `display_value` (get/set), `state`,
@@ -177,7 +126,7 @@ gap PR — it proves the batching conventions the rest reuse: handlers +
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #5 · C-3 · Application dialogs and versions
+## #4 · C-3 · Application dialogs and versions
 
 **Goal:** read-only dialog state (`open_dialog_count`,
 `current_dialog_message`, `current_dialog_button_count`, listen where
@@ -203,7 +152,7 @@ dialog may guard unsaved work.
   property loop the other handlers use or stays hand-rolled.
 - No dependencies.
 
-## #6 · B-1 · Notes extended
+## #5 · B-1 · Notes extended
 
 **Goal:** `/live/clip/get/notes_extended` and `/live/clip/add/notes_extended`
 carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`,
@@ -226,7 +175,7 @@ old five-field addresses unchanged; then the ID-keyed members
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #7 · Make a failed live code reload safe and reported
+## #6 · Make a failed live code reload safe and reported
 
 **Goal:** a reload that raises does not activate a partially reloaded module
 graph — `/live/api/reload` either preserves a usable previous API or fails in a
@@ -256,10 +205,10 @@ is told nothing went wrong.
   listener dict — decide in this item whether to close it or record it as
   accepted, since the code comment currently points here for the answer.
 - Every gap PR uses reload during development; move this up if it bites
-  during #3–#6.
+  during #2–#5.
 - No dependencies.
 
-## #8 · Stop masking Remote Script import failures
+## #7 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -278,7 +227,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #9 · Remove the process-global and shared-file risks from song structure export
+## #8 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -300,7 +249,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #10 · Add bounded log retention
+## #9 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -317,7 +266,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #11 · A-3 · Return / master `Track` parity
+## #10 · A-3 · Return / master `Track` parity
 
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
@@ -341,7 +290,7 @@ over the difference.
 - Prefer a shared track resolver over three copies of the handler table.
 - No dependencies.
 
-## #12 · C-1 · `Song` remainder
+## #11 · C-1 · `Song` remainder
 
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
@@ -359,7 +308,7 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
   `scale_intervals` and `is_ableton_link_start_stop_sync_enabled` only.
 - No dependencies.
 
-## #13 · D-2 · Groove
+## #12 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -374,11 +323,11 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
   property loop and is commented out in place with the reason
   (`clip.py:123`: "Infered arg_value type is not supported") — that
   commented line is the concrete thing this item replaces, and it is why the
-  dependency on #3's object-read pattern is real rather than tidiness.
+  dependency on #2's object-read pattern is real rather than tidiness.
   `song.groove_amount` (`song.py:65`) and `clip.has_groove`
   (`clip.py:110`) already work and stay as they are.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
-- Depends on #3 (object-read pattern).
+- Depends on #2 (object-read pattern).
 
 ---
 

@@ -6,8 +6,10 @@ and `abletonosc/device.py` (`create_device_callback`'s new `id_count`
 parameter), and in `API.md` § Scene Getters, § Clip Slot API, § Clip API, and
 the Device API "Indices are normalised to ints" paragraph. The residual this
 item deliberately left out of scope — `track.py` / `track_callback.py` and
-`return_track.py` — is on ROADMAP.md as "Normalize listener argument
-identity in track.py and return_track.py".
+`return_track.py` — was taken up and closed by
+[docs/archive/PLAN_track_callback_listener_identity.md](PLAN_track_callback_listener_identity.md):
+`track_callback.py` was fixed (the same identity rule), and `return_track.py`
+was audited and found already clean, not fixed.
 
 # Plan: Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and the device.py property pair
 
@@ -422,12 +424,6 @@ it does use see identical behaviour. No address added/renamed/removed —
 
 ## Out of scope
 
-- **`track.py` / `track_callback.py` listeners.** `include_track_id` builds
-  `tuple([track_index] + params[1:])` — index already int (and the wildcard
-  fan-out generates ints), but trailing args are not truncated, so the
-  extra-arg residual exists there too, including the mixer pair. Not named
-  by this item's title or Why; if it is worth doing it earns its own
-  roadmap entry citing this plan — do not let it creep in here.
 - **`return_track.py` / master listeners.** Hand-rolled per-property pairs
   with their own identity handling; fork-only code, same residual question,
   same disposition as track.py.
@@ -440,11 +436,6 @@ it does use see identical behaviour. No address added/renamed/removed —
 - **`clip_slot.py`'s per-dispatch `self.logger.info("clip_slot %s %s -> %s"…)`
   line** — log noise, upstream-inherited, untouched (bounded-log-retention
   territory, and the "Low-priority issues" opportunistic bucket).
-- **Ship-time housekeeping note for `/ship`:** the archived
-  `docs/archive/PLAN_device_listener_identity.md` banner says the follow-up
-  "went to ROADMAP.md as *Normalize listener argument identity…*" — when
-  this item ships and the entry is deleted, amend that banner clause to
-  point at this plan's archive instead.
 
 ## Open questions
 

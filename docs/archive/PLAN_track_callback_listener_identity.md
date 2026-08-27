@@ -1,3 +1,12 @@
+**Archived 2026-08-27 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in
+`abletonosc/track_callback.py` (the `include_track_id` branch of `invoke`)
+and `API.md` § Track API's "A subscription's identity is one int"
+paragraph. `return_track.py` was audited and found already clean, not
+fixed, closing the last open follow-up from
+[docs/archive/PLAN_listener_identity_normalization.md](PLAN_listener_identity_normalization.md) —
+no further follow-up remains open.
+
 # Plan: Normalize listener argument identity in `track_callback.py`
 
 Roadmap item: **Normalize listener argument identity in `track_callback.py`**
@@ -311,6 +320,34 @@ Remains uncovered even then: a change-triggered push (needs a UI edit; the
 immediate-push echo exercises the same code path, as it did for the two
 sibling items), and the non-numeric-extra case against a real Live (nothing
 new reaches the LOM — the extra is dropped before any Live call).
+
+### Result — 2026-08-27, `/pr-review`: **skipped by environment**
+
+All four checks above are **skipped by environment**. Neither precondition
+holds at review time, so no result was produced for any of them and none may
+be inferred:
+
+- **Ableton Live is not running.** No `Live` / `Ableton` process is present
+  (`ps -Ao pid,comm`), so there is no bridge to send to and no log to read
+  new bytes from. (It was running earlier in this lifecycle run, per the
+  implementer's report; it has since quit.)
+- **The installed copy is not this checkout.**
+  `diff -rq --exclude=__pycache__ abletonosc "$HOME/Music/Ableton/User
+  Library/Remote Scripts/AbletonOSC/abletonosc"` reports exactly one
+  divergence — `abletonosc/track_callback.py` — which is the file this change
+  edits. The installed bridge is therefore the *pre-fix* wrapper, so every
+  check would measure the old behaviour and read as a failure of a fix that
+  is in fact present in the checkout.
+- **Consequently the restart precondition cannot be established either**, and
+  this phase may not install, restart Live, or bind reply port 11001.
+
+Checks 1 (plain-pair truncation), 2 (mixer-pair truncation), 3 (wildcard
+truncation) and 4 (well-formed regression) all remain **unrun**. Whoever runs
+them must first copy this checkout into Remote Scripts and restart Live, then
+observe the log lines each check names, and must still honour the
+Seshat-specific caution above (use `color` for the plain-pair checks;
+re-subscribe `volume` after check 2 if a Seshat session is attached).
+
 
 ## Downstream
 
