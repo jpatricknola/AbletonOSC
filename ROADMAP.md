@@ -43,6 +43,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · Fix base handler initialization order
 
+**Plan:** [docs/PLAN_base_handler_init_order.md](docs/PLAN_base_handler_init_order.md)
+
 **Goal:** every handler enters route registration with `listener_functions`,
 `listener_objects` and `class_identifier` already set, and subclass-owned
 initialization has an explicit lifecycle.
