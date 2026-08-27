@@ -1,3 +1,12 @@
+**Archived 2026-08-27 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in
+`abletonosc/handler.py` (`AbletonOSCHandler`'s reordered constructor,
+class-level `class_identifier`, the new `init_state()` hook) and
+`abletonosc/manager.py` (`reload_imports`'s module order), with no `API.md`
+changes — no address, request-shape or reply-shape changed. The pr-review
+follow-up this plan's nits produced lives on as ROADMAP.md's "Verify
+handler `class_identifier` and lifecycle invariants without Live".
+
 # Plan: Fix base handler initialization order
 
 Roadmap item: **#1 · Fix base handler initialization order** (source:

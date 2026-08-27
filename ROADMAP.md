@@ -41,27 +41,7 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · Fix base handler initialization order
-
-**Plan:** [docs/PLAN_base_handler_init_order.md](docs/PLAN_base_handler_init_order.md)
-
-**Goal:** every handler enters route registration with `listener_functions`,
-`listener_objects` and `class_identifier` already set, and subclass-owned
-initialization has an explicit lifecycle.
-
-**Why:** `AbletonOSCHandler.__init__` calls the overridable `init_api()` before
-creating the base invariants, so every subclass registers against a partially
-built object — `BrowserHandler` already carries a workaround. Every gap PR below
-adds handlers on top of this; fix it before piling on.
-
-**Planner notes:**
-- Source: `issues.md`, "Fix base handler initialization order" (High).
-- Must preserve current route registration, listener cleanup, reload behaviour
-  and the fork's handler overrides — `tests_unit/` is the net for the dispatch
-  half; the reload half has no test yet.
-- No dependencies.
-
-## #2 · Make the test suite safe, isolated, and usable as a regression gate
+## #1 · Make the test suite safe, isolated, and usable as a regression gate
 
 **Goal:** a unit/contract layer that exercises routing, validation, reply
 shapes and listener bookkeeping without Live; Live-dependent tests opt-in,
@@ -80,9 +60,9 @@ item grows.
   — its reconsider condition is exactly this item.
 - Seshat's end-to-end coverage stays distinct: it owns the fixed reply port and
   the long-lived listeners.
-- No dependencies; items #4, #7 and #9 depend on it.
+- No dependencies; items #3, #6 and #8 depend on it.
 
-## #3 · Verify handler `class_identifier` and lifecycle invariants without Live
+## #2 · Verify handler `class_identifier` and lifecycle invariants without Live
 
 **Goal:** a Live-free test walks every `AbletonOSCHandler` subclass in
 `abletonosc/*.py` and asserts each declares a class-level `class_identifier`
@@ -100,8 +80,8 @@ subclass case.
 
 **Planner notes:**
 - Source: pr-review of "Fix base handler initialization order"
-  (`docs/PLAN_base_handler_init_order.md`), nits 2 and 3 — one `ast`-based
-  test closes both.
+  (`docs/archive/PLAN_base_handler_init_order.md`), nits 2 and 3 — one
+  `ast`-based test closes both.
 - No Live and no construction needed: parse `abletonosc/*.py` with `ast`,
   find every class whose bases include `AbletonOSCHandler`, and check its
   body for a `class_identifier` assignment (value matches the expected map)
@@ -111,7 +91,7 @@ subclass case.
   case instead of describing it as uncovered.
 - No dependencies.
 
-## #4 · Device listener identity — parameter indices and property listeners
+## #3 · Device listener identity — parameter indices and property listeners
 
 **Goal:** device parameter listeners key on normalized integer identifiers, and
 device *property* listeners (`name`, `type`, `class_name`) push with their track
@@ -129,9 +109,9 @@ float-valued OSC arguments leak listeners, and property listeners collapse to
 - The property-listener half is a wire-contract change (push gains two leading
   indices). Seshat subscribes to none of these today and its API doc warns
   against building on them; coordinate the doc removal in the pin bump.
-- Depends on #2 for the listener-lifecycle tests.
+- Depends on #1 for the listener-lifecycle tests.
 
-## #5 · Define selected-track identity across regular, return, and master tracks
+## #4 · Define selected-track identity across regular, return, and master tracks
 
 **Goal:** one unambiguous representation of a selected regular, return or master
 track that selection, view, device and state-mirroring addresses all agree on;
@@ -149,9 +129,9 @@ object-read buckets, so it must be decided before they are built.
   silent — settle it here.
 - Assess consumers expecting a single regular-track index (Seshat's
   `Session.State`).
-- No dependencies; #6 and the A-3 bucket depend on it.
+- No dependencies; #5 and the A-3 bucket depend on it.
 
-## #6 · A-4 · Object-valued read helpers
+## #5 · A-4 · Object-valued read helpers
 
 **Goal:** index-returning handlers for `Song.master_track`,
 `Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`,
@@ -165,9 +145,9 @@ Unblocks the groove bucket.
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **A-4**; closes FORK_GAPS
   "Object-valued reads returned as `None`".
-- Depends on #5 for the track-identity representation.
+- Depends on #4 for the track-identity representation.
 
-## #7 · B-2 · DeviceParameter rich reply
+## #6 · B-2 · DeviceParameter rich reply
 
 **Goal:** one richer `parameters` reply plus per-parameter addresses —
 `value_items`, `short_value_items`, `display_value` (get/set), `str_for_value`,
@@ -183,9 +163,9 @@ gap PR — it proves the batching conventions the rest reuse: handlers +
 - Source: `CLOSING_THE_GAPS.md`, row **B-2**; closes FORK_GAPS "Device
   parameters — numeric only".
 - Shape PR: the wire form is the review subject.
-- Depends on #1 (handler lifecycle) and #2 (tests).
+- Depends on #1 (tests).
 
-## #8 · C-3 · Application dialogs and versions
+## #7 · C-3 · Application dialogs and versions
 
 **Goal:** read-only dialog state (`open_dialog_count`,
 `current_dialog_message`, `current_dialog_button_count`, listen where
@@ -204,9 +184,9 @@ dialog may guard unsaved work.
   datagram" (Medium-low): `ApplicationHandler.init_api` sends an empty
   `/live/application/get/average_process_usage` at startup that nothing
   requested. Same file, same PR; remove that entry at ship time too.
-- Depends on #1.
+- No dependencies.
 
-## #9 · B-1 · Notes extended
+## #8 · B-1 · Notes extended
 
 **Goal:** `/live/clip/get/notes_extended` and `/live/clip/add/notes_extended`
 carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`,
@@ -222,9 +202,9 @@ old five-field addresses unchanged; then the ID-keyed members
 - Source: `CLOSING_THE_GAPS.md`, row **B-1**; closes FORK_GAPS "Notes —
   `/live/clip/get/notes` flattens to five fields".
 - Shape PR: the wire form is the review subject.
-- Depends on #2.
+- Depends on #1.
 
-## #10 · Make live code reload ordered and failure-safe
+## #9 · Make live code reload ordered and failure-safe
 
 **Goal:** `/live/api/reload` produces a coherent module graph whose handlers
 share the current base classes, and a failed reload preserves a usable previous
@@ -232,14 +212,14 @@ API or fails in a clearly reported, recoverable state.
 
 **Why:** `Manager.reload_imports` reloads concrete handler modules before their
 `handler` base and activates the result even after an exception. Every gap PR
-uses reload during development; move this up if it bites during #6–#9.
+uses reload during development; move this up if it bites during #5–#8.
 
 **Planner notes:**
 - Source: `issues.md`, "Make live code reload ordered and failure-safe"
   (Medium-high).
 - No dependencies.
 
-## #11 · Stop masking Remote Script import failures
+## #10 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -258,7 +238,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #12 · Remove the process-global and shared-file risks from song structure export
+## #11 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -274,7 +254,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #13 · Add bounded log retention
+## #12 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -291,7 +271,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #14 · A-3 · Return / master `Track` parity
+## #13 · A-3 · Return / master `Track` parity
 
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
@@ -304,9 +284,9 @@ return/master feature downstream trips over the difference.
 - Source: `CLOSING_THE_GAPS.md`, row **A-3**; closes the FORK_GAPS Track
   addressing gap and the `MixerDevice` gap on returns/master.
 - Prefer a shared track resolver over three copies of the handler table.
-- Depends on #5.
+- Depends on #4.
 
-## #15 · C-1 · `Song` remainder
+## #14 · C-1 · `Song` remainder
 
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
@@ -316,9 +296,9 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
 
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **C-1**.
-- Depends on #1.
+- No dependencies.
 
-## #16 · D-2 · Groove
+## #15 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -330,7 +310,7 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **D-2**.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
-- Depends on #6 (object-read pattern).
+- Depends on #5 (object-read pattern).
 
 ---
 
