@@ -43,6 +43,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · Make the test suite safe, isolated, and usable as a regression gate
 
+**Plan:** [docs/PLAN_test_suite_regression_gate.md](docs/PLAN_test_suite_regression_gate.md)
+
 **Goal:** a unit/contract layer that exercises routing, validation, reply
 shapes and listener bookkeeping without Live; Live-dependent tests opt-in,
 fixture-isolated and self-restoring; a tracked dev-dependency manifest and CI.
