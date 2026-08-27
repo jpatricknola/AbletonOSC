@@ -70,27 +70,7 @@ subclass case.
   case instead of describing it as uncovered.
 - No dependencies.
 
-## #2 · Device listener identity — parameter indices and property listeners
-
-**Goal:** device parameter listeners key on normalized integer identifiers, and
-device *property* listeners (`name`, `type`, `class_name`) push with their track
-and device indices and subscribe per device instead of one per property
-process-wide.
-
-**Why:** two listener-key bugs in the same file with the same lifecycle tests:
-float-valued OSC arguments leak listeners, and property listeners collapse to
-`(prop, ())` so a second device's subscription silently replaces the first.
-
-**Planner notes:**
-- Sources: `issues.md`, "Normalize device parameter listener identifiers" (High)
-  **and** "Give device property listeners their identity back" (Medium) — one
-  PR, both entries close together.
-- The property-listener half is a wire-contract change (push gains two leading
-  indices). Seshat subscribes to none of these today and its API doc warns
-  against building on them; coordinate the doc removal in the pin bump.
-- No dependencies.
-
-## #3 · Define selected-track identity across regular, return, and master tracks
+## #2 · Define selected-track identity across regular, return, and master tracks
 
 **Goal:** one unambiguous representation of a selected regular, return or master
 track that selection, view, device and state-mirroring addresses all agree on;
@@ -110,6 +90,55 @@ object-read buckets, so it must be decided before they are built.
   `Session.State`).
 - No dependencies; #4 and the A-3 bucket depend on it.
 
+## #3 · Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and the device.py property pair
+
+**Goal:** every `_start_listen`/`_stop_listen` call site builds its identity
+tuple the same way `abletonosc/device.py`'s parameter-listener pair now does
+(shipped in "Device listener identity — parameter indices and property
+listeners"): indices cast to int at the callback boundary, and truncated to
+exactly the arguments that are part of the identity, before that tuple is
+used for the LOM lookup, the bookkeeping key, and the push echo.
+
+**Why:** two related gaps left after that item landed, both raised by its
+review (`docs/archive/PLAN_device_listener_identity.md`, review of
+`5d0ec50`):
+- `scene.py:16`, `clip.py:57` and `clip_slot.py:15` still pass raw OSC
+  arguments into `_start_listen`/`_stop_listen` via `params[0:]`, with no
+  int-cast — a float-sending client (TouchOSC-style, upstream issue #33)
+  leaks a scene/clip/clip-slot listener exactly the way the device parameter
+  listener used to before that fix, because a start keyed on floats and a
+  stop keyed on ints never share a bookkeeping entry.
+- `device.py`'s property listen pair (`name`/`type`/`class_name`) normalizes
+  its two indices but does not truncate: `create_device_callback`'s
+  `include_ids` branch hands the callee `(track_index, device_index,
+  *params[2:])` unconditionally, so a malformed `start_listen/name <t> <d>
+  <extra>` keys on `(name, (t, d, extra))` — a push with a bogus third field,
+  and a well-formed two-argument `stop_listen/name` that misses the key and
+  leaks the listener until reload.
+
+**Planner notes:**
+- Source: pr-review of `device-listener-identity` (branch, `5d0ec50`),
+  findings 1 and 7 — both filed non-blocking (a malformed or float-typed
+  request is needed to reach either), and explicitly recommended as a
+  follow-up.
+- The `device.py` half needs `create_device_callback`'s `include_ids` branch
+  to know how many trailing arguments belong to a given callee's identity
+  (2 for the property pair, 3 for parameter/value) rather than passing
+  `params[2:]` through unbounded — decide whether that arity is a new
+  parameter on `create_device_callback` or a per-callee truncation inside
+  each property callback, matching the pattern parameter/value already uses.
+- `scene.py`, `clip.py`, `clip_slot.py` currently key listeners on
+  `tuple(params)` with no cast at all (not just no truncation) — closer to
+  defect 1 in that item's plan than to its residual. Confirm via
+  `tests_unit/` fakes before assuming int-casting alone closes the gap; check
+  whether any of the three also has a property-listen pair with the same
+  missing-`include_ids`/collapsed-key shape that item fixed for `device.py`.
+- Wire-visible change only for malformed/float-typed requests; well-formed
+  clients see no difference. Confirm with Seshat whether any of its `lib/`
+  code sends float indices to these addresses before assuming "pin bump
+  only".
+- No dependencies.
+
 ## #4 · A-4 · Object-valued read helpers
 
 **Goal:** index-returning handlers for `Song.master_track`,
@@ -124,7 +153,7 @@ Unblocks the groove bucket.
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **A-4**; closes FORK_GAPS
   "Object-valued reads returned as `None`".
-- Depends on #3 for the track-identity representation.
+- Depends on #2 for the track-identity representation.
 
 ## #5 · B-2 · DeviceParameter rich reply
 
@@ -263,7 +292,7 @@ return/master feature downstream trips over the difference.
 - Source: `CLOSING_THE_GAPS.md`, row **A-3**; closes the FORK_GAPS Track
   addressing gap and the `MixerDevice` gap on returns/master.
 - Prefer a shared track resolver over three copies of the handler table.
-- Depends on #3.
+- Depends on #2.
 
 ## #13 · C-1 · `Song` remainder
 

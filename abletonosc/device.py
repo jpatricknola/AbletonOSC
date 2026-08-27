@@ -10,7 +10,18 @@ class DeviceHandler(AbletonOSCHandler):
                 track_index, device_index = int(params[0]), int(params[1])
                 device = self.song.tracks[track_index].devices[device_index]
                 if (include_ids):
-                    rv = func(device, *args, params[0:])
+                    #--------------------------------------------------------------------------------
+                    # Hand the callee the *normalised* identity, not the raw OSC args.
+                    # Every include_ids callee is a listener path, and a listener's
+                    # identity has to be canonical: it is the bookkeeping key, the LOM
+                    # subscript and the echo in the push, and those three must agree
+                    # across a start/stop pair sent by different clients. TouchOSC-style
+                    # clients send floats by default (upstream issue #33), so
+                    # start_listen (0.0, 0.0) and stop_listen (0, 0) name the same
+                    # subscription only if the cast happens here, once, before the
+                    # callee sees anything.
+                    #--------------------------------------------------------------------------------
+                    rv = func(device, *args, (track_index, device_index, *params[2:]))
                 else:
                     rv = func(device, *args, params[2:])
 
@@ -36,10 +47,20 @@ class DeviceHandler(AbletonOSCHandler):
         for prop in properties_r + properties_rw:
             self.osc_server.add_handler("/live/device/get/%s" % prop,
                                         create_device_callback(self._get_property, prop))
+            #--------------------------------------------------------------------------------
+            # include_ids on the listen pair only. The get/ registration just above,
+            # and the set/ registration in the loop below, already carry the indices
+            # out through the wrapper's (track_index, device_index, *rv) reply
+            # envelope, so adding ids there would echo them twice; the listener
+            # pushes are built inside _start_listen from its own params, which
+            # without ids is the empty tuple — a push with no identity, and a
+            # listener key of (prop, ()) that collapses every device onto one
+            # process-wide subscription.
+            #--------------------------------------------------------------------------------
             self.osc_server.add_handler("/live/device/start_listen/%s" % prop,
-                                        create_device_callback(self._start_listen, prop))
+                                        create_device_callback(self._start_listen, prop, include_ids=True))
             self.osc_server.add_handler("/live/device/stop_listen/%s" % prop,
-                                        create_device_callback(self._stop_listen, prop))
+                                        create_device_callback(self._stop_listen, prop, include_ids=True))
         for prop in properties_rw:
             self.osc_server.add_handler("/live/device/set/%s" % prop,
                                         create_device_callback(self._set_property, prop))
@@ -108,21 +129,32 @@ class DeviceHandler(AbletonOSCHandler):
         # bound to the dead song object.
         #--------------------------------------------------------------------------------
         def device_get_parameter_value_listener(device, params: Tuple[Any] = ()):
+            #--------------------------------------------------------------------------------
+            # The identity of a parameter listener is exactly three ints. The wrapper
+            # has already cast the track and device indices; the parameter index is
+            # cast here, and the resulting tuple is then used for all three things
+            # that have to agree: the DeviceParameter lookup, the bookkeeping key and
+            # the echo in both pushes. Anything past the third argument is not part of
+            # the identity and is dropped, so a stray extra argument cannot open a
+            # second, unstoppable subscription to the same parameter.
+            #--------------------------------------------------------------------------------
+            params = (int(params[0]), int(params[1]), int(params[2]))
+            parameter_index = params[2]
 
             def property_changed_callback():
-                value = device.parameters[params[2]].value
+                value = device.parameters[parameter_index].value
                 self.logger.info("Property %s changed of %s %s: %s" % ('value', 'device parameter', str(params), value))
                 self.osc_server.send("/live/device/get/parameter/value", (*params, value,))
 
-                value_string = device.parameters[params[2]].str_for_value(device.parameters[params[2]].value)
+                value_string = device.parameters[parameter_index].str_for_value(device.parameters[parameter_index].value)
                 self.logger.info("Property %s changed of %s %s: %s" % ('value_string', 'device parameter', str(params), value_string))
                 self.osc_server.send("/live/device/get/parameter/value_string", (*params, value_string,))
 
-            listener_key = ("value", tuple(params))
+            listener_key = ("value", params)
             device_get_parameter_remove_value_listener(device, params)
 
             self.logger.info("Adding listener for %s %s, property: %s" % ('device parameter', str(params), 'value'))
-            parameter_object = device.parameters[params[2]]
+            parameter_object = device.parameters[parameter_index]
             parameter_object.add_value_listener(property_changed_callback)
             self.listener_functions[listener_key] = property_changed_callback
             self.listener_objects[listener_key] = parameter_object
@@ -136,7 +168,13 @@ class DeviceHandler(AbletonOSCHandler):
         # error. Upstream warned here, but referenced an unbound `prop` to do it.
         #--------------------------------------------------------------------------------
         def device_get_parameter_remove_value_listener(device, params: Tuple[Any] = ()):
-            listener_key = ("value", tuple(params))
+            #--------------------------------------------------------------------------------
+            # Normalised the same way as the start path, and to the same three ints:
+            # a stop sent with float indices has to find the key a start sent with
+            # int indices created, or the listener leaks until the script reloads.
+            #--------------------------------------------------------------------------------
+            params = (int(params[0]), int(params[1]), int(params[2]))
+            listener_key = ("value", params)
             if listener_key in self.listener_functions:
                 self._stop_listen(self.listener_objects[listener_key], "value", params)
 
