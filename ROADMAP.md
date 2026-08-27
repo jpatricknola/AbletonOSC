@@ -43,6 +43,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · Verify handler `class_identifier` and lifecycle invariants without Live
 
+**Plan:** [docs/PLAN_handler_class_identifier_invariants.md](docs/PLAN_handler_class_identifier_invariants.md)
+
 **Goal:** a Live-free test walks every `AbletonOSCHandler` subclass in
 `abletonosc/*.py` and asserts each declares a class-level `class_identifier`
 matching an expected address-prefix map, and that none defines its own
