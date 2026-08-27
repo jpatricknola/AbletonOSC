@@ -42,9 +42,12 @@ from .handler import AbletonOSCHandler
 
 
 class SongStructureHandler(AbletonOSCHandler):
-    def __init__(self, manager):
-        super().__init__(manager)
-        self.class_identifier = "song"
+    #--------------------------------------------------------------------------------
+    # Deliberately shares the "song" namespace with SongHandler: these
+    # listeners push on /live/song/get/... addresses (see the header above),
+    # so the identifier must match SongHandler's, not name this module.
+    #--------------------------------------------------------------------------------
+    class_identifier = "song"
 
     def init_api(self):
         self.osc_server.add_handler("/live/song/start_listen/tracks",

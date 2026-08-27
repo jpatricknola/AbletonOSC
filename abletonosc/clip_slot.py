@@ -2,9 +2,7 @@ from typing import Tuple, Any
 from .handler import AbletonOSCHandler
 
 class ClipSlotHandler(AbletonOSCHandler):
-    def __init__(self, manager):
-        super().__init__(manager)
-        self.class_identifier = "clip_slot"
+    class_identifier = "clip_slot"
 
     def init_api(self):
         def create_clip_slot_callback(func, *args, pass_clip_index=False):

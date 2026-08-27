@@ -4,16 +4,64 @@ import logging
 from .osc_server import OSCServer
 
 class AbletonOSCHandler(Component):
+    """
+    Base class for every OSC handler in this fork.
+
+    Constructor contract — the order is the point, and every subclass and
+    every future handler relies on it:
+
+      1. ``Component.__init__`` runs.
+      2. The base invariants exist: ``logger``, ``manager``, ``osc_server``,
+         ``listener_functions``, ``listener_objects``. ``class_identifier``
+         is a *class* attribute, so it is already set before the instance
+         exists at all.
+      3. ``init_state()`` runs — the one documented place for subclass-owned
+         instance state.
+      4. ``init_api()`` runs — route registration, which may therefore rely
+         on everything above it.
+
+    So ``init_api()`` may read ``self.class_identifier``, touch the listener
+    dicts, and use anything ``init_state()`` created. Teardown is
+    ``clear_api()``.
+
+    Do not reorder these steps. Nothing fails immediately if you do: no
+    ``init_api()`` body in this repository reads the invariants at
+    registration time, they are only read later from callbacks. A reverted
+    order therefore stays invisible until the first handler that uses the
+    guarantee — and then fails as a bare ``AttributeError``, or worse, as
+    listener pushes silently addressed to ``/live/None/get/<prop>``.
+    """
+
+    #--------------------------------------------------------------------------------
+    # The name this handler answers to: it appears in every log line and in the
+    # "/live/<class_identifier>/get/<prop>" addresses that listener pushes go
+    # out on. Declared at class level rather than assigned in __init__ so that
+    # identity is available from the first line of init_state()/init_api(),
+    # with no ordering hazard at all. Subclasses override it in their class
+    # statement; None here is only the "never declared one" default.
+    #--------------------------------------------------------------------------------
+    class_identifier: Optional[str] = None
+
     def __init__(self, manager):
         super().__init__()
 
         self.logger = logging.getLogger("abletonosc")
         self.manager = manager
         self.osc_server: OSCServer = self.manager.osc_server
-        self.init_api()
         self.listener_functions = {}
         self.listener_objects = {}
-        self.class_identifier = None
+        self.init_state()
+        self.init_api()
+
+    def init_state(self):
+        """
+        Create subclass-owned instance state.
+
+        Runs once per instance, after every base invariant exists and strictly
+        before ``init_api()``. Subclass instance state belongs here; route
+        registration does not — that is ``init_api()``.
+        """
+        pass
 
     def init_api(self):
         pass

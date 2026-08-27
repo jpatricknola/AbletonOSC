@@ -9,9 +9,14 @@ from typing import Tuple, Any
 from .handler import AbletonOSCHandler
 
 class SongHandler(AbletonOSCHandler):
-    def __init__(self, manager):
-        super().__init__(manager)
-        self.class_identifier = "song"
+    class_identifier = "song"
+
+    def init_state(self):
+        #--------------------------------------------------------------------------------
+        # Beat-listener state: read by current_song_time_changed(), which the
+        # /live/song/start_listen/beat registration in init_api() binds.
+        #--------------------------------------------------------------------------------
+        self.last_song_time = -1.0
 
     def init_api(self):
         #--------------------------------------------------------------------------------
@@ -268,9 +273,8 @@ class SongHandler(AbletonOSCHandler):
 
         #--------------------------------------------------------------------------------
         # Listener for /live/song/get/beat
+        # (self.last_song_time is initialised in init_state())
         #--------------------------------------------------------------------------------
-        self.last_song_time = -1.0
-        
         def stop_beat_listener(params: Tuple[Any] = ()):
             try:
                 self.song.remove_current_song_time_listener(self.current_song_time_changed)

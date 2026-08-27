@@ -36,6 +36,56 @@ ongoing cost — merging upstream releases — is close to zero.
 
 ### Fixes to upstream's own code
 
+- **`handler.py` — base invariants exist before `init_api()`.** Upstream's
+  `AbletonOSCHandler.__init__` called `self.init_api()` — the overridable
+  route-registration hook — *before* creating `listener_functions`,
+  `listener_objects` and `class_identifier`, so every subclass registered its
+  routes against a half-built object. Touching either listener dict during
+  registration raised `AttributeError`, and `class_identifier` did not exist
+  yet; worse, the base's trailing `self.class_identifier = None` ran *after*
+  `init_api()`, so anything a subclass set early was clobbered back to `None`.
+  The bug was latent — no `init_api()` body in this fork reads those
+  attributes at registration time, only later from callbacks — which is
+  exactly what makes it dangerous: `/live/<class_identifier>/get/<prop>`, the
+  address every listener push goes out on, was correct by accident of timing.
+  `BrowserHandler` already carried a `hasattr` workaround comment for it.
+
+  The constructor is now ordered `Component.__init__` → `logger` / `manager` /
+  `osc_server` → `listener_functions` / `listener_objects` → `init_state()` →
+  `init_api()`, and the lifecycle is declarative rather than positional:
+
+  - **`class_identifier` is a class attribute.** Base declares
+    `Optional[str] = None`; each subclass declares its own in the class
+    statement (`class_identifier = "track"`, …). Identity is therefore set
+    before the instance exists, and all eleven now-empty subclass `__init__`
+    overrides are gone. `ApplicationHandler`, which never declared one at all,
+    gains `"application"` (it registers no listeners and uses no generic
+    property path, so this changes nothing on the wire — only a hypothetical
+    future log line that would have read `None`).
+    `SongStructureHandler` keeps its deliberate `"song"`, sharing
+    `SongHandler`'s namespace because its pushes go out on `/live/song/…`.
+  - **`init_state()` is a new overridable no-op** — the one documented home
+    for subclass instance state, guaranteed to run after every base invariant
+    and strictly before any route is registered. `ClipHandler`'s
+    `_clip_notes_cache`, `BrowserHandler`'s `_index_cache` (whose `hasattr`
+    guard and workaround comment are gone), `MidiMapHandler`'s
+    `midi_map_handle` and `SongHandler`'s `last_song_time` moved there.
+  - **`manager.py` reloads `abletonosc.osc_server` and `abletonosc.handler`
+    first.** They previously reloaded *after* `application`, `clip`,
+    `clip_slot` and `device`, so a single `/live/api/reload` would construct
+    those four handlers on the stale base: `init_state()` never called
+    (`AttributeError` on the first `/live/clip/get/notes`) and the old base's
+    trailing `class_identifier = None` shadowing the new class attribute, so
+    their listener pushes would go out on `/live/None/get/<prop>` — silently.
+    Same ordering rule the list already documents for `track_callback` before
+    `track`. General reload robustness is a separate, still-open item.
+
+  No address, request shape or reply shape changes. `tests_unit/
+  test_handler_lifecycle.py` constructs the *real* `AbletonOSCHandler` outside
+  Live for the first time (conftest's `load_handler_module()` stubs the one
+  trivial `ableton.v2` base class it needs) and pins the order, the hook, and
+  the listener bookkeeping.
+
 - **`handler.py` — `_stop_listen` unbinds from the stored object.** Upstream
   unbinds the listener from the target it is *handed*. Listeners are keyed by
   track/return index but bound to a LOM object, and indices renumber when
@@ -685,6 +735,21 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   loudly: the sends still go out over UDP and nothing answers them either way,
   and undo quietly reverts whole conversations again. Seshat's
   `vendored_addresses_test` greps for all three names for exactly this reason.
+
+- **Anything touching `AbletonOSCHandler.__init__`, a subclass's class-level
+  `class_identifier`, or `init_state()`.** Upstream's constructor calls
+  `init_api()` before the base invariants exist and assigns
+  `class_identifier = None` after it; this fork inverts that (see the fixes
+  section above). A merge that takes upstream's `__init__` back, or that
+  restores a subclass `__init__` that assigns `self.class_identifier`, is
+  **invisible**: nothing registered today reads those attributes at
+  registration time, so every address still answers and every push still
+  carries the right identifier. It stays invisible until the next handler
+  that actually relies on the guarantee — which then fails as a bare
+  `AttributeError`, or pushes to `/live/None/get/<prop>` and is never noticed
+  at all. `tests_unit/test_handler_lifecycle.py` fails on all of it — run it
+  on every merge. The `reload_imports` ordering above (osc_server and handler
+  first) is part of the same fix and is likewise silent when lost.
 
 - **Anything touching `_stop_listen`, `_start_listen`, or `listener_objects`.**
   The wrong-object unbind fix above is small and easy to lose in a merge. Its

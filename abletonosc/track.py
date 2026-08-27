@@ -4,9 +4,7 @@ from .track_callback import create_track_callback as _create_track_callback
 
 
 class TrackHandler(AbletonOSCHandler):
-    def __init__(self, manager):
-        super().__init__(manager)
-        self.class_identifier = "track"
+    class_identifier = "track"
 
     def init_api(self):
         #--------------------------------------------------------------------------------
