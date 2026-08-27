@@ -619,37 +619,103 @@ User interface control — selecting tracks, scenes, clips, devices.
 | Address | Query Params | Response Params | Description |
 |---|---|---|---|
 | `/live/view/get/selected_scene` | | `scene_index` | Selected scene (0-indexed) |
-| `/live/view/get/selected_track` | | `track_index` | Selected track (0-indexed) |
-| `/live/view/get/selected_clip` | | `track_index, scene_index` | Selected clip |
-| `/live/view/get/selected_device` | | `track_index, device_index` | Selected device (0-indexed) |
+| `/live/view/get/selected_track` | | `track_index` | Selected track (0-indexed), or `-1` when a return track or the master is selected — see **Selected-track identity** below |
+| `/live/view/get/selected_clip` | | `track_index, scene_index` | Selected clip. `track_index` is `-1` when a return track or the master is selected |
+| `/live/view/get/selected_device` | | `track_index, device_index` | Selected device (0-indexed). `device_index` is `-1` when the selected regular track has no top-level device to report; both are `-1` when a return track or the master is selected |
 | `/live/view/set/selected_scene` | `scene_index` | | Set selected scene |
 | `/live/view/set/selected_track` | `track_index` | | Set selected track |
 | `/live/view/set/selected_clip` | `track_index, scene_index` | | Set selected clip |
-| `/live/view/set/selected_device` | `track_index, device_index` | `track_index, device_index` | Set selected device. The only view setter that replies — it echoes both indices on the request address |
+| `/live/view/set/selected_device` | `track_index, device_index` | `track_index, device_index` | Set selected device. The only view setter that replies — it echoes both indices on the request address. Deliberately kept; see **Selected-track identity** below |
 | `/live/view/start_listen/selected_scene` | | `selected_scene` | Listen for scene selection changes |
-| `/live/view/start_listen/selected_track` | | `selected_track` | Listen for track selection changes |
+| `/live/view/start_listen/selected_track` | | `selected_track` | Listen for track selection changes. Pushes the same value `get/selected_track` replies with, `-1` included |
 | `/live/view/stop_listen/selected_scene` | | | Stop listening for scene changes |
 | `/live/view/stop_listen/selected_track` | | | Stop listening for track changes |
 | `/live/view/show_view` | `view_name` | | ⚠️ **Seshat extension** — bring a pane into view |
 | `/live/view/hide_view` | `view_name` | | ⚠️ **Seshat extension** — put a pane away |
 | `/live/view/get/is_view_visible` | `view_name` | `view_name, "ok", visible` or `view_name, "error", message` | ⚠️ **Seshat extension** — is a pane visible? `visible` is 1 or 0 |
 | `/live/view/set/detail_clip` | `track_index, scene_index` | | ⚠️ **Seshat extension** — put a clip in the Detail view |
+| `/live/view/get/selected_track_identity` | | `category, index` | ⚠️ **Seshat extension** — which track is selected, in any category: `"track"`, `"return_track"` or `"master"` |
+| `/live/view/start_listen/selected_track_identity` | | `category, index` | ⚠️ **Seshat extension** — listen for selection changes across all three categories |
+| `/live/view/stop_listen/selected_track_identity` | | | ⚠️ **Seshat extension** — stop listening for identity changes |
 
-- `/live/view/set/selected_track` resolves its index through `song.tracks`, so
-  it reaches **regular tracks only** — a return track cannot be selected on it at
-  any index. Use `/live/return_track/select` (Seshat extension, see the Return
-  Track & Master API below).
+### Selected-track identity
+
+`song.view.selected_track` can hold a regular track, a return track or the
+master — this fork can put any of the three there, via
+`/live/view/set/selected_track`, `/live/return_track/select` and
+`/live/master/select`. But there is only one selection, and three separate
+index spaces to report it in, so **`/live/view/get/selected_track_identity`**
+answers with a `(category, index)` pair:
+
+| `category` | `index` counts within | Selected with |
+|---|---|---|
+| `"track"` | `song.tracks` | `/live/view/set/selected_track <track_index>` |
+| `"return_track"` | `song.return_tracks` | `/live/return_track/select <return_index>` |
+| `"master"` | — always `0` | `/live/master/select` |
+
+The category strings are exactly the OSC address-family prefixes that reach
+that track, so a reply is directly actionable: the category names the family
+to use next, and the index is already in that family's coordinates.
+
+- `/live/view/set/selected_track` still resolves its index through
+  `song.tracks`, so it reaches **regular tracks only** — a return track cannot
+  be selected on it at any index. Use `/live/return_track/select` (Seshat
+  extension, see the Return Track & Master API below), or `/live/master/select`
+  for the master. There is deliberately no identity *setter*: each category
+  already has its own select address, and the table above is the mapping.
+- **The legacy single-int getters keep their shapes and answer `-1` outside
+  their index space.** `get/selected_track` replies `-1`, `get/selected_clip`
+  replies `(-1, scene_index)`, and `get/selected_device` replies `(-1, -1)`
+  when a return track or the master is selected. Before this fork's
+  `/live/return_track/select` and `/live/master/select` existed, that state was
+  unreachable and upstream's getters simply raised `ValueError` on it; they now
+  answer instead. `-1` is the same "not in this index space" sentinel used
+  elsewhere for object-valued reads.
+- `get/selected_device` also answers `(track_index, -1)` when a regular track
+  is selected but there is no **top-level** device to report — either nothing
+  is selected in the device chain, or the selected device is nested inside a
+  rack chain and so is not a member of `track.devices`. Devices on a return
+  track or the master read `(-1, -1)`: their chains exist, but there is no
+  regular-track index to report them under yet.
+- **Two listeners, one observable property.**
+  `start_listen/selected_track_identity` subscribes to the same LOM property
+  as `start_listen/selected_track` (`Song.View.selected_track`) and pushes
+  `[category, index]` on `/live/view/get/selected_track_identity` — once
+  immediately on subscribe, then on every selection change, in any category.
+  The two coexist independently: starting or stopping one does not touch the
+  other, and `stop_listen/selected_track_identity` removes exactly its own
+  subscription. Before this change a return or master selection killed the
+  `selected_track` push outright: the getter raised inside Live's listener
+  callback, which is outside the per-message error envelope, so no push and no
+  `/live/error` went out at all.
+- **`/live/view/set/selected_device`'s echo is deliberate, and stays** (settled
+  2026-08-27). It is upstream's own behaviour; silencing it would be a
+  permanent behavioural divergence inside an upstream file, with breakage risk
+  for non-Seshat clients, to remove a reply that costs one datagram. It remains
+  the single documented exception to "view setters are silent", and Seshat's
+  `FollowCam` ignores it.
+- These getters never error for a *selection-category* or *no-device-selected*
+  reason — those are answers, and they are on the wire. A genuine failure (a
+  selection in none of the three collections, `None` included — not a state a
+  loaded set is expected to produce) still raises and arrives as a structured
+  `/live/error`, loudly, rather than being laundered into a sentinel.
 
 ### View extensions (Seshat — not in upstream AbletonOSC)
 
-⚠️ Four rows above do **not** exist in stock AbletonOSC: `show_view`,
-`hide_view`, `get/is_view_visible` and `set/detail_clip`. They are served by
+⚠️ Seven rows above do **not** exist in stock AbletonOSC: `show_view`,
+`hide_view`, `get/is_view_visible`, `set/detail_clip`, and the identity trio
+`get/selected_track_identity`, `start_listen/selected_track_identity` and
+`stop_listen/selected_track_identity`. They are served by
 `abletonosc/view.py` in this repository, installed with
 `mix abletonosc.install` (restart Live afterwards). They are not the only Seshat
 addresses living in an *upstream* file — `/live/song/begin_undo_step` and
 `/live/song/end_undo_step` are two more, in `song.py` (see Song Methods above).
-Without that install all four here are unknown: the three setters silently do
-nothing, and the getter never replies.
+Without that install none of the seven is known: of the four view-steering
+addresses, the three setters silently do nothing and the getter never replies;
+of the identity trio, the getter never replies and the listen pair is unknown,
+so nothing is ever pushed. The three upstream getters the identity note above
+describes are *present* without the install, and go back to raising
+`ValueError` — no reply — the moment a return track or the master is selected.
 
 Upstream can *select* a track, scene, clip or device, but it cannot show the
 pane those live in, put one away, or say which panes are open at all:

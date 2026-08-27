@@ -4,15 +4,20 @@ from typing import Optional, Tuple, Any
 import Live
 
 from .handler import AbletonOSCHandler
+from .track_identity import (selected_track_identity, selected_track_index,
+                             selected_device_indices)
 
 #--------------------------------------------------------------------------------
-# Four addresses in this file are Seshat extensions, added in this fork:
+# Seven addresses in this file are Seshat extensions, added in this fork:
 #
 #   /live/view/show_view          [view_name]                 (no reply)
 #   /live/view/hide_view          [view_name]                 (no reply)
 #   /live/view/set/detail_clip    [track_index, scene_index]  (no reply)
 #   /live/view/get/is_view_visible [view_name]                -> [view_name, "ok", 1|0]
 #                                                             or [view_name, "error", message]
+#   /live/view/get/selected_track_identity          ()        -> [category, index]
+#   /live/view/start_listen/selected_track_identity ()        (pushes on the get address)
+#   /live/view/stop_listen/selected_track_identity  ()        (no reply)
 #
 # Upstream can select a track, scene, clip or device, but it cannot bring the
 # pane those live in into view, put one away, or say which panes are open at
@@ -36,6 +41,34 @@ from .handler import AbletonOSCHandler
 # ignores it), so the error arm is reachable and costs a fast reply instead of a
 # guard timeout. The boolean goes on the wire as 1/0, matching the convention
 # every other AbletonOSC boolean uses.
+#
+# The last three are the selected-track identity trio, and three *upstream*
+# getters in this file change with them. This fork can select a return track or
+# the master (/live/return_track/select, /live/master/select), which the LOM
+# accepts on song.view.selected_track — but upstream's getters resolve the
+# selection through song.tracks alone, so after either of those selects
+# get/selected_track, get/selected_clip and get/selected_device all raised
+# ValueError instead of replying, and start_listen/selected_track's push died
+# *inside Live's listener callback*, outside OSCServer._dispatch's per-message
+# catch, so no push went out at all.
+#
+# So: /live/view/get/selected_track_identity answers (category, index), where
+# category is the address-family prefix that reaches that track — "track",
+# "return_track" or "master" — and the resolution itself lives in the Live-free
+# track_identity.py. The three legacy getters keep their shapes and report -1
+# outside their index space:
+#
+#   get/selected_track   -> -1            a return or the master is selected
+#   get/selected_clip    -> (-1, scene)   likewise
+#   get/selected_device  -> (i, -1)       regular track, but no top-level device
+#                                         to report: none selected, or the
+#                                         selected one is nested in a rack chain
+#                        -> (-1, -1)      a return or the master is selected
+#
+# start_listen/selected_track_identity observes the same one observable LOM
+# property as start_listen/selected_track (Song.View.selected_track) and pushes
+# under its own name, via the base class's `lom_property` alias. The two coexist:
+# distinct bookkeeping keys, one LOM property, two callbacks.
 #--------------------------------------------------------------------------------
 
 #--------------------------------------------------------------------------------
@@ -57,14 +90,33 @@ class ViewHandler(AbletonOSCHandler):
         def get_selected_scene(params: Optional[Tuple] = ()):
             return (list(self.song.scenes).index(self.song.view.selected_scene),)
 
+        def get_selected_track_identity(params: Optional[Tuple] = ()):
+            identity = selected_track_identity(self.song)
+            self.logger.info("Getting property for %s: selected_track_identity = %s"
+                             % (self.class_identifier, str(identity)))
+            return identity
+
         def get_selected_track(params: Optional[Tuple] = ()):
-            return (list(self.song.tracks).index(self.song.view.selected_track),)
+            index = selected_track_index(self.song)
+            self.logger.info("Getting property for %s: selected_track = %s"
+                             % (self.class_identifier, index))
+            return (index,)
 
         def get_selected_clip(params: Optional[Tuple] = ()):
-            return (get_selected_track()[0], get_selected_scene()[0])
-        
+            #--------------------------------------------------------------------------------
+            # Composed, as upstream: the track half now carries the -1 sentinel
+            # for a return/master selection rather than aborting the reply.
+            #--------------------------------------------------------------------------------
+            clip = (get_selected_track()[0], get_selected_scene()[0])
+            self.logger.info("Getting property for %s: selected_clip = %s"
+                             % (self.class_identifier, str(clip)))
+            return clip
+
         def get_selected_device(params: Optional[Tuple] = ()):
-            return (get_selected_track()[0], list(self.song.view.selected_track.devices).index(self.song.view.selected_track.view.selected_device))
+            indices = selected_device_indices(self.song)
+            self.logger.info("Getting property for %s: selected_device = %s"
+                             % (self.class_identifier, str(indices)))
+            return indices
 
         def set_selected_scene(params: Optional[Tuple] = ()):
             self.song.view.selected_scene = self.song.scenes[params[0]]
@@ -131,6 +183,7 @@ class ViewHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/view/get/selected_track", get_selected_track)
         self.osc_server.add_handler("/live/view/get/selected_clip", get_selected_clip)
         self.osc_server.add_handler("/live/view/get/selected_device", get_selected_device)
+        self.osc_server.add_handler("/live/view/get/selected_track_identity", get_selected_track_identity)
         self.osc_server.add_handler("/live/view/set/selected_scene", set_selected_scene)
         self.osc_server.add_handler("/live/view/set/selected_track", set_selected_track)
         self.osc_server.add_handler("/live/view/set/selected_clip", set_selected_clip)
@@ -144,3 +197,12 @@ class ViewHandler(AbletonOSCHandler):
         self.osc_server.add_handler('/live/view/start_listen/selected_track', partial(self._start_listen, self.song.view, "selected_track", getter=get_selected_track))
         self.osc_server.add_handler('/live/view/stop_listen/selected_scene', partial(self._stop_listen, self.song.view, "selected_scene"))
         self.osc_server.add_handler('/live/view/stop_listen/selected_track', partial(self._stop_listen, self.song.view, "selected_track"))
+        #--------------------------------------------------------------------------------
+        # The identity listener observes Song.View.selected_track — the same
+        # single observable property as the line above — but keys, and pushes
+        # under, its own name. `lom_property` is what splits the
+        # add_/remove_%s_listener accessor off from the bookkeeping key and the
+        # push address; see AbletonOSCHandler._start_listen.
+        #--------------------------------------------------------------------------------
+        self.osc_server.add_handler('/live/view/start_listen/selected_track_identity', partial(self._start_listen, self.song.view, "selected_track_identity", getter=get_selected_track_identity, lom_property="selected_track"))
+        self.osc_server.add_handler('/live/view/stop_listen/selected_track_identity', partial(self._stop_listen, self.song.view, "selected_track_identity"))
