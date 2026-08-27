@@ -321,6 +321,32 @@ No mutating checks are needed: the change registers no setter and alters no
 setter path. Remains uncovered: nothing wire-visible; internal Component
 interactions under Live are exercised implicitly by every check above.
 
+### Result — 2026-08-27 (pr-review): **skipped by environment**
+
+Checks 1, 2, 3 and 4 were all **skipped by environment**; none was run, and no
+result is recorded for any of them.
+
+Missing precondition (the same one for all four): the installed Remote Scripts
+copy is not this checkout. `diff -rq --exclude=__pycache__ abletonosc
+"$HOME/Music/Ableton/User Library/Remote Scripts/AbletonOSC/abletonosc"`
+reports thirteen differing files (`application.py`, `browser.py`, `clip.py`,
+`clip_slot.py`, `device.py`, `handler.py`, `midimap.py`, `osc_server.py`,
+`return_track.py`, `scene.py`, `song.py`, `song_structure.py`, `track.py`,
+`view.py`) and `track_callback.py` present only in the checkout — so the
+installed copy predates even the previous stacked item, let alone this one.
+Live 12 Suite was running (PID 70216) and was left untouched: nothing was sent
+to `11000`, nothing was bound on `11001`, no `/live/api/reload` was issued, and
+no file under Remote Scripts was written. This review may not install, restart
+Live, or bind the reply port, so the precondition cannot be established here.
+
+Nothing about this change has therefore been observed executing inside Live.
+Checks 1-4 remain outstanding for whoever next installs and restarts; check 3
+(`/live/api/reload`, then `/live/clip_slot/get/has_clip 0 0` logging
+`clip_slot` rather than `None`) is the only evidence that would exercise Part
+3's reason for existing, and it requires an install of the *previous* code
+followed by an install of this one without a restart to be a true test of the
+mixed-base path.
+
 ## Downstream
 
 **Pin bump only.** No address, shape, or timing changes; Seshat's

@@ -747,9 +747,18 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   carries the right identifier. It stays invisible until the next handler
   that actually relies on the guarantee — which then fails as a bare
   `AttributeError`, or pushes to `/live/None/get/<prop>` and is never noticed
-  at all. `tests_unit/test_handler_lifecycle.py` fails on all of it — run it
-  on every merge. The `reload_imports` ordering above (osc_server and handler
-  first) is part of the same fix and is likewise silent when lost.
+  at all. `tests_unit/test_handler_lifecycle.py` fails on the base-class half
+  of this — `test_invariants_are_set_before_init_api` and
+  `test_identifier_is_not_clobbered_after_construction` drive the real
+  `AbletonOSCHandler.__init__` through a local `Probe` subclass, so a revert
+  of the base constructor fails loudly. It does **not** catch the subclass
+  half: the suite never constructs a production handler (`TrackHandler` and
+  the rest import `Live` at module scope, out of reach here), so a merge that
+  restores one subclass's own `__init__` and drops its class attribute passes
+  the suite green — run it on every merge for the base-class case, and check
+  subclasses by eye for the other until a Live-free test covers them too. The
+  `reload_imports` ordering above (osc_server and handler first) is part of
+  the same fix and is likewise silent when lost.
 
 - **Anything touching `_stop_listen`, `_start_listen`, or `listener_objects`.**
   The wrong-object unbind fix above is small and easy to lose in a merge. Its

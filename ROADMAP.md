@@ -80,9 +80,38 @@ item grows.
   — its reconsider condition is exactly this item.
 - Seshat's end-to-end coverage stays distinct: it owns the fixed reply port and
   the long-lived listeners.
-- No dependencies; items #3, #6 and #8 depend on it.
+- No dependencies; items #4, #7 and #9 depend on it.
 
-## #3 · Device listener identity — parameter indices and property listeners
+## #3 · Verify handler `class_identifier` and lifecycle invariants without Live
+
+**Goal:** a Live-free test walks every `AbletonOSCHandler` subclass in
+`abletonosc/*.py` and asserts each declares a class-level `class_identifier`
+matching an expected address-prefix map, and that none defines its own
+`__init__`.
+
+**Why:** `tests_unit/test_handler_lifecycle.py` only ever constructs local
+`Probe` subclasses defined in the test file — the production subclasses
+(`TrackHandler` and the rest) import `Live` at module scope and are out of
+reach there. A typo in a class attribute (e.g. `class_identifier = "clipslot"`
+on the wrong handler) or a merge that restores a subclass `__init__` assigning
+`self.class_identifier` both pass every test green today; SESHAT.md's
+merge-hazard note for `AbletonOSCHandler.__init__` now says as much for the
+subclass case.
+
+**Planner notes:**
+- Source: pr-review of "Fix base handler initialization order"
+  (`docs/PLAN_base_handler_init_order.md`), nits 2 and 3 — one `ast`-based
+  test closes both.
+- No Live and no construction needed: parse `abletonosc/*.py` with `ast`,
+  find every class whose bases include `AbletonOSCHandler`, and check its
+  body for a `class_identifier` assignment (value matches the expected map)
+  and the absence of a `def __init__`.
+- Once this lands, tighten SESHAT.md's `AbletonOSCHandler.__init__`
+  merge-hazard note to point at the new test for the subclass-`__init__`
+  case instead of describing it as uncovered.
+- No dependencies.
+
+## #4 · Device listener identity — parameter indices and property listeners
 
 **Goal:** device parameter listeners key on normalized integer identifiers, and
 device *property* listeners (`name`, `type`, `class_name`) push with their track
@@ -102,7 +131,7 @@ float-valued OSC arguments leak listeners, and property listeners collapse to
   against building on them; coordinate the doc removal in the pin bump.
 - Depends on #2 for the listener-lifecycle tests.
 
-## #4 · Define selected-track identity across regular, return, and master tracks
+## #5 · Define selected-track identity across regular, return, and master tracks
 
 **Goal:** one unambiguous representation of a selected regular, return or master
 track that selection, view, device and state-mirroring addresses all agree on;
@@ -120,9 +149,9 @@ object-read buckets, so it must be decided before they are built.
   silent — settle it here.
 - Assess consumers expecting a single regular-track index (Seshat's
   `Session.State`).
-- No dependencies; #5 and the A-3 bucket depend on it.
+- No dependencies; #6 and the A-3 bucket depend on it.
 
-## #5 · A-4 · Object-valued read helpers
+## #6 · A-4 · Object-valued read helpers
 
 **Goal:** index-returning handlers for `Song.master_track`,
 `Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`,
@@ -136,9 +165,9 @@ Unblocks the groove bucket.
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **A-4**; closes FORK_GAPS
   "Object-valued reads returned as `None`".
-- Depends on #4 for the track-identity representation.
+- Depends on #5 for the track-identity representation.
 
-## #6 · B-2 · DeviceParameter rich reply
+## #7 · B-2 · DeviceParameter rich reply
 
 **Goal:** one richer `parameters` reply plus per-parameter addresses —
 `value_items`, `short_value_items`, `display_value` (get/set), `str_for_value`,
@@ -156,7 +185,7 @@ gap PR — it proves the batching conventions the rest reuse: handlers +
 - Shape PR: the wire form is the review subject.
 - Depends on #1 (handler lifecycle) and #2 (tests).
 
-## #7 · C-3 · Application dialogs and versions
+## #8 · C-3 · Application dialogs and versions
 
 **Goal:** read-only dialog state (`open_dialog_count`,
 `current_dialog_message`, `current_dialog_button_count`, listen where
@@ -177,7 +206,7 @@ dialog may guard unsaved work.
   requested. Same file, same PR; remove that entry at ship time too.
 - Depends on #1.
 
-## #8 · B-1 · Notes extended
+## #9 · B-1 · Notes extended
 
 **Goal:** `/live/clip/get/notes_extended` and `/live/clip/add/notes_extended`
 carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`,
@@ -195,7 +224,7 @@ old five-field addresses unchanged; then the ID-keyed members
 - Shape PR: the wire form is the review subject.
 - Depends on #2.
 
-## #9 · Make live code reload ordered and failure-safe
+## #10 · Make live code reload ordered and failure-safe
 
 **Goal:** `/live/api/reload` produces a coherent module graph whose handlers
 share the current base classes, and a failed reload preserves a usable previous
@@ -203,14 +232,14 @@ API or fails in a clearly reported, recoverable state.
 
 **Why:** `Manager.reload_imports` reloads concrete handler modules before their
 `handler` base and activates the result even after an exception. Every gap PR
-uses reload during development; move this up if it bites during #5–#8.
+uses reload during development; move this up if it bites during #6–#9.
 
 **Planner notes:**
 - Source: `issues.md`, "Make live code reload ordered and failure-safe"
   (Medium-high).
 - No dependencies.
 
-## #10 · Stop masking Remote Script import failures
+## #11 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -229,7 +258,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #11 · Remove the process-global and shared-file risks from song structure export
+## #12 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -245,7 +274,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #12 · Add bounded log retention
+## #13 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -262,7 +291,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #13 · A-3 · Return / master `Track` parity
+## #14 · A-3 · Return / master `Track` parity
 
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
@@ -275,9 +304,9 @@ return/master feature downstream trips over the difference.
 - Source: `CLOSING_THE_GAPS.md`, row **A-3**; closes the FORK_GAPS Track
   addressing gap and the `MixerDevice` gap on returns/master.
 - Prefer a shared track resolver over three copies of the handler table.
-- Depends on #4.
+- Depends on #5.
 
-## #14 · C-1 · `Song` remainder
+## #15 · C-1 · `Song` remainder
 
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
@@ -289,7 +318,7 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
 - Source: `CLOSING_THE_GAPS.md`, row **C-1**.
 - Depends on #1.
 
-## #15 · D-2 · Groove
+## #16 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -301,7 +330,7 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **D-2**.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
-- Depends on #5 (object-read pattern).
+- Depends on #6 (object-read pattern).
 
 ---
 
