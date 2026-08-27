@@ -53,14 +53,14 @@ feature needs them, never as blanket parity work.
 
 ## Tier A — foundations (resolvers)
 
-Land first, in order. Everything in Tier D depends on A-1 and A-4.
+Land first, in order. Everything in Tier D depends on A-1; A-4 has landed.
 
 | PR | Scope | Unlocks |
 |---|---|---|
 | **A-1** Device path resolver | `/live/device/*` (and `return_track`/`master` device addresses) accept a track kind plus a chain path, e.g. `<track> <device> [chain <c> device <d>]…` or a single path string. Reaches `RackDevice.chains[c].devices[d]`, `drum_pads[p].chains[c].devices[d]`, rack return chains, Max `DeviceIO`. | Whole `RackDevice` / `Chain` / `DrumPad` / `DrumChain` / `ChainMixerDevice` / `DeviceIO` family; device parity on returns and master (`class_name`, `type`, `parameters/min|max|is_quantized`, listeners). Closes the [Device addressing gap](FORK_GAPS.md#device--deviceparameter--top-level-devices-only). |
 | **A-2** Arrangement and take-lane clip resolver | Second clip resolver keyed `(track, arrangement_index)` and `(track, take_lane, index)`; `Clip.is_arrangement_clip` / `is_session_clip` / `is_take_lane_clip`; `TakeLane` members; `Track.take_lanes`, `create_take_lane`, `duplicate_clip_to_arrangement`. | All 86 `Clip` members at Arrangement locations. Closes the [Clip addressing gap](FORK_GAPS.md#clip--session-clips-only). Note: FORK_GAPS marks Arrangement as "Conditional / declined until a workflow is chosen"; this PR is still the cheapest place to build the resolver, and it can wait behind A-1 if no consumer exists yet. |
 | **A-3** Return / master `Track` parity | Bring `/live/return_track/*` and `/live/master/*` up to the regular-track address set: colour, routing, meters, `has_*_input/output`, every `start_listen`, `insert_device`, `mixer_device.sends` on returns. Prefer a shared track resolver over three copies of the handler table. | Closes the [Track addressing gap](FORK_GAPS.md#track--regular-tracks-get-107-addresses-return-20-master-15) and the `MixerDevice` gap on returns/master. |
-| **A-4** Object-valued read helpers | Index-returning handlers for `Song.master_track`, `Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`, `Song.View.selected_chain`, `selected_parameter`, `mod_mapping_device/parameter`. Establishes the pattern (index or `-1`) used by every later object read. | Closes [Object-valued reads returned as `None`](FORK_GAPS.md#object-valued-reads-returned-as-none). |
+| ~~**A-4** Object-valued read helpers~~ | ~~Index-returning handlers for `Song.master_track`, `Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`, `Song.View.selected_chain`, `selected_parameter`, `mod_mapping_device/parameter`. Establishes the pattern (index or `-1`) used by every later object read.~~ | Landed 2026-08-27, branch `object-valued-read-helpers`. Closed [Object-valued reads returned as `None`](FORK_GAPS.md#object-valued-reads-returned-as-none) (now `FORK_GAPS.md` § Closed). `Song.master_track` shipped out of scope — see `ROADMAP.md` § Deliberately not planned. |
 
 ## Tier B — shape fixes
 
@@ -89,7 +89,8 @@ C-1 and C-2 could be merged, as could C-3 and D-5, if a PR is small.
 
 ## Tier D — object families
 
-Each depends on A-1 (path resolver) and A-4 (object-read pattern).
+Each depends on A-1 (path resolver). A-4 (object-read pattern) has landed and
+is available to use directly — see `API.md` § "Object-valued reads".
 
 | PR | Scope |
 |---|---|

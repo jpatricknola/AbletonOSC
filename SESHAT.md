@@ -613,8 +613,10 @@ so treat any merge that reverts one as a regression, not a preference.
     `track_callback.py` model: `view.py` imports `Live` at module scope, so
     logic left as a closure inside `ViewHandler.init_api` could never be reached
     by `tests_unit/`. `tests_unit/test_track_identity.py` drives the shipped
-    module directly. It is also deliberately the module roadmap item A-3
-    (return/master `Track` parity) grows its inverse resolver in.
+    module directly. It is also the module the inverse resolvers landed in —
+    `resolve_track` / `resolve_device`, added by A-4's object-valued reads
+    (see that entry below), and what A-3 (return/master `Track` parity) will
+    build on.
   - **`manager.py` reloads `abletonosc.track_identity` before
     `abletonosc.view`**, for the same reason it reloads `track_callback` before
     `track`: `view.py` does a `from` import of the resolvers, so reloading it
@@ -830,6 +832,73 @@ so treat any merge that reverts one as a regression, not a preference.
   `("log", …)` tag and the `osc_request_error` check, and this file for this
   section. `tests_unit/test_osc_server.py` and
   `tests_unit/test_handler_envelope.py` pin the behaviour itself without Live.
+
+- **`track.py`, `clip_slot.py`, `song.py`, `view.py` + `track_identity.py` —
+  the nine object-valued reads (roadmap A-4, 2026-08-27).** Every LOM member
+  whose value is another LOM object was unreadable over the wire: the generic
+  property loops hand the OSC builder an unencodable value, which becomes an
+  error or a `None`. Nine new addresses, all in this fork, none upstream:
+
+  | Address | Reply |
+  |---|---|
+  | `/live/track/get/group_track` | `track_index, group_track_index` (`-1` ungrouped) |
+  | `/live/clip_slot/get/clip` | `track_index, clip_index, clip_index_or_-1` |
+  | `/live/song/get/appointed_device` | `category, track_index, device_index` |
+  | `/live/song/set/appointed_device` | (silent) |
+  | `/live/song/{start,stop}_listen/appointed_device` | pushes the getter's triple |
+  | `/live/view/get/selected_chain` | `category, track_index, device_index, chain_index` |
+  | `/live/view/get/selected_parameter` | `category, track_index, device_index, parameter_index` |
+  | `/live/view/get/mod_mapping_device` | `category, track_index, device_index` |
+  | `/live/view/get/mod_mapping_parameter` | `category, track_index, device_index, parameter_index` |
+
+  The reply pattern — indices into the collections the existing address
+  families already accept, prefixed by the `(category, index)` track identity,
+  `-1` for "none or not representable at top level", the **reply-only**
+  category `"none"` when the member itself is `None` — is documented in
+  `API.md` § "Object-valued reads" and is what the later object-family items
+  (groove, racks/chains, cue points) are specified against. Nothing existing
+  changes shape: every address is new, so downstream needs a pin bump and
+  nothing else.
+
+  Four of the five files are **upstream files gaining fork-owned addresses**,
+  the `begin/end_undo_step` precedent. The `appointed_device` trio is
+  deliberately hand-written and kept *out* of `song.py`'s generic
+  `properties_r` / `properties_rw` lists (a merge that absorbed it into one
+  would change the address's shape, and those lists are already a merge
+  hazard of their own). `clip_slot.py`'s `get/clip` is registered with
+  `pass_clip_index=True` — without it the callee receives `params[2:]`, empty
+  for a two-argument get, and would have no index to answer with; that flag's
+  comment no longer says "the listen pair only".
+
+  All the resolution lives in **`track_identity.py`** (`group_track_index`,
+  `owning_track_identity`, `device_identity`, `parameter_identity`,
+  `chain_identity`, plus the inverse resolvers `resolve_track` /
+  `resolve_device`), because `song.py` and `view.py` import `Live` at module
+  scope and are unreachable from `tests_unit/`. `owning_track_identity`
+  climbs `canonical_parent` with a 16-level cap: the cap is what keeps a
+  cyclic parent chain from hanging Live's UI thread, and exhausting it is a
+  loud `ValueError` → `/live/error` rather than a sentinel. ⚠️ The ascent and
+  cross-class `==` are **not yet measured against a running Live** (tier-2
+  only: Live 12.4.3's own `Push2/track_selection` climbs `canonical_parent`
+  off a `Live.Chain` to reach a track); see the plan's Live verification
+  checks 3, 6 and 7.
+
+  `set/appointed_device` is the only setter, and it *validates* rather than
+  indexes: `"none"`, an unknown category, a negative or out-of-range index and
+  a master index other than `0` are each a `ValueError`. That is a deliberate
+  divergence from the legacy `/live/view/set/selected_track`, which inherits
+  Python's negative indexing and silently selects the last track on a `-1`.
+  New addresses have no upstream-compatibility reason to repeat that.
+
+  `manager.py`'s `reload_imports` moves `abletonosc.track_identity` up, ahead
+  of `song` and `track` as well as `view` — all three now `from`-import it.
+  See § Merge hazards.
+
+  `tests_unit/test_track_identity.py` (resolvers) and
+  `tests_unit/test_object_reads.py` (the two wrapper-borne addresses,
+  dispatched through the real handlers) are the Live-free tripwires; the
+  `song.py` / `view.py` registrations can only be checked against a running
+  Live.
 
 ### Seshat's own handlers
 
@@ -1051,9 +1120,13 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   upstream also edits, and dropping its `abletonosc.track_callback` line is
   invisible until someone edits the wrapper and `/live/api/reload` appears
   not to take. The same list carries a second fork-owned line,
-  `abletonosc.track_identity`, which must stay *before* `abletonosc.view`
-  because view.py `from`-imports the selection resolvers — same silent
-  failure mode, and the same missing test coverage.
+  `abletonosc.track_identity`, which must stay *before* `abletonosc.song`,
+  `abletonosc.track` **and** `abletonosc.view` — all three `from`-import its
+  resolvers (the selection resolvers in view.py, the object-valued read
+  resolvers in song.py and track.py since A-4). A `from` import binds function
+  objects at import time, so any of the three reloaded first keeps calling the
+  *previous* edit's resolvers while `/live/api/reload` reports success — same
+  silent failure mode, and the same missing test coverage.
 
 - **Anything touching `song.py`'s generic methods list or `properties_rw`.**
   Three entries there are ours — `begin_undo_step`, `end_undo_step` and

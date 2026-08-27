@@ -80,29 +80,39 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #2 · A-4 · Object-valued read helpers
+## #2 · Test coverage for the object-read `song.py` / `view.py` glue
 
-**Goal:** index-returning handlers for `Song.master_track`,
-`Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`,
-`Song.View.selected_chain`, `selected_parameter`, `mod_mapping_device` /
-`mod_mapping_parameter`, with `-1` for none.
+**Goal:** give the `tests_unit/conftest.py` `Component` stub a settable
+`song` attribute so `load_song_module()` / `load_view_module()` can pin the
+reply shapes, the listener push address and `stop_listen` bookkeeping for
+the object-valued read helpers (A-4) that live in `song.py` and `view.py` —
+`song_get_appointed_device`, `song_set_appointed_device` and its listen/
+stop_listen pair, and the four `view.py` getters (`selected_chain`,
+`selected_parameter`, `mod_mapping_device`, `mod_mapping_parameter`).
 
-**Why:** small, and it establishes the object-read pattern every later PR uses
-— the generic property loop returns `None` for object-valued members today.
-Unblocks the groove bucket.
+**Why:** A-4 shipped nine object-valued addresses; two (`track/get/group_track`,
+`clip_slot/get/clip`) are pinned by `tests_unit/`, the other seven are not —
+and those seven carry the newest, least-exercised part of the contract
+(device/parameter/chain identity resolution, the `appointed_device` listen
+push, `stop_listen` bookkeeping across `/live/api/reload`). D-2 Groove and
+every later object-family PR (racks/chains, cue points) reuse this exact
+dispatch pattern, so a gap here compounds with each one that lands on top of
+it untested.
 
 **Planner notes:**
-- Source: `CLOSING_THE_GAPS.md`, row **A-4**; closes FORK_GAPS
-  "Object-valued reads returned as `None`".
-- `-1` for "none" is already the fork's convention, established by the shipped
-  selected-track identity item and written down in API.md § "`-1` is an
-  answer, never an argument" (`API.md:674`) — follow it, and keep its second
-  half: no setter accepts `-1` as input.
-- Precedent for the group-track read exists rather than needing invention:
-  `/live/song/export/structure` already resolves `track.group_track` to an
-  index into `song.tracks` (`song.py:177-184`). Reuse that resolution instead
-  of writing a second one.
-- No dependencies.
+- Source: pr-review finding on `object-valued-read-helpers` (2026-08-27):
+  `song.py`'s `init_api` reads `self.song` at registration time and the
+  `Component` stub has no `song` attribute, which is the actual blocker —
+  not `import Live`, since both modules dereference `Live.` only at call
+  time (`song.py:196`, `view.py:178/186/195`), the same shape `clip.py`
+  already handles with an empty `Live` stub.
+- `track_identity.py`'s resolvers themselves are already covered by
+  `tests_unit/test_track_identity.py`; this item is specifically the
+  dispatch-glue layer (`init_api`, address registration, the `partial(...)`
+  wiring, and reply/echo assembly) that only `song.py` and `view.py`
+  exercise.
+- No dependencies. Cheap — a stub extension plus two test modules, no
+  production code changes expected.
 
 ## #3 · B-2 · DeviceParameter rich reply
 
@@ -205,7 +215,7 @@ is told nothing went wrong.
   listener dict — decide in this item whether to close it or record it as
   accepted, since the code comment currently points here for the answer.
 - Every gap PR uses reload during development; move this up if it bites
-  during #2–#5.
+  during #1–#4.
 - No dependencies.
 
 ## #7 · Stop masking Remote Script import failures
@@ -322,12 +332,14 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 - `Clip.groove` is already known to be unreachable through the generic
   property loop and is commented out in place with the reason
   (`clip.py:123`: "Infered arg_value type is not supported") — that
-  commented line is the concrete thing this item replaces, and it is why the
-  dependency on #2's object-read pattern is real rather than tidiness.
+  commented line is the concrete thing this item replaces. The object-read
+  pattern it needs (index-or-`-1`, resolvers in `track_identity.py`) has
+  shipped and is available to use directly — see `API.md` § "Object-valued
+  reads".
   `song.groove_amount` (`song.py:65`) and `clip.has_groove`
   (`clip.py:110`) already work and stay as they are.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
-- Depends on #2 (object-read pattern).
+- No dependencies.
 
 ---
 
@@ -362,3 +374,11 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
   doc/code drift is found that the unit layer didn't catch.
 - The defect-shaped declines — the `pythonosc` escape sequence — are in
   `issues.md` § Declined with its reopen condition.
+- **`/live/song/get/master_track`.** Named in the object-valued read helpers
+  item's original Goal, deliberately not delivered: `Song.master_track` is
+  already reached under `/live/master/*` (never a FORK_GAPS row), and under
+  the shipped `(category, index)` identity convention the reply could only
+  ever be the constant `("master", 0)` — a wire address that answers one
+  value forever and that Seshat would have to tripwire for no return.
+  **Reopens when** a consumer actually needs the constant; a five-line
+  follow-up.

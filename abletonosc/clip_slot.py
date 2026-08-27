@@ -14,14 +14,16 @@ class ClipSlotHandler(AbletonOSCHandler):
                 if pass_clip_index:
                     #--------------------------------------------------------------------------------
                     # Hand the callee the *normalised, truncated* identity, not the raw
-                    # OSC args. pass_clip_index is used by the listen pair only, and a
-                    # listener's identity has to be canonical: it is the bookkeeping key,
-                    # the LOM subscript and the echo in the push, and those three must
-                    # agree across a start/stop pair sent by different clients. TouchOSC
-                    # -style clients send floats by default (upstream issue #33). A clip
-                    # slot subscription's identity is exactly two ints; anything past
-                    # them is dropped, so a stray trailing argument cannot key a second
-                    # subscription that a well-formed stop can never reach.
+                    # OSC args. pass_clip_index is used by the listen pair and by
+                    # get/clip, the one getter whose *reply* contains its own slot
+                    # index; either way the identity has to be canonical — it is the
+                    # bookkeeping key and the LOM subscript, and for the listen pair
+                    # also the echo in the push, so it must agree across a start/stop
+                    # pair sent by different clients. TouchOSC-style clients send
+                    # floats by default (upstream issue #33). A clip slot subscription's
+                    # identity is exactly two ints; anything past them is dropped, so a
+                    # stray trailing argument cannot key a second subscription that a
+                    # well-formed stop can never reach.
                     #--------------------------------------------------------------------------------
                     rv = func(clip_slot, *args, (track_index, clip_index))
                 else:
@@ -66,6 +68,27 @@ class ClipSlotHandler(AbletonOSCHandler):
         for prop in properties_rw:
             self.osc_server.add_handler("/live/clip_slot/set/%s" % prop,
                                         create_clip_slot_callback(self._set_property, prop))
+
+        #--------------------------------------------------------------------------------
+        # Seshat extension (A-4, object-valued reads). `ClipSlot.clip` is a Clip
+        # object, unencodable by the generic property loop; this answers the
+        # clip's index in /live/clip/* coordinates — which is the slot's own
+        # clip_index — or -1 when the slot is empty. The object-read form of
+        # get/has_clip; see API.md § "Object-valued reads".
+        #
+        # pass_clip_index=True is load-bearing: without it the callee is handed
+        # `params[2:]`, which is empty for a two-argument get, so it would have
+        # no clip_index to answer with. Reading params directly instead would
+        # echo an un-normalised float from a TouchOSC-style client.
+        #--------------------------------------------------------------------------------
+        def clip_slot_get_clip(clip_slot, identity: Tuple[Any] = ()):
+            clip_index = identity[1] if clip_slot.clip is not None else -1
+            self.logger.info("Getting property for clip_slot: clip = %s" % clip_index)
+            return (clip_index,)
+
+        self.osc_server.add_handler("/live/clip_slot/get/clip",
+                                    create_clip_slot_callback(clip_slot_get_clip,
+                                                              pass_clip_index=True))
 
         def duplicate_clip_slot(clip_slot, args):
             target_track_index, target_clip_index = tuple(args)
