@@ -5,6 +5,9 @@ is never prioritised; this file is the sequencing. It groups the 494 member
 gaps, the addressing gaps and the shape gaps into PR-sized buckets so a
 single PR ships a coherent batch instead of one address at a time._
 
+_The ranked queue of what to do next — mixing these buckets with
+[issues.md](issues.md) — is [ROADMAP.md](ROADMAP.md)._
+
 ## Why buckets, not one PR per gap
 
 Every PR that closes a gap carries the same fixed overhead: handlers,
