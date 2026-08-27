@@ -1,6 +1,7 @@
 from typing import Tuple, Any, Callable, Optional
 from .handler import AbletonOSCHandler
 from .track_callback import create_track_callback as _create_track_callback
+from .track_identity import group_track_index
 
 
 class TrackHandler(AbletonOSCHandler):
@@ -161,6 +162,28 @@ class TrackHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/track/get/devices/type", create_track_callback(track_get_device_types))
         self.osc_server.add_handler("/live/track/get/devices/class_name", create_track_callback(track_get_device_class_names))
         self.osc_server.add_handler("/live/track/get/devices/can_have_chains", create_track_callback(track_get_device_can_have_chains))
+
+        #--------------------------------------------------------------------------------
+        # Track: the group track this track belongs to.
+        #
+        # Seshat extension (A-4, object-valued reads). `Track.group_track` is a
+        # Track object, so the generic property loop could only ever answer it
+        # as an unencodable value; this answers the group's index in
+        # song.tracks — the coordinate every other /live/track/* address takes
+        # — and -1 when the track is not grouped. Resolution lives in the
+        # Live-free track_identity.py; see API.md § "Object-valued reads".
+        #
+        # No listen pair: group_track is not an observable property (measured
+        # against Live 12.4.3 in the FORK_GAPS inventory), so there is no
+        # add_group_track_listener to bind.
+        #--------------------------------------------------------------------------------
+        def track_get_group_track(track, params: Tuple[Any] = ()):
+            index = group_track_index(self.song, track)
+            self.logger.info("Getting property for track: group_track = %s" % index)
+            return (index,)
+
+        self.osc_server.add_handler("/live/track/get/group_track",
+                                    create_track_callback(track_get_group_track))
 
         #--------------------------------------------------------------------------------
         # Track: Output routing.

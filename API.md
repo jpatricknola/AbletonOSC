@@ -95,6 +95,83 @@ Two gotchas that don't show in the address tables:
   re-subscribe. Without that a mirror is stale permanently, not just until the
   next change.
 
+### Object-valued reads
+
+Some LOM members hold another LOM object rather than a number or a string —
+`Song.appointed_device`, `Track.group_track`, `ClipSlot.clip`, and
+`Song.View`'s `selected_chain`, `selected_parameter`, `mod_mapping_device` and
+`mod_mapping_parameter`. The generic property loops cannot put one of those on
+the wire (the value is unencodable, so it becomes an error or a `None`), so
+each has a hand-written handler that answers with **indices into the
+collections the existing address families already accept**. The rules, which
+every later object-valued read follows:
+
+1. An object-valued member never enters the generic property loop.
+2. The reply names the object by index, prefixed by the track-identity
+   category (see **Selected-track identity** under the View API) when the
+   owning track can be any of the three kinds:
+
+   | Kind of member | Reply shape | Example |
+   |---|---|---|
+   | Track-valued, regular tracks only | `track_index` | `/live/track/get/group_track` |
+   | Clip-valued, in a slot the request already names | `clip_index` | `/live/clip_slot/get/clip` |
+   | Device-valued | `category, track_index, device_index` | `/live/song/get/appointed_device` |
+   | Parameter-valued | `category, track_index, device_index, parameter_index` | `/live/view/get/selected_parameter` |
+   | Chain-valued | `category, track_index, device_index, chain_index` | `/live/view/get/selected_chain` |
+
+   `category` is `"track"`, `"return_track"` or `"master"` — exactly the
+   address family that reaches that track — so a reply is directly
+   actionable: a device triple maps onto `/live/track/device/*`,
+   `/live/return_track/device/*` or `/live/master/device/*` respectively.
+3. **`-1` means "none, or not representable at top level"**: no group track,
+   an empty clip slot, or a device nested inside a rack chain, which has no
+   index in `track.devices` and no address that reaches it until a path
+   resolver exists.
+4. When the member itself is `None`, the category slot carries the
+   **reply-only category `"none"`** and every index is `-1`. `"none"` never
+   appears anywhere but a reply, and no setter accepts it — the same half of
+   the convention as "`-1` is an answer, never an argument".
+5. Replies are fixed-arity: a given address always answers the same number of
+   fields, whatever it found.
+6. **Getters never error for a "none" reason** — that is an answer, and it
+   goes on the wire. A genuine resolution failure (an object in none of the
+   collections, an exhausted `canonical_parent` ascent) raises and arrives as
+   a structured `/live/error` on the **request** path, loudly. A *listener
+   push* has no such envelope: the getter runs inside Live's own listener
+   callback, outside `OSCServer._dispatch`'s per-message catch, so a
+   resolution failure there kills that push with nothing on the wire and only
+   Live's `Log.txt` to show for it — the same accepted limit as
+   `start_listen/selected_track_identity`.
+7. Every object-read handler logs its resolution at info level, because the
+   installed `logs/abletonosc.log` is the only evidence channel when another
+   client holds the reply port.
+
+⚠️ **The `canonical_parent` ascent is not measured yet.** Every reply above a
+bare index is resolved by climbing `canonical_parent` from the object until a
+track is reached (chain → rack device → track; parameter → device → track).
+That is Ableton's own idiom — `Push2/track_selection` in Live 12.4.3's shipped
+`MIDI Remote Scripts` climbs `canonical_parent` off a `Live.Chain` to reach a
+track (read from the installed bundle, 2026-08-27) — but it has not been
+exercised against a running Live from this fork, and neither has cross-class
+`==` between a device/chain/parameter and a track. The ascent is bounded (16
+levels) and fails loudly, so a wrong assumption surfaces as a structured
+`/live/error` naming the object rather than a wrong index or a hung UI thread.
+
+The setter side is deliberately narrow: `/live/song/set/appointed_device` is
+the only one, it takes the same triple its getter replies, and it *validates*
+every argument — an unknown category (`"none"` included), a negative or
+out-of-range index, and a master index other than `0` are each a `ValueError`
+arriving as a structured `/live/error`, never a Python negative-index
+wrap-around. It reaches top-level devices only, and cannot un-appoint.
+
+⚠️ **Seshat extension.** All nine object-valued reads (`track/get/group_track`,
+`clip_slot/get/clip`, the `song/…/appointed_device` trio and the four
+`view/get/…` rows) are added by this fork; none exists in stock AbletonOSC.
+`Track.group_track` is the only one of the seven members that is not
+observable, so it is the only one that could not have a listen pair even if a
+consumer asked. Without the install they are unknown addresses: the getters
+never reply and the setter silently does nothing.
+
 ### Queries that raise instead of replying
 
 Some queries make AbletonOSC raise internally. **Since the dispatch-boundary
@@ -505,6 +582,7 @@ Listen via `/live/song/start_listen/<property>`, stop via
 
 | Address | Response Params | Description |
 |---|---|---|
+| `/live/song/get/appointed_device` | `category, track_index, device_index` | ⚠️ **Seshat extension** — the appointed ("blue hand") device, as a device triple: `category` is `"track"`, `"return_track"`, `"master"`, or `"none"` with both indices `-1` when nothing is appointed. A device nested in a rack chain answers `category, track_index, -1`. Its listen pair pushes the same triple. See **Object-valued reads** |
 | `/live/song/get/arrangement_overdub` | `arrangement_overdub` | Arrangement overdub state |
 | `/live/song/get/back_to_arranger` | `back_to_arranger` | "Back to arranger" lit state |
 | `/live/song/get/can_redo` | `can_redo` | Redo available? Plain `bool` attribute — see the measured semantics below |
@@ -538,6 +616,7 @@ Listen via `/live/song/start_listen/<property>`, stop via
 
 | Address | Query Params | Description |
 |---|---|---|
+| `/live/song/set/appointed_device` | `category, track_index, device_index` | ⚠️ **Seshat extension** — appoint a top-level device, by the same triple the getter replies. Every argument is validated: `"none"`, an unknown category, a negative or out-of-range index, or a master index other than `0` each answer on `/live/error` and change nothing. There is no un-appoint |
 | `/live/song/set/arrangement_overdub` | `arrangement_overdub` | Set arrangement overdub (1=on, 0=off) |
 | `/live/song/set/back_to_arranger` | `back_to_arranger` | Set back to arranger (1=on, 0=off) |
 | `/live/song/set/clip_trigger_quantization` | `clip_trigger_quantization` | Set clip trigger quantization |
@@ -637,6 +716,10 @@ User interface control — selecting tracks, scenes, clips, devices.
 | `/live/view/get/selected_track_identity` | | `category, index` | ⚠️ **Seshat extension** — which track is selected, in any category: `"track"`, `"return_track"` or `"master"` |
 | `/live/view/start_listen/selected_track_identity` | | `category, index` | ⚠️ **Seshat extension** — listen for selection changes across all three categories |
 | `/live/view/stop_listen/selected_track_identity` | | | ⚠️ **Seshat extension** — stop listening for identity changes |
+| `/live/view/get/selected_chain` | | `category, track_index, device_index, chain_index` | ⚠️ **Seshat extension** — the highlighted rack chain. `device_index` is the owning rack's index in that track's `devices`, `-1` if the rack is itself nested; `chain_index` its index in that rack's `chains`. Nothing selected → `"none", -1, -1, -1`. See **Object-valued reads** |
+| `/live/view/get/selected_parameter` | | `category, track_index, device_index, parameter_index` | ⚠️ **Seshat extension** — the selected device parameter. A mixer/send parameter, or a parameter of a device nested in a rack chain, answers `category, track_index, -1, -1`. Nothing selected → `"none", -1, -1, -1` |
+| `/live/view/get/mod_mapping_device` | | `category, track_index, device_index` | ⚠️ **Seshat extension** — the device waiting for a Max-for-Live/macro mapping. Idle → `"none", -1, -1` |
+| `/live/view/get/mod_mapping_parameter` | | `category, track_index, device_index, parameter_index` | ⚠️ **Seshat extension** — the parameter waiting for that mapping. Idle → `"none", -1, -1, -1` |
 
 ### Selected-track identity
 
@@ -670,7 +753,9 @@ to use next, and the index is already in that family's coordinates.
   `/live/return_track/select` and `/live/master/select` existed, that state was
   unreachable and upstream's getters simply raised `ValueError` on it; they now
   answer instead. `-1` is the same "not in this index space" sentinel used
-  elsewhere for object-valued reads.
+  elsewhere for object-valued reads — see **Object-valued reads** in
+  *Conventions the address tables don't show*, which is the pattern all nine
+  of them follow.
 - **`-1` is an answer, never an argument.** None of the three setters
   (`set/selected_track`, `set/selected_clip`, `set/selected_device`) reject
   it: they index `song.tracks`/`.devices` directly with whatever
@@ -714,18 +799,20 @@ to use next, and the index is already in that family's coordinates.
 
 ### View extensions (Seshat — not in upstream AbletonOSC)
 
-⚠️ Seven rows above do **not** exist in stock AbletonOSC: `show_view`,
-`hide_view`, `get/is_view_visible`, `set/detail_clip`, and the identity trio
+⚠️ Eleven rows above do **not** exist in stock AbletonOSC: `show_view`,
+`hide_view`, `get/is_view_visible`, `set/detail_clip`, the identity trio
 `get/selected_track_identity`, `start_listen/selected_track_identity` and
-`stop_listen/selected_track_identity`. They are served by
+`stop_listen/selected_track_identity`, and the four object-valued reads of
+`Song.View` — `get/selected_chain`, `get/selected_parameter`,
+`get/mod_mapping_device` and `get/mod_mapping_parameter`. They are served by
 `abletonosc/view.py` in this repository, installed with
 `mix abletonosc.install` (restart Live afterwards). They are not the only Seshat
 addresses living in an *upstream* file — `/live/song/begin_undo_step` and
 `/live/song/end_undo_step` are two more, in `song.py` (see Song Methods above).
-Without that install none of the seven is known: of the four view-steering
+Without that install none of the eleven is known: of the four view-steering
 addresses, the three setters silently do nothing and the getter never replies;
 of the identity trio, the getter never replies and the listen pair is unknown,
-so nothing is ever pushed. The three upstream getters the identity note above
+so nothing is ever pushed; and the four object-valued getters never reply. The three upstream getters the identity note above
 describes are *present* without the install, and go back to raising
 `ValueError` — no reply — the moment a return track or the master is selected.
 
@@ -768,6 +855,18 @@ happened — and its view tools need the rest.
 - `set/detail_clip` puts `song.tracks[track_index].clip_slots[scene_index]`'s
   clip into the Detail view. Pair it with `show_view Detail/Clip` to open the
   note editor on it.
+- **The four object-valued getters** answer `Song.View`'s `selected_chain`,
+  `selected_parameter`, `mod_mapping_device` and `mod_mapping_parameter` —
+  LOM *objects*, which the generic property loop can only render as an error
+  or a `None` — as indices under a track-identity category, per
+  **Object-valued reads**. Get-only in this fork: all four members are
+  observable and two are LOM-writable, but no consumer has named a setter or a
+  listener for them yet, and the `getter=` machinery makes either a cheap
+  follow-up. ⚠️ Not yet measured against a running Live: whether a drum rack's
+  `DrumChain` appears in its rack's `chains` (so `selected_chain` resolves a
+  `chain_index`) or only under `drum_pads[*].chains` (so it answers `-1`), and
+  what the `mod_mapping_*` pair reads mid-gesture — the idle `"none"` shapes
+  are what the LOM docstrings describe.
 - **The three setters are silent**, like upstream's setters — an unknown view
   name or an empty clip slot is logged to Live's `Log.txt` and nothing goes on
   the wire. `show_view` and `set/detail_clip` are view steering that follows an
@@ -828,7 +927,8 @@ start began. Sending **no** index remains a malformed request and answers on
 ⚠️ Listener pairs exist for the **scalar** properties only (the property loops
 in `track.py`, plus `volume` and `panning`). The composite getters — `send`,
 the routing properties, `clips/*`, `arrangement_clips/*`, `devices/*`,
-`num_devices` — register no listeners: `/live/track/start_listen/send` is an
+`num_devices` — register no listeners, and neither does `group_track`, whose
+LOM member is not observable at all: `/live/track/start_listen/send` is an
 unknown address and fails silently, which also means **nothing pushes a
 send's accepted value into the mirror** after `/live/track/set/send`.
 Reading the value back is therefore the only way to observe that a send
@@ -962,6 +1062,7 @@ query.** One request, one action per regular track.
 | `/live/track/get/current_monitoring_state` | `track_id` | `track_id, state` | Monitoring state (1=on, 0=off) |
 | `/live/track/get/fired_slot_index` | `track_id` | `track_id, index` | Currently-fired slot |
 | `/live/track/get/fold_state` | `track_id` | `track_id, fold_state` | Group folded state |
+| `/live/track/get/group_track` | `track_id` | `track_id, group_track_index` | ⚠️ **Seshat extension** — the index in `song.tracks` of the group track this track is in, or `-1` when it is not grouped. `*` fans out like every other track getter. **No listen pair** — `Track.group_track` is not observable. See **Object-valued reads** |
 | `/live/track/get/has_audio_input` | `track_id` | `track_id, has_audio_input` | Has audio input? |
 | `/live/track/get/has_audio_output` | `track_id` | `track_id, has_audio_output` | Has audio output? |
 | `/live/track/get/has_midi_input` | `track_id` | `track_id, has_midi_input` | Has MIDI input? |
@@ -1038,6 +1139,7 @@ Container for clips. Create, delete, and query clip existence.
 | `/live/clip_slot/create_clip` | `track_index, clip_index, length` | | Create clip in slot |
 | `/live/clip_slot/delete_clip` | `track_index, clip_index` | | Delete clip |
 | `/live/clip_slot/get/has_clip` | `track_index, clip_index` | `track_index, clip_index, has_clip` | Has clip? |
+| `/live/clip_slot/get/clip` | `track_index, clip_index` | `track_index, clip_index, clip_index_or_-1` | ⚠️ **Seshat extension** — the object-read form of `has_clip`: the third field is the clip's index in `/live/clip/*` coordinates, which is the slot's own `clip_index`, or `-1` when the slot is empty. **No listen pair.** See **Object-valued reads** |
 | `/live/clip_slot/get/controls_other_clips` | `track_index, clip_index` | `track_index, clip_index, controls_other_clips` | Group slot controlling the clips below it? |
 | `/live/clip_slot/get/is_group_slot` | `track_index, clip_index` | `track_index, clip_index, is_group_slot` | Slot belongs to a group track? |
 | `/live/clip_slot/get/is_playing` | `track_index, clip_index` | `track_index, clip_index, is_playing` | Slot's clip playing? |
@@ -1048,10 +1150,13 @@ Container for clips. Create, delete, and query clip existence.
 | `/live/clip_slot/set/has_stop_button` | `track_index, clip_index, has_stop_button` | | Set stop button (1=on, 0=off) |
 | `/live/clip_slot/duplicate_clip_to` | `track_index, clip_index, target_track, target_clip` | | Duplicate clip to target slot |
 
-Every `get/` property above also has
+Every `get/` property above **except `get/clip`** also has
 `/live/clip_slot/start_listen/<property> <track_index> <clip_index>` and
 `/live/clip_slot/stop_listen/<property> <track_index> <clip_index>`; pushes
 arrive on the matching `get/` address as `track_index, clip_index, value`.
+`get/clip` has no listen pair — `get/has_clip`'s is the one to use for slot
+occupancy, and whether `ClipSlot` even offers an `add_clip_listener` is
+unmeasured (the fork does not register one either way).
 
 **A subscription's identity is two ints** (2026-08-27) — both indices are
 normalised to ints at the callback boundary and that pair is used for the clip

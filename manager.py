@@ -171,6 +171,16 @@ class Manager(ControlSurface):
             importlib.reload(abletonosc.osc_server)
             importlib.reload(abletonosc.handler)
             importlib.reload(abletonosc.introspection)
+            #--------------------------------------------------------------------------------
+            # track_identity before every module that `from`-imports it —
+            # song, track and view all do. A `from` import binds the function
+            # objects at import time, so a module reloaded *before*
+            # track_identity keeps calling the previous edit's resolvers: the
+            # reload logs success and the old code goes on answering, which is
+            # the same silent stale-binding failure documented for
+            # track_callback below, and no Live-free test can catch it.
+            #--------------------------------------------------------------------------------
+            importlib.reload(abletonosc.track_identity)
             importlib.reload(abletonosc.application)
             importlib.reload(abletonosc.clip)
             importlib.reload(abletonosc.clip_slot)
@@ -184,11 +194,11 @@ class Manager(ControlSurface):
             importlib.reload(abletonosc.track_callback)
             importlib.reload(abletonosc.track)
             #--------------------------------------------------------------------------------
-            # track_identity before view, for the same reason: view.py does a
-            # `from` import of the selection resolvers, so reloading it
+            # view after track_identity (reloaded above, before song and
+            # track, which `from`-import it too): view.py does a `from` import
+            # of the selection and object-read resolvers, so reloading it
             # afterwards rebinds the new functions.
             #--------------------------------------------------------------------------------
-            importlib.reload(abletonosc.track_identity)
             importlib.reload(abletonosc.view)
             importlib.reload(abletonosc.browser)
             importlib.reload(abletonosc.return_track)

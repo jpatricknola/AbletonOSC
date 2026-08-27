@@ -4,9 +4,10 @@ import tempfile
 import Live
 import json
 from functools import partial
-from typing import Tuple, Any
+from typing import Optional, Tuple, Any
 
 from .handler import AbletonOSCHandler
+from .track_identity import device_identity, resolve_device
 
 class SongHandler(AbletonOSCHandler):
     class_identifier = "song"
@@ -100,6 +101,51 @@ class SongHandler(AbletonOSCHandler):
             self.osc_server.add_handler("/live/song/stop_listen/%s" % prop, partial(self._stop_listen, self.song, prop))
         for prop in properties_rw:
             self.osc_server.add_handler("/live/song/set/%s" % prop, partial(self._set_property, self.song, prop))
+
+        #--------------------------------------------------------------------------------
+        # Callbacks for Song: appointed_device.
+        #
+        # Seshat extension (A-4, object-valued reads). `Song.appointed_device`
+        # is the "blue hand" device — a Device object, so the generic property
+        # loops above could never carry it. Deliberately hand-written and kept
+        # out of those loops: the generic lists in this file already carry
+        # fork-owned entries, and a merge that silently absorbs one of these
+        # into them would change this address's shape.
+        #
+        # The reply is the (category, track_index, device_index) device triple
+        # defined in track_identity.py, actionable through /live/track/device/*,
+        # /live/return_track/device/* or /live/master/device/* respectively.
+        # See API.md § "Object-valued reads".
+        #--------------------------------------------------------------------------------
+        def song_get_appointed_device(params: Optional[Tuple] = ()):
+            identity = device_identity(self.song, self.song.appointed_device)
+            self.logger.info("Getting property for song: appointed_device = %s" % str(identity))
+            return identity
+
+        def song_set_appointed_device(params: Tuple[Any] = ()):
+            #--------------------------------------------------------------------------------
+            # resolve_device validates every argument rather than indexing with
+            # it: "-1 is an answer, never an argument". The reply-only "none"
+            # category is rejected there too — this setter cannot un-appoint.
+            #--------------------------------------------------------------------------------
+            category, track_index, device_index = str(params[0]), int(params[1]), int(params[2])
+            device = resolve_device(self.song, category, track_index, device_index)
+            self.logger.info("Setting property for song: appointed_device = %s"
+                             % str((category, track_index, device_index)))
+            self.song.appointed_device = device
+
+        self.osc_server.add_handler("/live/song/get/appointed_device", song_get_appointed_device)
+        self.osc_server.add_handler("/live/song/set/appointed_device", song_set_appointed_device)
+        #--------------------------------------------------------------------------------
+        # `appointed_device` is observable under its own name, so no
+        # `lom_property` alias is needed; `getter=` is what makes the push
+        # carry the resolved triple rather than the raw Device object.
+        #--------------------------------------------------------------------------------
+        self.osc_server.add_handler("/live/song/start_listen/appointed_device",
+                                    partial(self._start_listen, self.song, "appointed_device",
+                                            getter=song_get_appointed_device))
+        self.osc_server.add_handler("/live/song/stop_listen/appointed_device",
+                                    partial(self._stop_listen, self.song, "appointed_device"))
 
         #--------------------------------------------------------------------------------
         # Callbacks for Song: Track properties

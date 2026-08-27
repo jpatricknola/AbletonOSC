@@ -5,10 +5,11 @@ import Live
 
 from .handler import AbletonOSCHandler
 from .track_identity import (selected_track_identity, selected_track_index,
-                             selected_device_indices)
+                             selected_device_indices, chain_identity,
+                             device_identity, parameter_identity)
 
 #--------------------------------------------------------------------------------
-# Seven addresses in this file are Seshat extensions, added in this fork:
+# Eleven addresses in this file are Seshat extensions, added in this fork:
 #
 #   /live/view/show_view          [view_name]                 (no reply)
 #   /live/view/hide_view          [view_name]                 (no reply)
@@ -18,6 +19,10 @@ from .track_identity import (selected_track_identity, selected_track_index,
 #   /live/view/get/selected_track_identity          ()        -> [category, index]
 #   /live/view/start_listen/selected_track_identity ()        (pushes on the get address)
 #   /live/view/stop_listen/selected_track_identity  ()        (no reply)
+#   /live/view/get/selected_chain      ()  -> [category, track, device, chain]
+#   /live/view/get/selected_parameter  ()  -> [category, track, device, parameter]
+#   /live/view/get/mod_mapping_device  ()  -> [category, track, device]
+#   /live/view/get/mod_mapping_parameter () -> [category, track, device, parameter]
 #
 # Upstream can select a track, scene, clip or device, but it cannot bring the
 # pane those live in into view, put one away, or say which panes are open at
@@ -69,6 +74,16 @@ from .track_identity import (selected_track_identity, selected_track_index,
 # property as start_listen/selected_track (Song.View.selected_track) and pushes
 # under its own name, via the base class's `lom_property` alias. The two coexist:
 # distinct bookkeeping keys, one LOM property, two callbacks.
+#
+# The last four are A-4's object-valued reads of Song.View: `selected_chain`,
+# `selected_parameter`, `mod_mapping_device` and `mod_mapping_parameter` are
+# all LOM *objects*, which the generic property loop can only turn into an
+# error or a None, so each is answered as indices into the address families
+# that already reach those objects — the device triple and the parameter/chain
+# quad defined in track_identity.py, with "none" and -1 for a member that is
+# None. See API.md § "Object-valued reads". Get-only in this item: all four are
+# observable and two are LOM-writable, but no consumer has named a setter or a
+# listener yet (C-2 / D-1).
 #--------------------------------------------------------------------------------
 
 #--------------------------------------------------------------------------------
@@ -117,6 +132,30 @@ class ViewHandler(AbletonOSCHandler):
             self.logger.info("Getting property for %s: selected_device = %s"
                              % (self.class_identifier, str(indices)))
             return indices
+
+        def get_selected_chain(params: Optional[Tuple] = ()):
+            identity = chain_identity(self.song, self.song.view.selected_chain)
+            self.logger.info("Getting property for %s: selected_chain = %s"
+                             % (self.class_identifier, str(identity)))
+            return identity
+
+        def get_selected_parameter(params: Optional[Tuple] = ()):
+            identity = parameter_identity(self.song, self.song.view.selected_parameter)
+            self.logger.info("Getting property for %s: selected_parameter = %s"
+                             % (self.class_identifier, str(identity)))
+            return identity
+
+        def get_mod_mapping_device(params: Optional[Tuple] = ()):
+            identity = device_identity(self.song, self.song.view.mod_mapping_device)
+            self.logger.info("Getting property for %s: mod_mapping_device = %s"
+                             % (self.class_identifier, str(identity)))
+            return identity
+
+        def get_mod_mapping_parameter(params: Optional[Tuple] = ()):
+            identity = parameter_identity(self.song, self.song.view.mod_mapping_parameter)
+            self.logger.info("Getting property for %s: mod_mapping_parameter = %s"
+                             % (self.class_identifier, str(identity)))
+            return identity
 
         def set_selected_scene(params: Optional[Tuple] = ()):
             self.song.view.selected_scene = self.song.scenes[params[0]]
@@ -184,6 +223,10 @@ class ViewHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/view/get/selected_clip", get_selected_clip)
         self.osc_server.add_handler("/live/view/get/selected_device", get_selected_device)
         self.osc_server.add_handler("/live/view/get/selected_track_identity", get_selected_track_identity)
+        self.osc_server.add_handler("/live/view/get/selected_chain", get_selected_chain)
+        self.osc_server.add_handler("/live/view/get/selected_parameter", get_selected_parameter)
+        self.osc_server.add_handler("/live/view/get/mod_mapping_device", get_mod_mapping_device)
+        self.osc_server.add_handler("/live/view/get/mod_mapping_parameter", get_mod_mapping_parameter)
         self.osc_server.add_handler("/live/view/set/selected_scene", set_selected_scene)
         self.osc_server.add_handler("/live/view/set/selected_track", set_selected_track)
         self.osc_server.add_handler("/live/view/set/selected_clip", set_selected_clip)

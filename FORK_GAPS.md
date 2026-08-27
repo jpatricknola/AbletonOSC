@@ -310,7 +310,9 @@ which is what makes rack chains silent even once devices are reachable.
 ### `Song.View` / `Application.View` — `/live/view` is a fixed set
 
 `/live/view/*` exposes selected track/scene/clip/device, `detail_clip`
-set, `show_view`, `hide_view`, `is_view_visible`. `Track.View`,
+set, `show_view`, `hide_view`, `is_view_visible`, and — since A-4 — the four
+object-valued `Song.View` reads `selected_chain`, `selected_parameter`,
+`mod_mapping_device` and `mod_mapping_parameter`. `Track.View`,
 `Clip.View`, `Device.View`, `RackDevice.View` and `Eq8Device.View` members
 are not addressable because there is no per-object view resolver.
 
@@ -358,19 +360,31 @@ exist (see curated entry). `CuePoint.name`/`time` are observable in Live;
 the fork cannot listen to a cue moving or being renamed, and the index
 shifts when one is deleted. An ID or name-keyed form is the shape fix.
 
-### Object-valued reads returned as `None`
-
-The generic getter turns any value the OSC builder cannot encode into an
-error or `None`. Members whose type is another LOM object (`Song.master_track`,
-`Track.group_track`, `ClipSlot.clip`, `Device.view`, `Clip.groove`) will
-never work through `properties_r`; each needs an index-returning handler.
-The inventory marks none of these specially — check the docstring column.
-
 ## Closed
 
-_None yet. Move entries here only in the same commit that lands the
-address, then delete them at the next tidy — the address docs are the
-permanent record._
+Move entries here only in the same commit that lands the address, then
+delete them at the next tidy — the address docs are the permanent record.
+
+### Object-valued reads returned as `None` — closed 2026-08-27
+
+Was a shape gap: the generic getter turns any value the OSC builder cannot
+encode into an error or `None`, so no member whose type is another LOM object
+could be read at all. Closed by roadmap item A-4, which gives each one a
+hand-written, index-returning handler and establishes the pattern every later
+object-family item reuses — `API.md` § "Object-valued reads" is the permanent
+record, `abletonosc/track_identity.py` the shared resolution.
+
+Members this closed: `Song.appointed_device` (get/set/listen),
+`Track.group_track`, `ClipSlot.clip`, and `Song.View`'s `selected_chain`,
+`selected_parameter`, `mod_mapping_device` and `mod_mapping_parameter`.
+`Song.master_track` was never a gap row — it is reached under `/live/master/*`.
+
+Still object-valued and still unreached, now as ordinary addressing gaps
+rather than a shape gap: `Device.view`, and `Clip.groove` (which has its own
+curated entry, and is the first consumer of this pattern). The generated
+inventory below still lists the closed members as gaps: it is regenerated only
+from a `/live/application/dump_lom` taken against a Live running the *installed*
+copy, and no dump has been taken since this landed.
 
 ## Generated inventory
 
