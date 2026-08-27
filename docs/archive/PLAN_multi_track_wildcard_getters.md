@@ -462,3 +462,36 @@ not an obligation of this change.
    probe, and the LOM docs don't state a minimum. Assumed meanwhile: the
    contract defines zero tracks → zero replies, which is safe whether or
    not the state is reachable.
+
+---
+
+## Live verification — RESULT, 2026-08-27 (post-install)
+
+Supersedes the "skipped by environment" blocks above. Live 12.4 (PID 85482),
+this checkout installed into Remote Scripts and Live restarted; Seshat stopped
+so 11001 was free. Set: 4 regular tracks, 2 return tracks, Operator on tracks
+0 and 1.
+
+- **Check 1 — repaired fan-out, ≥2 tracks: PASS.** `/live/track/get/name *`
+  answered **4 datagrams**, one per regular track, ascending:
+  `(0,'1-Operator') (1,'2-Operator') (2,'3-MIDI') (3,'4-Audio')`. All four
+  getter invocations logged at the same millisecond (13:52:09,851) — one tick,
+  as the contract states. This is the open question the whole item rested on:
+  the one-track set at plan time could not show it. **Confirmed fixed.**
+- **Check 2 — mixer path: PASS.** `/live/track/get/volume *` → 4 replies.
+- **Check 3 — single-track regression: PASS.** `/live/track/get/name 0` →
+  exactly 1 reply, `(0,'1-Operator')`.
+- **Check 4 — setter regression: PASS.** `/live/track/set/mute * 0` → zero
+  datagrams.
+- **Check 5 — error case: PASS, exactly as specified.** `/live/track/get/send * 99`
+  → zero replies and exactly one error:
+  `/live/error ('request','/live/track/get/send','wildcard fan-out failed at track 0: Index out of range',2,'*',99)`.
+  The installed traceback shows `IndexError: wildcard fan-out failed at track 0`
+  — the **exception class is preserved**, which is what plan-review's correction 1
+  required so `_is_wildcard_skip` keeps classifying correctly.
+- **Check 6 — reload picks up the wrapper: PASS.** After `/live/api/reload`,
+  `/live/track/get/name *` still answered 4. The `manager.py` ordering line does
+  its job.
+
+Open question 2 (is a zero-regular-track set reachable?) remains open and
+remains safe either way — unit-pinned, and no set can be built to test it.

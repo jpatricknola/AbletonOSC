@@ -390,3 +390,31 @@ collides with `init_state` or a class-level `class_identifier`. Live was
 running throughout planning but no probe was needed — every remaining risk is
 either statically checked above or explicitly deferred to the Live
 verification list.
+
+---
+
+## Live verification — RESULT, 2026-08-27 (post-install)
+
+Supersedes the "skipped by environment" block above. Live 12.4 (PID 85482),
+this checkout installed and Live restarted.
+
+- **Check 1 — all handlers constructed and registered: PASS.** `/live/test` →
+  `('ok',)`, and one address from each of four handler families answered:
+  `/live/song/get/tempo` → `(120.0,)`, `/live/view/get/selected_track` → `(1,)`,
+  `/live/clip_slot/get/has_clip 0 0` → `(0,0,False)`,
+  `/live/browser/get/items` → `('instruments','Operator','ok',1,...)`.
+- **Check 2 — listener lifecycle: PASS.** `/live/song/start_listen/tempo` →
+  immediate push `(120.0,)`; `set/tempo 124.0` → push `(124.0,)`;
+  after `stop_listen/tempo`, `set/tempo 120.0` → **no push**.
+- **Check 3 — reload survives the new ordering: PASS.** After `/live/api/reload`
+  the installed log reads
+  `[INFO] Getting property for clip_slot: has_clip = False` and
+  `[INFO] clip_slot 0 0 -> (False,)` — **`clip_slot`, not `None`**. This is the
+  precise failure the reload-ordering move (Part 3) exists to prevent: a handler
+  constructed on a stale base would log `None` and push to `/live/None/get/...`.
+  Every handler family still answered after the reload.
+- **Check 4 — startup notification: NOT CAPTURED.** `/live/startup` fires at Live
+  start, before any probe socket existed; it cannot be captured retroactively.
+  Everything it would have proven (all handlers constructed, in order) is
+  established by checks 1 and 3. Re-run by binding 11001 *before* launching Live
+  if a direct observation is wanted.

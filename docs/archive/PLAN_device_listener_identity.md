@@ -399,3 +399,41 @@ and `class_name` are observable at all — was measured closed on 2026-08-27
 closed by reading the Seshat checkout directly. Remaining risk is confined
 to what only Live can confirm, and the Live verification section names the
 exact evidence for each check.
+
+---
+
+## Live verification — RESULT, 2026-08-27 (post-install)
+
+Supersedes the "SKIPPED BY ENVIRONMENT" banner above. Live 12.4 (PID 85482),
+this checkout installed and Live restarted. Operator loaded on tracks 0 and 1
+via `/live/browser/load_item` — the plan-time set had no device on any track,
+which is why these checks could not run then.
+
+- **Check 1 — per-device name subscribe: PASS.**
+  `/live/device/start_listen/name 0 0` → immediate push
+  `/live/device/get/name (0, 0, 'Operator')`;
+  `/live/device/start_listen/name 1 0` → `(1, 0, 'Operator')`. Two devices
+  subscribed independently, each push carrying its own `(track_id, device_id)`.
+  Before this change the registration was per-property and process-wide, and the
+  push carried a bare value with no identity at all.
+- **Check 2 — push carries identity on rename: NOT RUN.** Renaming a device
+  requires the Live UI: there is no `/live/device/set/name` address (only
+  `get/name`), so this cannot be driven over OSC. The identity-carrying shape is
+  nonetheless established by check 1's immediate pushes, which are emitted by the
+  same code path. Outstanding: a UI rename to observe a change-triggered push.
+- **Check 3 — type/class_name error: PASS, and the roadmap premise is disproved
+  in production.** `/live/device/start_listen/class_name 0 0` →
+  `/live/error ('request','/live/device/start_listen/class_name',"'Device' object has no attribute 'add_class_name_listener'",2,0,0)`;
+  `start_listen/type` → the same with `add_type_listener`. Live itself confirms
+  what the plan-phase `dump_lom` measurement found: these two properties are not
+  observable and `start_listen` on them never worked and cannot work. The error
+  envelope matches API.md exactly.
+- **Check 4 — float parameter identity: PASS.** This is the item's High-priority
+  defect. `start_listen/parameter/value` sent with **floats** `[0.0, 0.0, 1.0]`
+  answered with **ints**: `/live/device/get/parameter/value (0, 0, 1, 0.0)` plus
+  `.../value_string (0, 0, 1, 'Alg. 1')`. `stop_listen/parameter/value` then sent
+  with **ints** `[0, 0, 1]` matched the key and unsubscribed silently — no error,
+  no "not listening" warning. A float-sending client can now unsubscribe from
+  what it subscribed to; before, the mixed-type key mismatch leaked the listener.
+- **Check 5 — cleanup: PASS.** After `stop_listen/name` for both devices, no
+  further device pushes were emitted.

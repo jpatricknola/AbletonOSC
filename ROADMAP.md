@@ -119,7 +119,43 @@ review (`docs/archive/PLAN_device_listener_identity.md`, review of
   only".
 - No dependencies.
 
-## #3 · A-4 · Object-valued read helpers
+## #3 · One `/live/song/undo` does not revert an OSC-created scene
+
+**Goal:** establish how many undo steps an OSC-driven mutation actually
+registers in Live, document the real contract for `/live/song/undo` and
+`/live/song/redo` in API.md, and either fix the cause or pin the measured
+behaviour in `tests/test_song.py::test_song_undo_redo` — which is currently
+left failing on purpose rather than adjusted to match.
+
+**Why:** measured against Live 12.4 on 2026-08-27, the first time the live
+suite had ever run: baseline 8 scenes -> `/live/song/create_scene` -> 9 ->
+`/live/song/undo` -> **still 9** -> a second `undo` -> 8. No error is emitted
+either way, so a client that undoes once believes it has reverted and has not.
+Every consumer driving Live through this bridge and relying on undo to unwind
+its own writes is exposed, and the fork's `begin/end_undo_step` addresses make
+that a documented usage pattern rather than a hypothetical one.
+
+**Planner notes:**
+- Not a regression from any shipped item. The pre-change test at `ea6b719`
+  carries the identical one-undo assumption (hard-coded `8`/`9` instead of a
+  discovered baseline), and nothing in the five items shipped above touches
+  undo. The suite simply never ran before, so the assumption was never tested.
+- Source: the live-verification run recorded in
+  `docs/archive/PLAN_test_suite_regression_gate.md` (2026-08-27).
+- First thing to establish: what the extra undo step *is*. Candidates worth
+  ruling out in order — the selection change that accompanies scene creation,
+  Live coalescing two steps for a single API call, and this fork's own
+  `begin_undo_step`/`end_undo_step` wrapping leaving an extra entry on the
+  stack. The answer decides whether this is a Live fact to document or a fork
+  defect to fix, and those lead to opposite outcomes for the test.
+- Reproduce with the probe pattern in API.md's measurement section; a scene is
+  the cheapest mutation, but confirm against a second kind (a track, a clip
+  property) before concluding it is general.
+- If it proves to be a Live fact, the fix is an API.md contract paragraph plus
+  a test that asserts the measured step count with the reason written down --
+  not a silent bump from one `undo` to two.
+
+## #4 · A-4 · Object-valued read helpers
 
 **Goal:** index-returning handlers for `Song.master_track`,
 `Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`,
@@ -135,7 +171,7 @@ Unblocks the groove bucket.
   "Object-valued reads returned as `None`".
 - No dependencies.
 
-## #4 · B-2 · DeviceParameter rich reply
+## #5 · B-2 · DeviceParameter rich reply
 
 **Goal:** one richer `parameters` reply plus per-parameter addresses —
 `value_items`, `short_value_items`, `display_value` (get/set), `str_for_value`,
@@ -153,7 +189,7 @@ gap PR — it proves the batching conventions the rest reuse: handlers +
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #5 · C-3 · Application dialogs and versions
+## #6 · C-3 · Application dialogs and versions
 
 **Goal:** read-only dialog state (`open_dialog_count`,
 `current_dialog_message`, `current_dialog_button_count`, listen where
@@ -174,7 +210,7 @@ dialog may guard unsaved work.
   requested. Same file, same PR; remove that entry at ship time too.
 - No dependencies.
 
-## #6 · B-1 · Notes extended
+## #7 · B-1 · Notes extended
 
 **Goal:** `/live/clip/get/notes_extended` and `/live/clip/add/notes_extended`
 carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`,
@@ -192,7 +228,7 @@ old five-field addresses unchanged; then the ID-keyed members
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #7 · Make live code reload ordered and failure-safe
+## #8 · Make live code reload ordered and failure-safe
 
 **Goal:** `/live/api/reload` produces a coherent module graph whose handlers
 share the current base classes, and a failed reload preserves a usable previous
@@ -200,14 +236,14 @@ API or fails in a clearly reported, recoverable state.
 
 **Why:** `Manager.reload_imports` reloads concrete handler modules before their
 `handler` base and activates the result even after an exception. Every gap PR
-uses reload during development; move this up if it bites during #3–#6.
+uses reload during development; move this up if it bites during #4–#7.
 
 **Planner notes:**
 - Source: `issues.md`, "Make live code reload ordered and failure-safe"
   (Medium-high).
 - No dependencies.
 
-## #8 · Stop masking Remote Script import failures
+## #9 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -226,7 +262,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #9 · Remove the process-global and shared-file risks from song structure export
+## #10 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -242,7 +278,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #10 · Add bounded log retention
+## #11 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -259,7 +295,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #11 · A-3 · Return / master `Track` parity
+## #12 · A-3 · Return / master `Track` parity
 
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
@@ -274,7 +310,7 @@ return/master feature downstream trips over the difference.
 - Prefer a shared track resolver over three copies of the handler table.
 - No dependencies.
 
-## #12 · C-1 · `Song` remainder
+## #13 · C-1 · `Song` remainder
 
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
@@ -286,7 +322,7 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
 - Source: `CLOSING_THE_GAPS.md`, row **C-1**.
 - No dependencies.
 
-## #13 · D-2 · Groove
+## #14 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -298,7 +334,7 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **D-2**.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
-- Depends on #3 (object-read pattern).
+- Depends on #4 (object-read pattern).
 
 ---
 

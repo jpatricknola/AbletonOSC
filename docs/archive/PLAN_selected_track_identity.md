@@ -492,3 +492,44 @@ UDP was sent and the installed `logs/abletonosc.log` was not appended to by
 this review. Checks 1–7 remain the gate they were written to be, and must
 run against an installed, restarted copy of this branch before the
 behaviour is claimed anywhere as measured.
+
+---
+
+## Live verification — RESULT, 2026-08-27 (post-install)
+
+Supersedes the "skipped by environment" block above. Live 12.4 (PID 85482),
+this checkout installed and Live restarted. Set: 4 regular tracks, 2 return
+tracks, Operator on tracks 0 and 1. **Both ⚠️ assumptions carried through the
+entire run are now closed by measurement.**
+
+- **Check 1 — baseline + install probe: PASS.**
+  `/live/view/get/selected_track_identity` → `('track', 0)`. The address exists
+  only in this stack, so this alone confirms the installed copy is this code.
+- **Check 2 — return selection agrees everywhere: PASS. (⚠️ assumption 1 closed.)**
+  After `/live/return_track/select 0`: identity → `('return_track', 0)`;
+  `get/selected_track` → `(-1,)`; `get/selected_clip` → `(-1, 0)`;
+  `get/selected_device` → `(-1, -1)`. **LOM `==` readback works for return
+  tracks** — the equality the resolver depends on, previously unmeasured.
+  All three legacy getters answered `-1` instead of producing `/live/error`.
+- **Check 3 — master selection agrees everywhere: PASS. (⚠️ assumption 1 closed
+  for master too.)** After `/live/master/select`: identity → `('master', 0)`,
+  `get/selected_track` → `(-1,)`.
+- **Check 4 — identity listener pushes across categories: PASS. (⚠️ assumption 2
+  closed.)** With `start_listen/selected_track_identity` active, every category
+  move pushed the correct pair: select track 2 → `('track', 2)`; select return 0
+  → `('return_track', 0)`; select master → `('master', 0)`; select track 0 →
+  `('track', 0)`. **The `selected_track` notifier does fire across category
+  boundaries** — the second unmeasured assumption.
+- **Check 5 — legacy listener no longer dies: PASS.** This is the item's core
+  defect. With `start_listen/selected_track` active, selecting return 0 pushed
+  `(-1,)`, master pushed `(-1,)`, and regular track 1 pushed `(1,)` — **zero
+  errors, and the subscription survived all three moves**. Before this change the
+  getter's `ValueError` was raised inside Live's listener context, outside
+  `_dispatch`'s catch, killing the push permanently.
+- **Check 6 — device none-selected sentinel: PASS.** On track 2 (verified
+  `num_devices = 0`): `get/selected_device` → `(2, -1)`. On track 1, which has a
+  selected Operator, it answered `(1, 0)` — both arms of the contract observed.
+- **Check 7 — restore: PASS.** Re-selecting via `/live/view/set/selected_track 0`
+  returned identity to `('track', 0)`.
+
+Open question 3 was decided in code, not by probe, and is unaffected.
