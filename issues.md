@@ -15,29 +15,6 @@ upstream must also be reflected in [SESHAT.md](SESHAT.md).
 
 ## Bugs — existing addresses misbehave
 
-### Define selected-track identity across regular, return, and master tracks
-
-
-**Priority:** High — valid fork operations can break the view query contract
-
-The fork adds endpoints that select return tracks and the master track, but
-`/live/view/get/selected_track` determines the selected index only within
-`song.tracks`. After a valid `/live/return_track/select` or
-`/live/master/select`, the generic view getter can fail because the selected
-object is not a regular track. `/live/view/get/selected_device` inherits the
-same regular-track assumption.
-
-The public contract needs an unambiguous representation for regular, return,
-and master track identities that can be used consistently by selection, view,
-device, and state-mirroring operations. Backward compatibility with consumers
-expecting a single regular-track index must be assessed. The view setters and
-getters must also agree on whether setters are silent: currently
-`/live/view/set/selected_device` returns a tuple despite being documented as a
-silent setter.
-
-**Affected area:** `abletonosc/view.py`, `abletonosc/return_track.py`, Seshat
-session state, view and selection documentation/tests.
-
 ### Remove the unsolicited average-process-usage startup datagram
 
 

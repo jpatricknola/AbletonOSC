@@ -429,3 +429,36 @@ points at a Declined entry that no longer exists.
    repos/jpatricknola/AbletonOSC/actions/permissions` returns
    `{"enabled": true, "allowed_actions": "all"}`, so the workflow will run
    on the first push/PR with no settings change.
+
+---
+
+## Live verification — RESULT, 2026-08-27 (post-install)
+
+Checks 1 and 2 passed at implementation time. Checks 3 and 4 were deferred until
+Seshat could release 11001; they have now run. Live 12.4 (PID 85482), this
+checkout installed and Live restarted, Seshat stopped. Set: 4 regular tracks,
+2 return tracks, Operator on tracks 0 and 1.
+
+- **Check 3 — the full opt-in run: PASS.**
+  `ABLETONOSC_LIVE_TESTS=1 python3 -m pytest tests/` → **53 passed, 0 skipped**
+  in 41.5s (with `test_song_undo_redo` deselected, see below). The first run
+  this suite has ever had. The discovery fixtures found the set's real shape
+  rather than assuming the blank template, and every test restored what it
+  changed — the set was still usable and correctly shaped afterwards.
+  A first pass with only one return track produced the single expected skip
+  (`set has fewer than 2 return tracks`); adding a second cleared it, which is
+  the discovery-and-skip behaviour working as designed.
+- **Check 4 — audio-recording skip honesty: PASS.** The three audio-clip tests
+  ran and passed rather than skipping, so the verified-or-skip fixture correctly
+  detected a usable recording path instead of assuming one.
+
+**Defect found on the first real run — `test_song_undo_redo` fails.** One
+`/live/song/undo` does not revert an OSC-created scene; two do, and neither
+emits an error. Measured directly: baseline 8 scenes → `create_scene` → 9 →
+`undo` → **still 9** → `undo` → 8. This is **not a regression from this stack**:
+the pre-change test at `ea6b719` carries the identical one-undo assumption
+(hard-coded `8`/`9` rather than a discovered baseline), and no item in this
+stack touches undo. The suite simply never ran before, so the untrue assumption
+was never observed. Tracked as its own ROADMAP entry; the test is deliberately
+left failing rather than adjusted to match, since the extra undo step has not
+been root-caused.

@@ -12,9 +12,9 @@ class AbletonOSCHandler(Component):
 
       1. ``Component.__init__`` runs.
       2. The base invariants exist: ``logger``, ``manager``, ``osc_server``,
-         ``listener_functions``, ``listener_objects``. ``class_identifier``
-         is a *class* attribute, so it is already set before the instance
-         exists at all.
+         ``listener_functions``, ``listener_objects``,
+         ``listener_lom_properties``. ``class_identifier`` is a *class*
+         attribute, so it is already set before the instance exists at all.
       3. ``init_state()`` runs — the one documented place for subclass-owned
          instance state.
       4. ``init_api()`` runs — route registration, which may therefore rely
@@ -50,6 +50,7 @@ class AbletonOSCHandler(Component):
         self.osc_server: OSCServer = self.manager.osc_server
         self.listener_functions = {}
         self.listener_objects = {}
+        self.listener_lom_properties = {}
         self.init_state()
         self.init_api()
 
@@ -100,7 +101,8 @@ class AbletonOSCHandler(Component):
         self.logger.info("Getting property for %s: %s = %s" % (self.class_identifier, prop, value))
         return (value, *params)
 
-    def _start_listen(self, target, prop, params: Optional[Tuple] = (), getter = None) -> None:
+    def _start_listen(self, target, prop, params: Optional[Tuple] = (), getter = None,
+                      lom_property: Optional[str] = None) -> None:
         """
         Start listening for the property named `prop` on the Live object `target`.
         `params` is typically a tuple containing the track/clip index.
@@ -109,10 +111,20 @@ class AbletonOSCHandler(Component):
         e.g. in view.py we don't return the selected_scene, but the selected_scene index.
 
         Args:
-            target: 
-            prop:
+            target:
+            prop: the *public* name — the bookkeeping key and the second half
+                  of the "/live/<class_identifier>/get/<prop>" push address.
             params:
             getter:
+            lom_property: the name of the LOM property to actually subscribe
+                  to, when it differs from `prop`. Seshat extension: it lets
+                  two OSC addresses observe one observable property and push
+                  different values under their own names —
+                  `start_listen/selected_track` and
+                  `start_listen/selected_track_identity` both subscribe to
+                  `Song.View.selected_track`. `None` (every upstream call
+                  site) means "same as `prop`", which is upstream behaviour
+                  exactly.
         """
         def property_changed_callback():
             if getter is None:
@@ -125,16 +137,31 @@ class AbletonOSCHandler(Component):
             osc_address = "/live/%s/get/%s" % (self.class_identifier, prop)
             self.osc_server.send(osc_address, (*params, *value,))
 
+        lom_prop = lom_property or prop
         listener_key = (prop, tuple(params))
         if listener_key in self.listener_functions:
             self._stop_listen(target, prop, params)
 
-        self.logger.info("Adding listener for %s %s, property: %s" % (self.class_identifier, str(params), prop))
-        add_listener_function_name = "add_%s_listener" % prop
+        #--------------------------------------------------------------------------------
+        # The alias is named in the log only when there is one, so the
+        # unaliased line — every upstream call site — stays byte for byte what
+        # it has always been.
+        #--------------------------------------------------------------------------------
+        if lom_prop == prop:
+            self.logger.info("Adding listener for %s %s, property: %s" % (self.class_identifier, str(params), prop))
+        else:
+            self.logger.info("Adding listener for %s %s, property: %s (LOM property: %s)" % (self.class_identifier, str(params), prop, lom_prop))
+        add_listener_function_name = "add_%s_listener" % lom_prop
         add_listener_function = getattr(target, add_listener_function_name)
         add_listener_function(property_changed_callback)
         self.listener_functions[listener_key] = property_changed_callback
         self.listener_objects[listener_key] = target
+        #--------------------------------------------------------------------------------
+        # The LOM name has to be *stored*, not just passed: _clear_listeners
+        # reconstructs (prop, params) from the key alone and has no way to know
+        # an alias was ever used, so _stop_listen must be able to recover it.
+        #--------------------------------------------------------------------------------
+        self.listener_lom_properties[listener_key] = lom_prop
         #--------------------------------------------------------------------------------
         # Immediately send the current value
         #--------------------------------------------------------------------------------
@@ -155,7 +182,16 @@ class AbletonOSCHandler(Component):
             #--------------------------------------------------------------------------------
             target = self.listener_objects.get(listener_key, target)
             listener_function = self.listener_functions[listener_key]
-            remove_listener_function_name = "remove_%s_listener" % prop
+            #--------------------------------------------------------------------------------
+            # Unbind from the LOM property the listener was actually registered
+            # on, which is `prop` itself for every caller that did not alias.
+            # The .get fallback keeps unaliased and stale-key paths behaving
+            # exactly as they did before aliasing existed — including
+            # device.py's hand-rolled parameter listener, which writes the two
+            # other dicts itself and unbinds through here under "value".
+            #--------------------------------------------------------------------------------
+            lom_prop = self.listener_lom_properties.get(listener_key, prop)
+            remove_listener_function_name = "remove_%s_listener" % lom_prop
             remove_listener_function = getattr(target, remove_listener_function_name)
             try:
                 remove_listener_function(listener_function)
@@ -169,6 +205,7 @@ class AbletonOSCHandler(Component):
 
             del self.listener_functions[listener_key]
             del self.listener_objects[listener_key]
+            self.listener_lom_properties.pop(listener_key, None)
         else:
             self.logger.warning("No listener function found for property: %s (%s)" % (prop, str(params)))
 

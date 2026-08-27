@@ -70,27 +70,7 @@ subclass case.
   case instead of describing it as uncovered.
 - No dependencies.
 
-## #2 · Define selected-track identity across regular, return, and master tracks
-
-**Goal:** one unambiguous representation of a selected regular, return or master
-track that selection, view, device and state-mirroring addresses all agree on;
-view setters and getters agree on whether setters are silent.
-
-**Why:** the fork's own `/live/return_track/select` and `/live/master/select`
-break `/live/view/get/selected_track`, which only knows `song.tracks`. The
-representation chosen here is a prerequisite for the return/master parity and
-object-read buckets, so it must be decided before they are built.
-
-**Planner notes:**
-- Source: `issues.md`, "Define selected-track identity across regular, return,
-  and master tracks" (High).
-- `/live/view/set/selected_device` currently replies despite being documented
-  silent — settle it here.
-- Assess consumers expecting a single regular-track index (Seshat's
-  `Session.State`).
-- No dependencies; #4 and the A-3 bucket depend on it.
-
-## #3 · Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and the device.py property pair
+## #2 · Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and the device.py property pair
 
 **Goal:** every `_start_listen`/`_stop_listen` call site builds its identity
 tuple the same way `abletonosc/device.py`'s parameter-listener pair now does
@@ -139,6 +119,42 @@ review (`docs/archive/PLAN_device_listener_identity.md`, review of
   only".
 - No dependencies.
 
+## #3 · One `/live/song/undo` does not revert an OSC-created scene
+
+**Goal:** establish how many undo steps an OSC-driven mutation actually
+registers in Live, document the real contract for `/live/song/undo` and
+`/live/song/redo` in API.md, and either fix the cause or pin the measured
+behaviour in `tests/test_song.py::test_song_undo_redo` — which is currently
+left failing on purpose rather than adjusted to match.
+
+**Why:** measured against Live 12.4 on 2026-08-27, the first time the live
+suite had ever run: baseline 8 scenes -> `/live/song/create_scene` -> 9 ->
+`/live/song/undo` -> **still 9** -> a second `undo` -> 8. No error is emitted
+either way, so a client that undoes once believes it has reverted and has not.
+Every consumer driving Live through this bridge and relying on undo to unwind
+its own writes is exposed, and the fork's `begin/end_undo_step` addresses make
+that a documented usage pattern rather than a hypothetical one.
+
+**Planner notes:**
+- Not a regression from any shipped item. The pre-change test at `ea6b719`
+  carries the identical one-undo assumption (hard-coded `8`/`9` instead of a
+  discovered baseline), and nothing in the five items shipped above touches
+  undo. The suite simply never ran before, so the assumption was never tested.
+- Source: the live-verification run recorded in
+  `docs/archive/PLAN_test_suite_regression_gate.md` (2026-08-27).
+- First thing to establish: what the extra undo step *is*. Candidates worth
+  ruling out in order — the selection change that accompanies scene creation,
+  Live coalescing two steps for a single API call, and this fork's own
+  `begin_undo_step`/`end_undo_step` wrapping leaving an extra entry on the
+  stack. The answer decides whether this is a Live fact to document or a fork
+  defect to fix, and those lead to opposite outcomes for the test.
+- Reproduce with the probe pattern in API.md's measurement section; a scene is
+  the cheapest mutation, but confirm against a second kind (a track, a clip
+  property) before concluding it is general.
+- If it proves to be a Live fact, the fix is an API.md contract paragraph plus
+  a test that asserts the measured step count with the reason written down --
+  not a silent bump from one `undo` to two.
+
 ## #4 · A-4 · Object-valued read helpers
 
 **Goal:** index-returning handlers for `Song.master_track`,
@@ -153,7 +169,7 @@ Unblocks the groove bucket.
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **A-4**; closes FORK_GAPS
   "Object-valued reads returned as `None`".
-- Depends on #2 for the track-identity representation.
+- No dependencies.
 
 ## #5 · B-2 · DeviceParameter rich reply
 
@@ -292,7 +308,7 @@ return/master feature downstream trips over the difference.
 - Source: `CLOSING_THE_GAPS.md`, row **A-3**; closes the FORK_GAPS Track
   addressing gap and the `MixerDevice` gap on returns/master.
 - Prefer a shared track resolver over three copies of the handler table.
-- Depends on #2.
+- No dependencies.
 
 ## #13 · C-1 · `Song` remainder
 

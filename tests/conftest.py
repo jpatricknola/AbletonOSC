@@ -171,18 +171,39 @@ def restored_send(client, track_id, send_id):
         wait_one_tick()
 
 
+#--------------------------------------------------------------------------------
+# `/live/view/get/selected_track` answers -1 when a return track or the master
+# is selected (see API.md "Selected-track identity"), and that -1 is not a
+# legal argument to `/live/view/set/selected_track`: Python resolves a
+# negative index from the end of the list, so feeding -1 back would silently
+# reselect the *last regular track* instead of restoring the return/master
+# selection it came from. Snapshot and restore through
+# `/live/view/get/selected_track_identity` instead, which names the category
+# the selection actually belongs to, and restore via that category's own
+# select address.
+#--------------------------------------------------------------------------------
+_SELECT_ADDRESS_BY_CATEGORY = {
+    "track": "/live/view/set/selected_track",
+    "return_track": "/live/return_track/select",
+    "master": "/live/master/select",
+}
+
+
 @contextlib.contextmanager
 def restored_view_selection(client):
     """
-    Snapshot and restore the session view's selected track and scene.
-    selected_clip is not restored: it isn't queried or reset here at all.
+    Snapshot and restore the session view's selected track (in whichever of
+    the three categories it belongs to) and scene. selected_clip is not
+    restored: it isn't queried or reset here at all.
     """
     scene = client.query("/live/view/get/selected_scene")[0]
-    track = client.query("/live/view/get/selected_track")[0]
+    category, index = client.query("/live/view/get/selected_track_identity")
     try:
-        yield (track, scene)
+        yield (category, index, scene)
     finally:
-        client.send_message("/live/view/set/selected_track", (track,))
+        address = _SELECT_ADDRESS_BY_CATEGORY[category]
+        args = () if category == "master" else (index,)
+        client.send_message(address, args)
         client.send_message("/live/view/set/selected_scene", (scene,))
         wait_one_tick()
 

@@ -183,6 +183,12 @@ class Manager(ControlSurface):
             #--------------------------------------------------------------------------------
             importlib.reload(abletonosc.track_callback)
             importlib.reload(abletonosc.track)
+            #--------------------------------------------------------------------------------
+            # track_identity before view, for the same reason: view.py does a
+            # `from` import of the selection resolvers, so reloading it
+            # afterwards rebinds the new functions.
+            #--------------------------------------------------------------------------------
+            importlib.reload(abletonosc.track_identity)
             importlib.reload(abletonosc.view)
             importlib.reload(abletonosc.browser)
             importlib.reload(abletonosc.return_track)

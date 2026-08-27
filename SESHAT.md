@@ -51,8 +51,10 @@ ongoing cost — merging upstream releases — is close to zero.
   `BrowserHandler` already carried a `hasattr` workaround comment for it.
 
   The constructor is now ordered `Component.__init__` → `logger` / `manager` /
-  `osc_server` → `listener_functions` / `listener_objects` → `init_state()` →
-  `init_api()`, and the lifecycle is declarative rather than positional:
+  `osc_server` → `listener_functions` / `listener_objects` /
+  `listener_lom_properties` → `init_state()` → `init_api()`, and the lifecycle
+  is declarative rather than positional (`listener_lom_properties` is the
+  fork's third listener dict — see the aliasing bullet below):
 
   - **`class_identifier` is a class attribute.** Base declares
     `Optional[str] = None`; each subclass declares its own in the class
@@ -95,6 +97,31 @@ ongoing cost — merging upstream releases — is close to zero.
   as "likely benign", and the dict entry is dropped anyway — leaving A's
   listener alive forever, still pushing under index 0. `_start_listen` already
   records the true object in `listener_objects`; `_stop_listen` now reads it.
+
+- **`handler.py` — `_start_listen` can subscribe to one LOM property and push
+  under another name.** Upstream derives three things from the single `prop`
+  argument: the bookkeeping key `(prop, params)`, the push address
+  `/live/<class_identifier>/get/<prop>`, and the `add_%s_listener` /
+  `remove_%s_listener` accessor names. That forces one OSC listener address per
+  observable property, which `Song.View` breaks: it has exactly one observable
+  selection property, `selected_track`, and this fork needs two OSC listeners
+  over it — `start_listen/selected_track` pushing a regular-track index (or
+  `-1`), and `start_listen/selected_track_identity` pushing the
+  `(category, index)` pair (see the `view.py` additions below).
+
+  `_start_listen` therefore takes an optional `lom_property`, which splits the
+  accessor name off from the key and the address; `None` — every upstream call
+  site, and every other one in this fork — means "same as `prop`" and is
+  behaviour-identical to upstream. The mapping is *stored*, in a third dict
+  `listener_lom_properties`, rather than merely passed: `_clear_listeners`
+  reconstructs `(prop, params)` from the key alone and has no way to know an
+  alias was ever used, so `_stop_listen` has to recover the LOM name itself or
+  `/live/api/reload` would leave the identity listener bound forever, still
+  pushing after the handler that owns it is gone. `_stop_listen` reads it with
+  a `.get(listener_key, prop)` fallback, so an unaliased or stale key behaves
+  exactly as it did before aliasing existed.
+  `tests_unit/test_listener_alias.py` covers all of it against the real base
+  class.
 
 - **`track.py` — a wildcard track getter answers for every track.**
   Upstream's `create_track_callback` accepts `"*"` in the track-index slot and
@@ -428,10 +455,11 @@ so treat any merge that reverts one as a regression, not a preference.
   silently goes back to reverting whole conversations.
 
 - **`view.py` — `/live/view/show_view`, `/live/view/hide_view`,
-  `/live/view/get/is_view_visible` and `/live/view/set/detail_clip`.** The
-  first Seshat addresses to live in an upstream file rather than in a handler of
-  our own: they belong to the View API by every other measure, and splitting them
-  into a fourth module would put two `ViewHandler`s in `manager.py`. Upstream can
+  `/live/view/get/is_view_visible`, `/live/view/set/detail_clip` and the
+  selected-track identity trio.** The first Seshat addresses to live in an
+  upstream file rather than in a handler of our own: they belong to the View
+  API by every other measure, and splitting them into a fourth module would
+  put two `ViewHandler`s in `manager.py`. Upstream can
   *select* a track, scene, clip or device but cannot bring the pane those live in
   into view, put a pane away, or report which panes are open —
   `Application.View.show_view`, `.hide_view`, `.is_view_visible` and
@@ -456,6 +484,60 @@ so treat any merge that reverts one as a regression, not a preference.
   `Detail/Clip` or `Detail/DeviceChain` flips the detail panel to its other tab
   rather than closing it. Seshat's `hide_view` tool therefore offers a narrower
   enum than this file accepts.
+
+  **The identity trio — `/live/view/get/selected_track_identity` and its
+  `start_listen` / `stop_listen` pair — plus a behavioural change to three
+  upstream getters in the same file.** `song.view.selected_track` accepts a
+  regular track, a return track or the master, and this fork can put any of the
+  three there (`/live/view/set/selected_track`, `/live/return_track/select`,
+  `/live/master/select`). Upstream's getters resolve it through `song.tracks`
+  alone — `list(self.song.tracks).index(...)` — so the fork could *put*
+  selection on a return or the master but not *report* it: `get/selected_track`,
+  `get/selected_clip` and `get/selected_device` all raised `ValueError` instead
+  of replying, and `start_listen/selected_track`'s push raised **inside Live's
+  listener callback**, which is outside `OSCServer._dispatch`'s per-message
+  catch, so no push and no `/live/error` went out at all — just a traceback in
+  `Log.txt`. `get/selected_device` raised the same way whenever a regular track
+  was selected but no top-level device was.
+
+  The identity getter answers `(category, index)`, where `category` is the
+  address-family prefix that reaches that track (`"track"`, `"return_track"`,
+  `"master"`; the master is always index 0). The three legacy getters keep their
+  shapes and answer `-1` outside their index space — `-1`, `(-1, scene)`,
+  `(-1, -1)`, and `(i, -1)` for a regular track with no top-level device (none
+  selected, or one nested inside a rack chain). Full contract in `API.md`
+  § Selected-track identity. This is a **behavioural divergence inside an
+  upstream file**: upstream raises where the fork now answers, so a merge that
+  takes upstream's three getter closures reverts it silently — every address
+  still exists, and a client only sees errors return the moment a return or the
+  master is selected.
+
+  Two structural consequences:
+
+  - **New module `abletonosc/track_identity.py`** holds the whole resolution
+    (`identify_track`, `selected_track_identity`, `selected_track_index`,
+    `selected_device_indices`), importing nothing Live-side, on the
+    `track_callback.py` model: `view.py` imports `Live` at module scope, so
+    logic left as a closure inside `ViewHandler.init_api` could never be reached
+    by `tests_unit/`. `tests_unit/test_track_identity.py` drives the shipped
+    module directly. It is also deliberately the module roadmap item A-3
+    (return/master `Track` parity) grows its inverse resolver in.
+  - **`manager.py` reloads `abletonosc.track_identity` before
+    `abletonosc.view`**, for the same reason it reloads `track_callback` before
+    `track`: `view.py` does a `from` import of the resolvers, so reloading it
+    afterwards is what rebinds them.
+
+  The listen pair observes the same single LOM property as the legacy
+  `selected_track` listener and pushes under its own name, via the base class's
+  `lom_property` alias (see the `handler.py` aliasing bullet above). The two
+  coexist: distinct bookkeeping keys, one LOM property, two callbacks, and
+  stopping one does not touch the other.
+
+  `/live/view/set/selected_device`'s reply — the one view setter that echoes —
+  is **kept, deliberately, settled 2026-08-27**. It is upstream's own behaviour;
+  silencing it would be a permanent behavioural divergence in an upstream file
+  with breakage risk for non-Seshat clients, to remove one datagram. Seshat's
+  `FollowCam` ignores it.
 
 - **`osc_server.py` + `manager.py` — `/live/error` carries the request that
   failed.** Upstream catches a raising callback nowhere near the callback: the
@@ -839,11 +921,18 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   every `/live/track/get/<prop> *` silently goes back to answering for track 0
   only — one plausible-looking reply, no error, nothing in a log to notice.
   Losing `track_callback.py` itself fails loudly (the import breaks), but
-  losing the *delegation* does not. `reload_imports` is a list upstream also
-  edits, and dropping its `abletonosc.track_callback` line is invisible until
-  someone edits the wrapper and `/live/api/reload` appears not to take.
-  `tests_unit/test_track_callback.py` fails on the first of these — run it on
-  every merge.
+  losing the *delegation* does not. `tests_unit/test_track_callback.py` fails
+  on that hazard — run it on every merge.
+
+  `reload_imports` is a separate hazard on the same list, and no Live-free
+  test catches it: nothing outside Live calls `reload_imports`, so it is
+  covered only by this file and the in-code comments. The list is one
+  upstream also edits, and dropping its `abletonosc.track_callback` line is
+  invisible until someone edits the wrapper and `/live/api/reload` appears
+  not to take. The same list carries a second fork-owned line,
+  `abletonosc.track_identity`, which must stay *before* `abletonosc.view`
+  because view.py `from`-imports the selection resolvers — same silent
+  failure mode, and the same missing test coverage.
 
 - **Anything touching `song.py`'s generic methods list or `properties_rw`.**
   Three entries there are ours — `begin_undo_step`, `end_undo_step` and
@@ -895,10 +984,19 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   go back to assuming a blank default set and stranding state on failure. See
   the deliberate-changes section above.
 
-- **Anything touching `_stop_listen`, `_start_listen`, or `listener_objects`.**
-  The wrong-object unbind fix above is small and easy to lose in a merge. Its
+- **Anything touching `_stop_listen`, `_start_listen`, `listener_objects` or
+  `listener_lom_properties`.** Two fork changes live in these few lines. The
+  wrong-object unbind fix above is small and easy to lose in a merge, and its
   symptom is invisible — every address still answers, and the mirror just
-  quietly reports one track's name under another's index.
+  quietly reports one track's name under another's index. The `lom_property`
+  alias and its `listener_lom_properties` dict are equally small: a merge that
+  takes upstream's `_start_listen` signature breaks
+  `/live/view/start_listen/selected_track_identity` loudly (it goes looking for
+  `add_selected_track_identity_listener`, which `Song.View` does not have), but
+  a merge that keeps the parameter and drops only the *stored* mapping fails
+  silently on the reload path instead, leaving identity listeners bound after
+  `/live/api/reload`. `tests_unit/test_listener_alias.py` is the tripwire for
+  both halves — run `python3 -m pytest tests_unit/` on every merge.
 
 ## Contributing back
 
