@@ -1348,6 +1348,34 @@ reads the clip extent, not the brace Live will restore when looping goes back on
 (that brace survives independently — measured by toggling looping off and on
 around a 2.0–6.0 brace, which came back as 2.0–6.0).
 
+### Note windows match by start, and a read can be re-sent — after two conversions
+
+Measured 2026-08-27, Live 12.4.3, on a fresh MIDI clip holding four notes with
+off-grid values (starts 0.0 / 1.6667 / 0.25 / 2.125, durations 0.3333 / 1.75 /
+0.5 / 0.125, velocities 100 / 37 / 100 / 127).
+
+- **The time window of `/live/clip/remove/notes` (and, per the LOM,
+  `get/notes`) selects notes that *start* inside it.** Removing
+  `[60, 1, 2.0, 1.0]` — pitch 60, beats 2–3 — left the pitch-60 note starting
+  at 1.6667 untouched even though it sounds until 3.4167. A tool that promises
+  "notes in this range" must say "notes that begin in this range".
+- **Read → remove window → re-add is lossless in the five wire fields.** The
+  values `get/notes` returned (`0.33330002427101135`, `1.666700005531311` —
+  float32 already) came back identical after `add/notes` re-sent them, and
+  the notes outside the window were byte-identical before and after.
+  Bracketed in `begin_undo_step`/`end_undo_step`, one `undo` restored the
+  pre-edit notes exactly.
+- **But the reply cannot be re-sent verbatim.** `get/notes` returns `mute` as
+  an OSC boolean (`T`/`F`) and velocity as a float (`100.0`); `add/notes`
+  expects `0|1` and an integer. Seshat's `Seshat.OSC.Message.encode/2` has no
+  type tag for booleans, so re-sending the reply's fields raised
+  `FunctionClauseError` inside the Transport GenServer (reproduced, restarted
+  by its supervisor). Convert before sending: `mute` → `0|1`, velocity →
+  `round/1`.
+- What the round trip cannot preserve: `probability`, `velocity_deviation`,
+  `release_velocity` — the reply does not carry them (FORK_GAPS.md, "Notes
+  flatten to five fields"), so re-added notes get Live's defaults.
+
 ### Quantization grid
 
 `/live/clip/quantize`'s `grid` argument is Live's `GridQuantization` enum, which

@@ -8,6 +8,13 @@ submodule pin bump in Seshat, `mix abletonosc.install`, Live restart),
 documented in `API.md` and tripwired by
 Seshat's `vendored_addresses_test`._
 
+**Completing this file means complete bridge capability, not a one-address/
+one-tool Seshat surface.** After an address lands, Seshat separately decides
+whether it is an optional property or target of an existing intention, an
+internal operation or verification read, mirrored state, or—only when the
+producer must choose a genuinely different workflow—a new tool. The fork may
+grow to expose the whole LOM while the model-facing surface stays small.
+
 ## Three layers, and how to classify a "can't"
 
 Seshat has three capability layers that are easy to collapse into one:
@@ -69,6 +76,10 @@ shapes, and each has its own section below:
   Sequencing into PR-sized buckets lives in
   [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md); what is scheduled, and in
   what order, is [ROADMAP.md](ROADMAP.md).
+- **Closing a gap does not publish a tool.** The address is reusable backend
+  capability. Seshat's tool-surface review decides independently whether it
+  extends an existing target/property, stays internal, feeds the mirror, or
+  represents a new producer intention.
 - **Object-valued members** (`Clip.groove`, `Song.cue_points`, `slices`)
   are the usual reason a member was skipped: the generic `properties_r/rw`
   machinery serialises scalars only. Closing such a gap means a
