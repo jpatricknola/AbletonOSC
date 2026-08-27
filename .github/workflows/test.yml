@@ -1,0 +1,49 @@
+#--------------------------------------------------------------------------------
+# The Live-free regression gate.
+#
+# No CI runner has Ableton Live, so this workflow only ever runs code that does
+# not need it. The three pytest invocations below are three distinct
+# guarantees, not one command run three ways - see the comments on each.
+#--------------------------------------------------------------------------------
+name: tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the major.minor Live 12 embeds; 3.12 is what the suite is
+        # developed against locally.
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Live-free gate
+        run: python -m pytest tests_unit/
+
+      - name: Bare pytest collects only the Live-free gate
+        # pytest.ini's testpaths. If this ever collects tests/, a contributor
+        # following CONTRIBUTING.md would fire OSC messages at their own Live.
+        run: python -m pytest
+
+      - name: Live suite is inert without ABLETONOSC_LIVE_TESTS
+        # No Live, no reply port, no opt-in: every test must skip and the run
+        # must still exit 0. Proves the live tree imports cleanly and that the
+        # gate is the environment variable, not the absence of Live.
+        run: python -m pytest tests/ -q
+        env:
+          ABLETONOSC_LIVE_TESTS: ""

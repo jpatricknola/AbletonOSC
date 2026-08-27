@@ -201,7 +201,7 @@ ongoing cost — merging upstream releases — is close to zero.
 ### Deliberate changes to upstream's behaviour
 
 Not bug fixes and not extensions: places where upstream works as intended and
-this fork intends something different. Both of these are **security** changes,
+this fork intends something different. All of these are **security** changes,
 so treat any merge that reverts one as a regression, not a preference.
 
 - **`osc_server.py` — the OSC socket binds loopback only.** Upstream's
@@ -231,6 +231,58 @@ so treat any merge that reverts one as a regression, not a preference.
   `_remote_addr` assignment, and for this section of `SESHAT.md`. If a networked
   controller (TouchOSC and friends) is ever wanted, it gets an **explicit opt-in
   bind constant plus a security design** — do not restore the wildcard default.
+
+- **The test harness — `tests/` is opt-in and inert, `tests_unit/` is the
+  gate.** Upstream ships one test tree, `tests/`, whose `__init__.py`
+  constructs an `AbletonOSCClient` and sends `/live/api/reload` **at module
+  scope**. Collecting tests from the repository root — which is what
+  `CONTRIBUTING.md` told contributors to do, `pytest` with no arguments —
+  therefore bound the reply port and reloaded the bridge under whatever
+  session the user had open, before a single test ran. The tests themselves
+  assumed upstream's blank default template (exactly 4 tracks, 8 scenes, no
+  clips, no devices on track 0), left mutated state behind whenever an
+  assertion failed, and made every clip test depend on successfully recording
+  live audio.
+
+  In this fork:
+
+  - `tests/__init__.py` is inert. It re-exports `TICK_DURATION` and
+    `wait_one_tick()` and nothing else touches the network. It also puts the
+    repository root on `sys.path` from `__file__` rather than upstream's
+    cwd-dependent `sys.path.append(".")`, and imports the client absolutely
+    (`from client import …`) rather than upstream's `from ..client import …`,
+    which pytest cannot resolve when the checkout directory name is not a
+    Python identifier — this working copy is `ableton-osc`.
+  - New `tests/conftest.py` owns the only `AbletonOSCClient` in the tree, in a
+    session-scoped fixture gated on **`ABLETONOSC_LIVE_TESTS=1`**. It skips —
+    never errors — when the variable is unset, when reply port 11001 is busy
+    (Seshat's `beam.smp` holds it whenever Seshat is running), and when Live
+    does not answer `/live/test`. The reload happens there, once per opted-in
+    session. It also holds the set-discovery fixtures (`num_tracks`,
+    `num_scenes`, `num_return_tracks`, `midi_track`, `audio_track`,
+    `empty_midi_slot`, `midi_clip`, `audio_clip`) and the
+    `restored_*_property` context managers that put the set back in `finally`.
+  - Every `tests/test_*.py` was rewritten to discover the set instead of
+    assuming it, to stop its listeners and delete its clips in `finally`, and
+    to `skip` when the open set cannot meet a precondition.
+  - New `pytest.ini` sets `testpaths = tests_unit`, so bare `pytest` collects
+    only the Live-free gate. New `requirements-dev.txt` (pytest only) and
+    `.github/workflows/test.yml` (Python 3.11/3.12) make that gate CI.
+  - `client/client.py` binds its reply socket to `127.0.0.1` instead of
+    `0.0.0.0`, so the loopback-only policy above holds for the bundled client
+    too. A busy port now raises `OSError` out of `__init__`, which the fixture
+    turns into a skip.
+  - `CONTRIBUTING.md`'s Tests section documents both suites and their real
+    preconditions, and its Live-reloading section says `/live/api/reload`
+    rather than the non-existent `/live/reload`.
+
+  The port collision with Seshat is deliberately *not* worked around: it is the
+  interlock that stops this suite from firing `stop_listen` at properties
+  Seshat is subscribed to. When Seshat is up, the suite skips itself.
+
+  **Merge hazard.** See the merge-hazards section: `tests/__init__.py` is an
+  upstream file, and a merge that takes upstream's version silently restores
+  the import-time reload.
 
 ### Additions to upstream's code
 
@@ -696,6 +748,17 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   loopback keeps working exactly as before. See the deliberate-changes section
   above.
 
+- **`client/client.py`'s reply socket bind.** Also a one-liner against
+  upstream (`127.0.0.1` in place of `0.0.0.0`), and also invisible on the
+  machine Live runs on: loopback traffic to this fork's own server is
+  unaffected either way. A merge that takes upstream's `client.py` unchanged
+  silently re-exposes the reply port on every interface — the same regression
+  as the `osc_server.py` bullet above, just on the client side.
+  `tests_unit/test_live_suite_inert.py::test_client_reply_socket_binds_loopback_only`
+  greps this file for `0.0.0.0` for exactly this reason — run
+  `python3 -m pytest tests_unit/` on every merge. See the deliberate-changes
+  section above.
+
 - **Anything touching `process_message()`, `_dispatch`, or
   `LiveOSCErrorLogHandler.emit`.** The structured `/live/error` payload lives
   in `OSCServer._dispatch` and `manager.py`'s relay and nowhere else. A merge
@@ -759,6 +822,23 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   subclasses by eye for the other until a Live-free test covers them too. The
   `reload_imports` ordering above (osc_server and handler first) is part of
   the same fix and is likewise silent when lost.
+
+- **Anything touching `tests/__init__.py`, or adding module-scope code to
+  anything in `tests/`.** Upstream's `tests/__init__.py` constructs an
+  `AbletonOSCClient` and sends `/live/api/reload` at import time, so a merge
+  that takes upstream's version turns `pytest --collect-only` back into a
+  command that binds the reply port and reloads the bridge under a live
+  session. This one is **not** silent, by construction:
+  `tests_unit/test_live_suite_inert.py` parses every file in `tests/` with
+  `ast` and fails if any of them constructs a client or calls
+  `send_message` / `send_bundle` / `query` / `await_message` at module scope,
+  and also fails if `tests/conftest.py` stops consulting
+  `ABLETONOSC_LIVE_TESTS`. It is part of the Live-free gate, so it fires on
+  the merge itself — run `python3 -m pytest tests_unit/` on every merge. The
+  same merge would also revert the set-discovery and restore-in-`finally`
+  rewrites of `tests/test_*.py`, which *are* silent: those tests would simply
+  go back to assuming a blank default set and stranding state on failure. See
+  the deliberate-changes section above.
 
 - **Anything touching `_stop_listen`, `_start_listen`, or `listener_objects`.**
   The wrong-object unbind fix above is small and easy to lose in a merge. Its

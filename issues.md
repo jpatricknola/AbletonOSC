@@ -212,33 +212,6 @@ tripwire in the same pin bump.
 
 ## Infrastructure and documentation
 
-### Make the test suite safe, isolated, and usable as a regression gate
-
-
-**Priority:** High — required to protect the protocol fixes above
-
-The repository has 54 pytest test functions, but they are stateful Live
-integration tests rather than isolated unit tests. Importing `tests` immediately
-sends `/live/api/reload`, so test discovery itself mutates the running system.
-The client binds fixed port `0.0.0.0:11001`, which conflicts with Seshat and is
-broader than the fork's loopback-only security policy. Tests assume exactly four
-tracks and eight scenes, modify playback, clips, recording, tempo, tracks,
-scenes, undo history, and require configured audio input. Cleanup is not
-consistently protected against assertion failures.
-
-The project needs a dependable regression boundary that can exercise routing,
-validation, reply shapes, and listener bookkeeping without Live. Live-dependent
-tests must be explicitly opt-in, discover the current set rather than require a
-specific blank template, isolate their fixtures, and restore all mutations even
-when a test fails. Seshat end-to-end coverage must remain distinct because it
-owns the fixed response port and long-lived listeners.
-
-The development dependencies and supported test commands also need a tracked
-manifest and an automated unit/contract test workflow. At review time neither
-`pytest` nor `ruff` was installed and no CI workflow existed.
-
-**Affected area:** `tests/`, `client/client.py`, project metadata, CI.
-
 ### Correct and complete the public API documentation
 
 
@@ -370,17 +343,6 @@ test organization.
 ## Declined
 
 Recorded so they are not re-raised; each names what would reopen it.
-
-### The Python test harness reloads AbletonOSC on import
-
-`tests/__init__.py` sends `/live/api/reload` at module level, outside any
-fixture, so even `pytest --collect-only` reloads the Remote Script in a live
-session. Declined 2026-07-30: it is upstream's harness and Seshat never runs it
-— its `mix test` only greps the Python (`vendored_addresses_test`). Fixing it
-means carrying a divergence in a file nothing executes through every upstream
-merge. Instead: don't run `pytest` against a Live session that matters.
-**Reconsider if** the Python suite is ever adopted as part of the regression
-gate ("Make the test suite safe, isolated, and usable as a regression gate").
 
 ### `pythonosc`'s dispatcher has an invalid escape sequence
 
