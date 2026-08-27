@@ -346,6 +346,31 @@ it was copied. Method: `API.md` § "The no-probe variant" — send to
    line whose detail names the failing track, and no `Getting property`
    reply lines for that request.
 
+6. **Reload picks up the wrapper.** `manager.py` now reloads
+   `abletonosc.track_callback` before `abletonosc.track`. Edit a log line in
+   the installed `abletonosc/track_callback.py`, send `/live/api/reload`, then
+   `/live/track/get/name 0`, and confirm the edited line appears — the
+   reload-ordering bug's symptom is that it does not.
+
+**Implementation-phase status, 2026-08-27 (Live 12.4.3 running, PID 70216).**
+None of checks 1–6 could be run, and none is claimed. The precondition fails
+by construction: the installed copy is still the *pre-change* code (`diff -rq`
+of `abletonosc/`, `__pycache__`/`logs` excluded, reports exactly
+`osc_server.py` and `track.py` differing plus `track_callback.py` missing),
+and the implementation phase may not install into Live or restart it. What was
+run, read-only via § "The no-probe variant" (four `/live/track/get/name <i>`
+sends to 11000, evidence from the installed `logs/abletonosc.log`):
+
+- **The set still holds exactly one regular track** ("1-MIDI"): index 0 logged
+  `Getting property for track: name = 1-MIDI`; indices 1, 2 and 3 each logged
+  `Error handling OSC message /live/track/get/name: Index out of range`. So
+  **Open question 1 remains open** — a ≥2-track confirmation needs a mutating
+  probe (temporary MIDI track under an undo bracket), which this phase is not
+  permitted to run either.
+- **The installed copy is confirmed pre-change**: its traceback names
+  `track.py", line 21, in track_callback` — the nested closure with the early
+  `return`, which no longer exists in this checkout.
+
 Remains uncovered by log-based verification and stated as such: the actual
 reply **datagrams** (composite getters like `clips/name` log nothing, and
 replies go to 11001 which only Seshat may hold) — their count, order and

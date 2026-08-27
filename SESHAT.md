@@ -46,6 +46,59 @@ ongoing cost — merging upstream releases — is close to zero.
   listener alive forever, still pushing under index 0. `_start_listen` already
   records the true object in `listener_objects`; `_stop_listen` now reads it.
 
+- **`track.py` — a wildcard track getter answers for every track.**
+  Upstream's `create_track_callback` accepts `"*"` in the track-index slot and
+  loops over `song.tracks`, but the loop body ends in
+  `return (track_index, *rv)` as soon as a callback produces a value — so
+  every `/live/track/get/<prop> *` answered for track 0 and stopped.
+  Setters, methods and listener registrations were unaffected only because
+  their workers return `None` and the loop therefore ran to completion; the
+  bug was getters-only, and silent (one plausible-looking reply, no error).
+  The wildcard branch now collects `(track_index, *rv)` for every track and
+  returns the **list**, which `_dispatch` sends as one datagram per track on
+  the concrete request address — the same reply grammar the `*` *listener*
+  pushes have always used, so one address never carries two shapes. Ascending
+  index order, all-or-nothing on failure (see below). The full contract is in
+  `API.md` § Track API; upstream never stated one.
+
+  Two structural consequences, both fork-only:
+
+  - **New module `abletonosc/track_callback.py`.** The factory was a closure
+    over `self` inside `TrackHandler.init_api`, and `track.py` imports
+    `ableton.v2` through `handler.py`, so nothing about the fan-out could be
+    tested outside Live. Lifted out and parameterised on a `get_tracks`
+    callable (`TrackHandler` passes `lambda: self.song.tracks`, preserving
+    per-dispatch resolution of `self.song`), it is imported by `track.py` and
+    covered directly by `tests_unit/test_track_callback.py` — the first
+    tests_unit coverage of shipped handler-side code rather than a
+    shape-replica. `track.py` keeps a one-line local helper of the original
+    name so every registration line is unchanged.
+  - **`manager.py` reloads `abletonosc.track_callback` before
+    `abletonosc.track`.** Without it, `/live/api/reload` re-executes track.py's
+    `from .track_callback import ...` against a stale module and wrapper edits
+    appear not to take.
+
+  **All-or-nothing on error, deliberately.** Within one endpoint the fan-out
+  members are homogeneous — the same property read off every track, every
+  index valid by construction — so a mid-loop failure means something
+  systemic, not that this track is inapplicable. A failure at track `i`
+  therefore aborts collection before anything is sent: zero replies and one
+  `/live/error ["request", <address>, "wildcard fan-out failed at track i: …", 1, "*"]`.
+  No partial fan-out, and no invented multi-error scheme. This differs on
+  purpose from the *address* fan-out above, whose members are heterogeneous
+  and where one bad match must never silence the rest.
+
+  **The re-raise preserves the exception class** (`_raise_with_track_context`),
+  mutating `args` rather than wrapping. `_is_wildcard_skip` classifies by
+  exception class, so a composed `/live/track/get/* *` must still see a
+  per-track `ValueError` as a `ValueError` to skip an arg-mismatch endpoint
+  like `get/send` silently; a `RuntimeError` wrapper would turn every
+  documented skip into a per-endpoint error datagram.
+
+  **Downstream: pin bump only.** No address added, renamed or removed; the
+  single-index reply shape, setter silence and listener pushes are all
+  byte-identical. See the client guidance under the wildcard note below.
+
 - **`track.py` — mixer listeners join the same bookkeeping.**
   `_start_mixer_listen` never populated `listener_objects`, so `_clear_listeners`
   (which iterates *all* of `listener_functions`) raised `KeyError` on script
@@ -279,7 +332,8 @@ so treat any merge that reverts one as a regression, not a preference.
   The correlated contract covers exactly: uncaught exceptions from ordinary
   callbacks (both direct and wildcard dispatch), exceptions from the generic
   `_call_method` path, exceptions from the generic `_set_property` path, and
-  invalid (non-tuple, non-`None`) handler return values. It does **not** cover
+  invalid handler return values (anything that is not a tuple, a list of
+  tuples, or `None`). It does **not** cover
   every semantic rejection in the fork — see the scope note below.
 
   `arg_count` makes the variable tail explicit and keeps a zero-argument request
@@ -362,15 +416,41 @@ so treat any merge that reverts one as a regression, not a preference.
   is just as wrong through `query/3`, only silently. `query_batch/2` over the
   concrete addresses is the answer. Nothing in Seshat sends a wildcard today.
 
+  **The same applies to the track-index argument wildcard.**
+  `/live/track/get/<prop> *` is also a fan-out — one reply per regular track,
+  all on the *same* concrete address, `track_index` leading each payload — so
+  it must not go through `Transport.query/3` either, and for the identical
+  cardinality reason: the query resolves on whichever track's datagram lands
+  first and drops every other track. Correlating on the address cannot
+  disambiguate them, only the leading `track_index` can. `query_batch/2` over
+  concrete track indices remains the answer, and it is what Seshat already
+  does. Nothing in Seshat sends `*` in a track index today. If a
+  one-round-trip multi-track read is ever wanted, `Transport` needs a
+  fan-out-aware receive path (collect N replies keyed by `track_index`, with
+  its own completion rule) — a consumer decision, not something this repo can
+  supply.
+
   **Reply validation replaced the `assert`.** Upstream checked handler return
   values with `assert isinstance(rv, tuple)` — stripped under `python -O`, and
-  an uncorrelated crash otherwise. A non-tuple, non-`None` return now raises an
+  an uncorrelated crash otherwise. An invalid return now raises an
   explicit `TypeError` inside the same boundary, so it comes back as the
   structured error naming the request and the offending handler, identically
   for direct and wildcard dispatch. The error deliberately names only the
   return's *type*, never its repr — an invalid return may be large, sensitive,
   or capable of pushing the error datagram past UDP limits. A `None` return
   still sends nothing; `()` still sends an empty reply.
+
+  **A list of tuples is a multi-reply.** Fork-only, added with the track
+  argument-wildcard repair below. A callback may return a `list` whose every
+  element is a tuple, and `_dispatch` then sends **one datagram per element**,
+  in list order, all on the same reply address (the concrete callback address
+  under a wildcard pattern). An empty list sends nothing, exactly as `None`
+  does. Validation covers the whole list *before* the first send, so a list
+  containing a non-tuple yields the structured `TypeError` error and zero
+  replies — never a partial fan-out. This is the mechanism, and the only
+  mechanism, by which a single request produces several replies on one
+  address; handlers never call `osc_server.send` for replies themselves,
+  which would bypass `_dispatch`'s reply addressing.
 
   Bundles are covered for free, since `process_bundle` funnels every message
   through `process_message`. `process()`'s outer `try`/`except` stays, guarding
@@ -565,7 +645,10 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   in `OSCServer._dispatch` and `manager.py`'s relay and nowhere else. A merge
   that takes upstream's `process_message` drops `_dispatch` wholesale — the
   `("request", …)` send, the escaped/anchored wildcard matching, the fan-out
-  isolation, and the reply-type validation, and it reintroduces the handler
+  isolation, and the reply-type validation — including the multi-reply
+  list-of-tuples contract that the track argument wildcard depends on, whose
+  loss would turn every `/live/track/get/<prop> *` reply into a structured
+  `TypeError` error — and it reintroduces the handler
   exceptions that `handler.py` no longer catches locally (turning every
   generic method/setter failure back into an aborted tick queue). One that
   takes upstream's `emit` drops the `("log", …)` tag and the
@@ -574,6 +657,19 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   reach `Log.txt` and `/live/error`, and clients just go back to timing out.
   `tests_unit/` fails loudly on most of this — run it on every merge. See the
   additions section above.
+
+- **Anything touching `track.py`'s `create_track_callback`, or
+  `manager.py`'s `reload_imports` list.** In this fork `create_track_callback`
+  is a two-line local helper delegating to `abletonosc/track_callback.py`; a
+  merge that takes upstream's nested closure restores the early `return` and
+  every `/live/track/get/<prop> *` silently goes back to answering for track 0
+  only — one plausible-looking reply, no error, nothing in a log to notice.
+  Losing `track_callback.py` itself fails loudly (the import breaks), but
+  losing the *delegation* does not. `reload_imports` is a list upstream also
+  edits, and dropping its `abletonosc.track_callback` line is invisible until
+  someone edits the wrapper and `/live/api/reload` appears not to take.
+  `tests_unit/test_track_callback.py` fails on the first of these — run it on
+  every merge.
 
 - **Anything touching `song.py`'s generic methods list or `properties_rw`.**
   Three entries there are ours — `begin_undo_step`, `end_undo_step` and

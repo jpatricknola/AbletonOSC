@@ -249,3 +249,62 @@ def test_empty_tuple_return_sends_empty_reply(server, receiver):
     server.add_handler("/live/song/get/nothing", reply())
     dispatch(server, "/live/song/get/nothing")
     assert receiver.drain() == [("/live/song/get/nothing", ())]
+
+
+#--------------------------------------------------------------------------------
+# Multi-reply returns (list of tuples)
+#--------------------------------------------------------------------------------
+
+def test_list_return_sends_one_datagram_per_element_in_order(server, receiver):
+    server.add_handler("/live/track/get/name",
+                       lambda p: [(0, "drums"), (1, "bass"), (2, "keys")])
+    dispatch(server, "/live/track/get/name", "*")
+    assert receiver.drain() == [("/live/track/get/name", (0, "drums")),
+                                ("/live/track/get/name", (1, "bass")),
+                                ("/live/track/get/name", (2, "keys"))]
+
+
+def test_empty_list_return_sends_nothing(server, receiver):
+    server.add_handler("/live/track/get/name", lambda p: [])
+    dispatch(server, "/live/track/get/name", "*")
+    assert receiver.drain() == []
+
+
+def test_single_element_list_is_one_reply(server, receiver):
+    server.add_handler("/live/track/get/name", lambda p: [(0, "only")])
+    dispatch(server, "/live/track/get/name", "*")
+    assert receiver.drain() == [("/live/track/get/name", (0, "only"))]
+
+
+def test_list_with_non_tuple_element_sends_error_and_no_replies(server, receiver):
+    # Validation runs over the whole list before anything is sent, so a bad
+    # element anywhere leaves no partial fan-out on the wire.
+    server.add_handler("/live/track/get/name",
+                       lambda p: [(0, "drums"), "bass", (2, "keys")])
+    dispatch(server, "/live/track/get/name", "*")
+    messages = receiver.drain()
+    assert addresses(messages) == ["/live/error"]
+    error = messages[0][1]
+    assert error[0] == "request"
+    assert error[1] == "/live/track/get/name"
+    assert "list" in error[2]
+    assert "str" in error[2]
+    assert error[3] == 1
+    assert error[4:] == ("*",)
+
+
+def test_list_return_replies_on_concrete_address_under_wildcard(server, receiver):
+    server.add_handler("/live/track/get/name", lambda p: [(0, "drums"), (1, "bass")])
+    server.add_handler("/live/track/get/mute", lambda p: [(0, 0), (1, 1)])
+    dispatch(server, "/live/track/get/*", "*")
+    assert sorted(receiver.drain()) == [("/live/track/get/mute", (0, 0)),
+                                        ("/live/track/get/mute", (1, 1)),
+                                        ("/live/track/get/name", (0, "drums")),
+                                        ("/live/track/get/name", (1, "bass"))]
+
+
+def test_list_containing_empty_tuples_sends_empty_replies(server, receiver):
+    server.add_handler("/live/song/get/nothing", lambda p: [(), ()])
+    dispatch(server, "/live/song/get/nothing")
+    assert receiver.drain() == [("/live/song/get/nothing", ()),
+                                ("/live/song/get/nothing", ())]

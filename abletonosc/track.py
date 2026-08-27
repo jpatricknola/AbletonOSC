@@ -1,5 +1,6 @@
 from typing import Tuple, Any, Callable, Optional
 from .handler import AbletonOSCHandler
+from .track_callback import create_track_callback as _create_track_callback
 
 
 class TrackHandler(AbletonOSCHandler):
@@ -8,26 +9,23 @@ class TrackHandler(AbletonOSCHandler):
         self.class_identifier = "track"
 
     def init_api(self):
+        #--------------------------------------------------------------------------------
+        # The wrapper itself lives in track_callback.py, which imports nothing
+        # from Live and is therefore covered by tests_unit/. All this local
+        # helper does is bind the track source, so every registration below
+        # reads exactly as it did when the factory was nested here.
+        #
+        # `lambda: self.song.tracks` rather than the vector itself: the
+        # original resolved `self.song` on every dispatch, and a Live set can
+        # be closed and reopened under a live control surface.
+        #--------------------------------------------------------------------------------
         def create_track_callback(func: Callable,
                                   *args,
                                   include_track_id: bool = False):
-            def track_callback(params: Tuple[Any]):
-                if params[0] == "*":
-                    track_indices = list(range(len(self.song.tracks)))
-                else:
-                    track_indices = [int(params[0])]
-
-                for track_index in track_indices:
-                    track = self.song.tracks[track_index]
-                    if include_track_id:
-                        rv = func(track, *args, tuple([track_index] + params[1:]))
-                    else:
-                        rv = func(track, *args, tuple(params[1:]))
-
-                    if rv is not None:
-                        return (track_index, *rv)
-
-            return track_callback
+            return _create_track_callback(lambda: self.song.tracks,
+                                          func,
+                                          *args,
+                                          include_track_id=include_track_id)
 
         methods = [
             "delete_device",
