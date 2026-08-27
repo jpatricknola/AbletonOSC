@@ -212,13 +212,19 @@ ongoing cost — merging upstream releases — is close to zero.
   `device.parameters[params[2]]` with whatever arrived. A float-sending
   client (TouchOSC, upstream issue #33 — the reason every *other* device
   callback int-casts) raised `TypeError` and could not subscribe at all, and
-  a start sent as floats keyed a different bookkeeping entry from a stop sent
-  as ints, so the stop missed and the listener leaked until reload. The
-  wrapper now hands the callee `(track_index, device_index, *params[2:])`
-  with the indices already cast, and the parameter listener pair casts the
-  third itself: exactly three ints, used for the `DeviceParameter` lookup,
-  the `("value", (track, device, parameter))` key and the echo in both
-  pushes.
+  any client that did get a subscription had its raw argument types echoed
+  back in the push. (An earlier version of this entry said a float start
+  keyed a different bookkeeping entry from an int stop, so the stop missed
+  and the listener leaked. That is **wrong** and was corrected 2026-08-27 by
+  measurement: CPython tuple keys compare numerically, so `("value", (0.0,))`
+  and `("value", (0,))` are one dict entry — and pre-fix a float subscribe
+  never registered anything at all, because the `TypeError` above aborted it
+  first. The pre-fix float defects were the failed subscribe and the raw
+  echo, not a key mismatch.) The wrapper now hands the callee the indices
+  already cast and truncated to the identity's arity, and the parameter
+  listener pair casts the third itself: exactly three ints, used for the
+  `DeviceParameter` lookup, the `("value", (track, device, parameter))` key
+  and the echo in both pushes.
 
   *Property listeners.* Upstream registered
   `/live/device/{start,stop}_listen/{name,type,class_name}` **without**
@@ -244,6 +250,43 @@ ongoing cost — merging upstream releases — is close to zero.
   thing it consumed here was `API.md`'s warning against these listeners,
   which is replaced by the real contract in the same pin. Pinned by
   `tests_unit/test_device_listeners.py`.
+
+- **`scene.py`, `clip.py`, `clip_slot.py` and the `device.py` property pair —
+  the same identity rule, applied everywhere it was still missing.** The
+  device fix above established the rule; these four call sites did not follow
+  it. Upstream's `create_scene_callback` (`include_ids`),
+  `create_clip_callback` and `create_clip_slot_callback` (`pass_clip_index`)
+  each int-cast their indices for the *LOM lookup* and then handed the callee
+  `params[0:]` — the raw OSC arguments — while `create_device_callback`'s
+  `include_ids` branch normalised its two indices but appended `*params[2:]`
+  untruncated. Measured Live-free against master on 2026-08-27, that produced
+  three defects:
+
+  1. **The push echoed the client's number types.** `start_listen/name 0.0`
+     pushed `/live/scene/get/name (0.0, 'A')` — a float32-tagged scene id
+     where the query reply for the same property echoes an int, and the
+     asymmetry persisted for the life of the subscription.
+  2. **A non-integral float subscribed one object and keyed another.**
+     `start_listen/name 0.7` subscribed scene **0** (the lookup truncates)
+     but keyed `("name", (0.7,))` and pushed `0.7`: a push attributed to a
+     scene that does not exist, and a listener `stop_listen/name 0` could
+     never find — leaked until reload.
+  3. **A trailing extra argument poisoned the key.** `start_listen/name 1 99`
+     keyed `("name", (1, 99))`, pushed a bogus third field a decoder reads as
+     data, and leaked against the well-formed `stop_listen/name 1`.
+
+  All four wrappers now build the identity themselves — `(scene_index,)`,
+  `(track_index, clip_index)`, and for `device.py` a new `id_count` keyword on
+  `create_device_callback` (default 2, the parameter pair registers 3) — and
+  pass exactly that to the callee. Truncation is uniform: arguments past a
+  subscription's identity are ignored everywhere, and too *few* arguments
+  remain a structured `/live/error`, unchanged. The parameter pair's wire
+  behaviour is untouched by the refactor; `tests_unit/test_device_listeners.py`
+  passes unmodified, which is the proof. `handler.py` needed no change — it
+  was always correct given a canonical key. Downstream: **pin bump only**;
+  Seshat sends none of these listen addresses (its listens are
+  song/track/return_track/master) and every index it sends is an integer, so
+  no well-formed client sees any difference at all.
 
 - **`clip_slot.py` — logger format args.** Cherry-picked from upstream PR #213.
   `self.logger.info(track_index, clip_index, rv)` passes an `int` where a format
@@ -913,6 +956,19 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   `tests_unit/test_device_listeners.py` is the tripwire — run
   `python3 -m pytest tests_unit/` on every merge. See the deliberate-changes
   section above.
+
+- **`scene.py`'s `create_scene_callback`, `clip.py`'s `create_clip_callback`
+  and `clip_slot.py`'s `create_clip_slot_callback`.** Upstream's versions of
+  all three pass the *raw* OSC arguments into `_start_listen`/`_stop_listen`
+  (`params[0:]` / `tuple(params[0:])`) rather than the normalised, truncated
+  identity this fork builds. A merge that takes upstream's file reverts the
+  identity fix **silently**: pushes go back to echoing float ids where the
+  query reply echoes ints, a non-integral index subscribes one object while
+  keying and pushing another, and a stray trailing argument keys a
+  subscription no well-formed stop can end. Nothing errors and nothing logs —
+  a client only notices that its mirror drifts. The three edits are one line
+  each and easy to lose in a conflict resolution.
+  `tests_unit/test_listener_identity.py` is the tripwire.
 
 - **Anything touching `track.py`'s `create_track_callback`, or
   `manager.py`'s `reload_imports` list.** In this fork `create_track_callback`

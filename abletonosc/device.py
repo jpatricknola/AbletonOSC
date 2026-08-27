@@ -5,7 +5,8 @@ class DeviceHandler(AbletonOSCHandler):
     class_identifier = "device"
 
     def init_api(self):
-        def create_device_callback(func, *args, include_ids: bool = False):
+        def create_device_callback(func, *args, include_ids: bool = False,
+                                   id_count: int = 2):
             def device_callback(params: Tuple[Any]):
                 track_index, device_index = int(params[0]), int(params[1])
                 device = self.song.tracks[track_index].devices[device_index]
@@ -20,8 +21,15 @@ class DeviceHandler(AbletonOSCHandler):
                     # start_listen (0.0, 0.0) and stop_listen (0, 0) name the same
                     # subscription only if the cast happens here, once, before the
                     # callee sees anything.
+                    #
+                    # The identity is also *truncated* here: id_count is how a callee
+                    # declares how many leading arguments are its identity (two for the
+                    # property pair, three for the parameter pair, which reaches a
+                    # DeviceParameter rather than the Device itself). Anything past that
+                    # is dropped, so a stray trailing argument cannot key a second
+                    # subscription that a well-formed stop can never reach.
                     #--------------------------------------------------------------------------------
-                    rv = func(device, *args, (track_index, device_index, *params[2:]))
+                    rv = func(device, *args, tuple(int(param) for param in params[:id_count]))
                 else:
                     rv = func(device, *args, params[2:])
 
@@ -130,13 +138,16 @@ class DeviceHandler(AbletonOSCHandler):
         #--------------------------------------------------------------------------------
         def device_get_parameter_value_listener(device, params: Tuple[Any] = ()):
             #--------------------------------------------------------------------------------
-            # The identity of a parameter listener is exactly three ints. The wrapper
-            # has already cast the track and device indices; the parameter index is
-            # cast here, and the resulting tuple is then used for all three things
-            # that have to agree: the DeviceParameter lookup, the bookkeeping key and
-            # the echo in both pushes. Anything past the third argument is not part of
-            # the identity and is dropped, so a stray extra argument cannot open a
-            # second, unstoppable subscription to the same parameter.
+            # The identity of a parameter listener is exactly three ints, and the
+            # tuple is then used for all three things that have to agree: the
+            # DeviceParameter lookup, the bookkeeping key and the echo in both pushes.
+            # On the dispatch path the wrapper has already cast and truncated it
+            # (include_ids with id_count=3), so this normalisation is a no-op there;
+            # it stays because the start path calls the remove function below
+            # directly, and because a callee that declares its own arity should not
+            # depend on its caller having applied it. Note that a request carrying
+            # fewer than three arguments still fails here, on int(params[2]) — too
+            # few arguments is a malformed request, not a shorter identity.
             #--------------------------------------------------------------------------------
             params = (int(params[0]), int(params[1]), int(params[2]))
             parameter_index = params[2]
@@ -172,6 +183,8 @@ class DeviceHandler(AbletonOSCHandler):
             # Normalised the same way as the start path, and to the same three ints:
             # a stop sent with float indices has to find the key a start sent with
             # int indices created, or the listener leaks until the script reloads.
+            # Redundant on the dispatch path (the wrapper truncates and casts), but
+            # load-bearing for the direct call the start path makes into here.
             #--------------------------------------------------------------------------------
             params = (int(params[0]), int(params[1]), int(params[2]))
             listener_key = ("value", params)
@@ -191,5 +204,5 @@ class DeviceHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/device/get/parameter/value_string", create_device_callback(device_get_parameter_value_string))
         self.osc_server.add_handler("/live/device/set/parameter/value", create_device_callback(device_set_parameter_value))
         self.osc_server.add_handler("/live/device/get/parameter/name", create_device_callback(device_get_parameter_name))
-        self.osc_server.add_handler("/live/device/start_listen/parameter/value", create_device_callback(device_get_parameter_value_listener, include_ids = True))
-        self.osc_server.add_handler("/live/device/stop_listen/parameter/value", create_device_callback(device_get_parameter_remove_value_listener, include_ids = True))
+        self.osc_server.add_handler("/live/device/start_listen/parameter/value", create_device_callback(device_get_parameter_value_listener, include_ids = True, id_count = 3))
+        self.osc_server.add_handler("/live/device/stop_listen/parameter/value", create_device_callback(device_get_parameter_remove_value_listener, include_ids = True, id_count = 3))

@@ -1031,8 +1031,19 @@ Container for clips. Create, delete, and query clip existence.
 | `/live/clip_slot/duplicate_clip_to` | `track_index, clip_index, target_track, target_clip` | | Duplicate clip to target slot |
 
 Every `get/` property above also has
-`/live/clip_slot/start_listen/<property>` and
-`/live/clip_slot/stop_listen/<property>`.
+`/live/clip_slot/start_listen/<property> <track_index> <clip_index>` and
+`/live/clip_slot/stop_listen/<property> <track_index> <clip_index>`; pushes
+arrive on the matching `get/` address as `track_index, clip_index, value`.
+
+**A subscription's identity is two ints** (2026-08-27) — both indices are
+normalised to ints at the callback boundary and that pair is used for the clip
+slot lookup, the subscription's identity, and the indices echoed in every
+push, so pushes carry the query-reply shape whatever number type the client
+sent. Float-sending clients (TouchOSC; upstream issue #33) can start and stop
+interchangeably with int-sending ones, non-integral floats truncate toward
+zero, and **arguments past the second are not part of the identity and are
+ignored**. Sending fewer than two is a malformed request and answers on
+`/live/error`.
 
 > ℹ️ **`fire` takes an optional `record_length`, and that is fixed-length
 > recording.** The handler passes everything after the two indices straight
@@ -1062,6 +1073,16 @@ Every `get/` property below also has
 `/live/clip/stop_listen/<property> <track_id> <clip_id>`; pushes arrive on the
 matching `get/` address as `track_id, clip_id, value`. The `playing_position`
 pair is listed explicitly only because it is the one Seshat uses.
+
+**A subscription's identity is two ints** (2026-08-27) — both indices are
+normalised to ints at the callback boundary and that pair is used for the clip
+lookup, the subscription's identity, and the indices echoed in every push, so
+pushes carry the query-reply shape whatever number type the client sent.
+Float-sending clients (TouchOSC; upstream issue #33) can start and stop
+interchangeably with int-sending ones, non-integral floats truncate toward
+zero, and **arguments past the second are not part of the identity and are
+ignored**. Sending fewer than two is a malformed request and answers on
+`/live/error`.
 
 | Address | Query Params | Response Params | Description |
 |---|---|---|---|
@@ -1268,6 +1289,18 @@ Listen via `/live/scene/start_listen/<property> <scene_index>`, stop via
 `/live/scene/stop_listen/<property> <scene_index>`, and receive responses on
 `/live/scene/get/<property>`.
 
+**A subscription's identity is one int** (2026-08-27) — `scene_index` is
+normalised to an int at the callback boundary and that int is used for all
+three things that must agree: the scene lookup, the subscription's identity,
+and the `scene_id` echoed in every push. Pushes therefore carry
+`scene_id, value` in exactly the query-reply shape, whatever number type the
+client sent. Clients that send floats by default (TouchOSC; upstream issue
+#33) can start and stop interchangeably with int-sending ones, non-integral
+floats truncate toward zero, and **arguments past the index are not part of
+the identity and are ignored** — so a stray trailing argument can no longer
+key a subscription that a well-formed stop could never reach. Sending **no**
+index is a malformed request and answers on `/live/error`.
+
 | Address | Query Params | Response Params | Description |
 |---|---|---|---|
 | `/live/scene/get/color` | `scene_id` | `scene_id, color` | Scene color |
@@ -1381,10 +1414,15 @@ the subscription's identity, and in the echo. Clients that send floats by
 default (TouchOSC; upstream issue #33) can subscribe, a start sent as floats
 is stopped by a stop sent as ints, and both the query reply and the push echo
 ints either way. The same index normalisation applies to the property listen
-pair above. Arguments past the third are not part of a parameter
-subscription's identity and are ignored — this rule is parameter-only, since
-the property pair takes exactly two arguments; sending **fewer** than three
-to the parameter pair is a malformed request and answers on `/live/error`.
+pair above.
+
+**Truncation is uniform across both pairs** — a subscription's identity is the
+leading indices and nothing else: two for the property pair
+(`track_id, device_id`), three for the parameter pair
+(`track_id, device_id, parameter_id`). Arguments past that are ignored, so a
+stray trailing argument neither appears in a push nor keys a subscription that
+a well-formed stop could never reach. Sending **fewer** than a pair's indices
+is a malformed request and answers on `/live/error`.
 
 Subscribing pushes the current value immediately, before any change — true of
 every listener in this API, and how a client seeds its initial state without a

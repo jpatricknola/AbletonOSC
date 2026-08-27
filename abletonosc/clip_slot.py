@@ -12,7 +12,18 @@ class ClipSlotHandler(AbletonOSCHandler):
                 clip_slot = track.clip_slots[clip_index]
 
                 if pass_clip_index:
-                    rv = func(clip_slot, *args, tuple(params[0:]))
+                    #--------------------------------------------------------------------------------
+                    # Hand the callee the *normalised, truncated* identity, not the raw
+                    # OSC args. pass_clip_index is used by the listen pair only, and a
+                    # listener's identity has to be canonical: it is the bookkeeping key,
+                    # the LOM subscript and the echo in the push, and those three must
+                    # agree across a start/stop pair sent by different clients. TouchOSC
+                    # -style clients send floats by default (upstream issue #33). A clip
+                    # slot subscription's identity is exactly two ints; anything past
+                    # them is dropped, so a stray trailing argument cannot key a second
+                    # subscription that a well-formed stop can never reach.
+                    #--------------------------------------------------------------------------------
+                    rv = func(clip_slot, *args, (track_index, clip_index))
                 else:
                     rv = func(clip_slot, *args, tuple(params[2:]))
 
