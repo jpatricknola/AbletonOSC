@@ -43,6 +43,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · Define and repair multi-track wildcard getter responses
 
+**Plan:** [docs/PLAN_multi_track_wildcard_getters.md](docs/PLAN_multi_track_wildcard_getters.md)
+
 **Goal:** a wildcard track getter (`/live/track/get/name *`) reports every
 selected track under a stated wire contract, and single-track requests and
 wildcard setters keep their existing behaviour.
