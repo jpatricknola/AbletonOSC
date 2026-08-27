@@ -1,3 +1,16 @@
+**Archived 2026-08-27 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in `tests/`
+(rewritten, fixture-isolated, opt-in via `ABLETONOSC_LIVE_TESTS=1`),
+`tests_unit/` (the permanent Live-free gate, now including
+`test_live_suite_inert.py`'s tripwire), and `client/client.py` (loopback-only
+bind), plus the new `pytest.ini`, `requirements-dev.txt`, and
+`.github/workflows/test.yml`; no `API.md` rows — no address, request-shape,
+or reply-shape changed. Live verification checks 1 and 2 ran and passed;
+checks 3 and 4 (the full opt-in run, audio-recording skip honesty) stayed
+deferred — they need Seshat stopped and the Remote Scripts copy reinstalled,
+both out of bounds for this environment — and remain open, unassigned to any
+roadmap item.
+
 # Plan: Make the test suite safe, isolated, and usable as a regression gate
 
 Roadmap item: **Make the test suite safe, isolated, and usable as a
