@@ -70,58 +70,7 @@ subclass case.
   case instead of describing it as uncovered.
 - No dependencies.
 
-## #2 · Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and the device.py property pair
-
-**Plan:** [docs/PLAN_listener_identity_normalization.md](docs/PLAN_listener_identity_normalization.md)
-
-**Goal:** every `_start_listen`/`_stop_listen` call site builds its identity
-tuple the same way `abletonosc/device.py`'s parameter-listener pair now does
-(shipped in "Device listener identity — parameter indices and property
-listeners"): indices cast to int at the callback boundary, and truncated to
-exactly the arguments that are part of the identity, before that tuple is
-used for the LOM lookup, the bookkeeping key, and the push echo.
-
-**Why:** two related gaps left after that item landed, both raised by its
-review (`docs/archive/PLAN_device_listener_identity.md`, review of
-`5d0ec50`):
-- `scene.py:16`, `clip.py:57` and `clip_slot.py:15` still pass raw OSC
-  arguments into `_start_listen`/`_stop_listen` via `params[0:]`, with no
-  int-cast — a float-sending client (TouchOSC-style, upstream issue #33)
-  leaks a scene/clip/clip-slot listener exactly the way the device parameter
-  listener used to before that fix, because a start keyed on floats and a
-  stop keyed on ints never share a bookkeeping entry.
-- `device.py`'s property listen pair (`name`/`type`/`class_name`) normalizes
-  its two indices but does not truncate: `create_device_callback`'s
-  `include_ids` branch hands the callee `(track_index, device_index,
-  *params[2:])` unconditionally, so a malformed `start_listen/name <t> <d>
-  <extra>` keys on `(name, (t, d, extra))` — a push with a bogus third field,
-  and a well-formed two-argument `stop_listen/name` that misses the key and
-  leaks the listener until reload.
-
-**Planner notes:**
-- Source: pr-review of `device-listener-identity` (branch, `5d0ec50`),
-  findings 1 and 7 — both filed non-blocking (a malformed or float-typed
-  request is needed to reach either), and explicitly recommended as a
-  follow-up.
-- The `device.py` half needs `create_device_callback`'s `include_ids` branch
-  to know how many trailing arguments belong to a given callee's identity
-  (2 for the property pair, 3 for parameter/value) rather than passing
-  `params[2:]` through unbounded — decide whether that arity is a new
-  parameter on `create_device_callback` or a per-callee truncation inside
-  each property callback, matching the pattern parameter/value already uses.
-- `scene.py`, `clip.py`, `clip_slot.py` currently key listeners on
-  `tuple(params)` with no cast at all (not just no truncation) — closer to
-  defect 1 in that item's plan than to its residual. Confirm via
-  `tests_unit/` fakes before assuming int-casting alone closes the gap; check
-  whether any of the three also has a property-listen pair with the same
-  missing-`include_ids`/collapsed-key shape that item fixed for `device.py`.
-- Wire-visible change only for malformed/float-typed requests; well-formed
-  clients see no difference. Confirm with Seshat whether any of its `lib/`
-  code sends float indices to these addresses before assuming "pin bump
-  only".
-- No dependencies.
-
-## #3 · Normalize listener argument identity in track.py and return_track.py
+## #2 · Normalize listener argument identity in track.py and return_track.py
 
 **Goal:** `track_callback.py`'s `include_track_id` branch and
 `return_track.py`'s hand-rolled per-property `start_listen`/`stop_listen`
@@ -145,7 +94,7 @@ all — they are separate hand-rolled code with their own identity handling —
 so this is a second fix in that file, not a side effect of the first.
 
 **Planner notes:**
-- Source: `docs/PLAN_listener_identity_normalization.md`, "Out of scope"
+- Source: `docs/archive/PLAN_listener_identity_normalization.md`, "Out of scope"
   (both bullets), and that item's pr-review (branch
   `listener-identity-normalization`, round 2, nit 4's third bullet) —
   explicitly named there as real but deliberately excluded from that item's
@@ -167,7 +116,7 @@ so this is a second fix in that file, not a side effect of the first.
   only" if `lib/` has changed since.
 - No dependencies.
 
-## #4 · One `/live/song/undo` does not revert an OSC-created scene
+## #3 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -203,7 +152,7 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #5 · A-4 · Object-valued read helpers
+## #4 · A-4 · Object-valued read helpers
 
 **Goal:** index-returning handlers for `Song.master_track`,
 `Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`,
@@ -219,7 +168,7 @@ Unblocks the groove bucket.
   "Object-valued reads returned as `None`".
 - No dependencies.
 
-## #6 · B-2 · DeviceParameter rich reply
+## #5 · B-2 · DeviceParameter rich reply
 
 **Goal:** one richer `parameters` reply plus per-parameter addresses —
 `value_items`, `short_value_items`, `display_value` (get/set), `str_for_value`,
@@ -237,7 +186,7 @@ gap PR — it proves the batching conventions the rest reuse: handlers +
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #7 · C-3 · Application dialogs and versions
+## #6 · C-3 · Application dialogs and versions
 
 **Goal:** read-only dialog state (`open_dialog_count`,
 `current_dialog_message`, `current_dialog_button_count`, listen where
@@ -258,7 +207,7 @@ dialog may guard unsaved work.
   requested. Same file, same PR; remove that entry at ship time too.
 - No dependencies.
 
-## #8 · B-1 · Notes extended
+## #7 · B-1 · Notes extended
 
 **Goal:** `/live/clip/get/notes_extended` and `/live/clip/add/notes_extended`
 carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`,
@@ -276,7 +225,7 @@ old five-field addresses unchanged; then the ID-keyed members
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #9 · Make live code reload ordered and failure-safe
+## #8 · Make live code reload ordered and failure-safe
 
 **Goal:** `/live/api/reload` produces a coherent module graph whose handlers
 share the current base classes, and a failed reload preserves a usable previous
@@ -291,7 +240,7 @@ uses reload during development; move this up if it bites during #4–#7.
   (Medium-high).
 - No dependencies.
 
-## #10 · Stop masking Remote Script import failures
+## #9 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -310,7 +259,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #11 · Remove the process-global and shared-file risks from song structure export
+## #10 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -326,7 +275,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #12 · Add bounded log retention
+## #11 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -343,7 +292,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #13 · A-3 · Return / master `Track` parity
+## #12 · A-3 · Return / master `Track` parity
 
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
@@ -358,7 +307,7 @@ return/master feature downstream trips over the difference.
 - Prefer a shared track resolver over three copies of the handler table.
 - No dependencies.
 
-## #14 · C-1 · `Song` remainder
+## #13 · C-1 · `Song` remainder
 
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
@@ -370,7 +319,7 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
 - Source: `CLOSING_THE_GAPS.md`, row **C-1**.
 - No dependencies.
 
-## #15 · D-2 · Groove
+## #14 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -382,7 +331,7 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 **Planner notes:**
 - Source: `CLOSING_THE_GAPS.md`, row **D-2**.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
-- Depends on #5 (object-read pattern).
+- Depends on #4 (object-read pattern).
 
 ---
 

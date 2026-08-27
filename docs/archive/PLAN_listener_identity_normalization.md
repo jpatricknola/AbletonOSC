@@ -1,3 +1,14 @@
+**Archived 2026-08-27 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in
+`abletonosc/scene.py` (`create_scene_callback`), `abletonosc/clip_slot.py`
+(`create_clip_slot_callback`), `abletonosc/clip.py` (`create_clip_callback`)
+and `abletonosc/device.py` (`create_device_callback`'s new `id_count`
+parameter), and in `API.md` § Scene Getters, § Clip Slot API, § Clip API, and
+the Device API "Indices are normalised to ints" paragraph. The residual this
+item deliberately left out of scope — `track.py` / `track_callback.py` and
+`return_track.py` — is on ROADMAP.md as "Normalize listener argument
+identity in track.py and return_track.py".
+
 # Plan: Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and the device.py property pair
 
 Roadmap item: **Normalize listener argument identity in scene.py, clip.py,
