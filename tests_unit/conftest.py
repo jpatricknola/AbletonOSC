@@ -175,8 +175,12 @@ def load_clip_module():
     call time, and no test in this suite dispatches that address).
 
     Guarded like the Component stub, and installed only when this loader is
-    called, so no other test in the run sees a `Live` name in sys.modules
-    unless it asked for clip.py.
+    called. `sys.modules` is process-global for the whole pytest session,
+    though, so once installed the stub is visible to every test collected
+    afterwards, not just ones that call this loader — test_import.py's
+    test_abletonosc_package_init_never_executed accounts for that by
+    tolerating a `Live` module in sys.modules as long as it carries no
+    `__file__` (a real Live module, loaded from disk, always would).
     """
     load_handler_module()
     if "Live" not in sys.modules:

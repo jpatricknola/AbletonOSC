@@ -373,6 +373,27 @@ concurrent Seshat session is undisturbed.
    `stop_listen/parameter/value 0 0 1` removes it — proving Part 4 did not
    move the parameter pair's behaviour.
 
+### Result, pr-review 2026-08-27: checks 1-6 **skipped by environment**
+
+Checks 1, 2, 3, 4, 5 and 6 were **all skipped by environment** — none was
+run, and no result is recorded for any of them.
+
+What is missing: the shared precondition. Ableton Live 12 Suite is running
+(pid 12608), but the installed Remote Scripts copy is still **master**, not
+this branch —
+
+    diff -rq --exclude=__pycache__ abletonosc \
+      "$HOME/Music/Ableton/User Library/Remote Scripts/AbletonOSC/abletonosc"
+
+reports `clip.py`, `clip_slot.py`, `device.py` and `scene.py` differ, i.e.
+exactly the four files this branch edits. Installing the branch and
+restarting Live are both outside a review's remit, so the bridge in memory
+cannot execute the code under review; any log evidence gathered now would
+describe master and would be worthless as verification of this change.
+
+These six checks therefore remain outstanding for whoever installs and
+restarts Live with this branch in place.
+
 Remains uncovered even then: a change-triggered push for scene/clip
 properties (needs a UI edit; the immediate-push echo exercises the same
 code path, as it did for the device item), and non-integral-float lookup
