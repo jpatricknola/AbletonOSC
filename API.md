@@ -673,8 +673,8 @@ to use next, and the index is already in that family's coordinates.
   elsewhere for object-valued reads.
 - **`-1` is an answer, never an argument.** None of the three setters
   (`set/selected_track`, `set/selected_clip`, `set/selected_device`) reject
-  it: they index `song.tracks`/`song.return_tracks`/`.devices` directly with
-  whatever `track_index` they are given, and Python resolves a negative index
+  it: they index `song.tracks`/`.devices` directly with whatever
+  `track_index` they are given, and Python resolves a negative index
   from the end of the list rather than raising. Sending back a `-1` read from
   `get/selected_track` therefore does not restore "a return track or the
   master was selected" — it silently selects the **last regular track**
