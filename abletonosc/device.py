@@ -48,13 +48,14 @@ class DeviceHandler(AbletonOSCHandler):
             self.osc_server.add_handler("/live/device/get/%s" % prop,
                                         create_device_callback(self._get_property, prop))
             #--------------------------------------------------------------------------------
-            # include_ids on the listen pair only. The get/ (and set/) registrations
-            # above already carry the indices out through the wrapper's
-            # (track_index, device_index, *rv) reply envelope, so adding ids there
-            # would echo them twice; the listener pushes are built inside
-            # _start_listen from its own params, which without ids is the empty
-            # tuple — a push with no identity, and a listener key of (prop, ()) that
-            # collapses every device onto one process-wide subscription.
+            # include_ids on the listen pair only. The get/ registration just above,
+            # and the set/ registration in the loop below, already carry the indices
+            # out through the wrapper's (track_index, device_index, *rv) reply
+            # envelope, so adding ids there would echo them twice; the listener
+            # pushes are built inside _start_listen from its own params, which
+            # without ids is the empty tuple — a push with no identity, and a
+            # listener key of (prop, ()) that collapses every device onto one
+            # process-wide subscription.
             #--------------------------------------------------------------------------------
             self.osc_server.add_handler("/live/device/start_listen/%s" % prop,
                                         create_device_callback(self._start_listen, prop, include_ids=True))

@@ -1302,10 +1302,11 @@ pushes **two** datagrams: one on `/live/device/get/parameter/value` and one on
 the subscription's identity, and in the echo. Clients that send floats by
 default (TouchOSC; upstream issue #33) can subscribe, a start sent as floats
 is stopped by a stop sent as ints, and both the query reply and the push echo
-ints either way. The same normalisation applies to the property listen pair
-above. Arguments past the third are not part of a parameter subscription's
-identity and are ignored; sending **fewer** than three is a malformed request
-and answers on `/live/error`.
+ints either way. The same index normalisation applies to the property listen
+pair above. Arguments past the third are not part of a parameter
+subscription's identity and are ignored — this rule is parameter-only, since
+the property pair takes exactly two arguments; sending **fewer** than three
+to the parameter pair is a malformed request and answers on `/live/error`.
 
 Subscribing pushes the current value immediately, before any change — true of
 every listener in this API, and how a client seeds its initial state without a

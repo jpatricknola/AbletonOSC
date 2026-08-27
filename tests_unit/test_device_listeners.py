@@ -344,3 +344,48 @@ def test_query_replies_are_unchanged(handler, server, receiver):
     #--------------------------------------------------------------------------------
     dispatch(server, "/live/device/get/type", 0, 1)
     assert receiver.drain() == [("/live/device/get/type", (0, 1, 1))]
+
+
+#--------------------------------------------------------------------------------
+# 11. Arguments past the third are ignored on a parameter subscription
+#--------------------------------------------------------------------------------
+
+def test_parameter_subscribe_ignores_arguments_past_the_third(handler, server,
+                                                              receiver):
+    dispatch(server, "/live/device/start_listen/parameter/value", 0, 0, 1, "bogus")
+
+    #--------------------------------------------------------------------------------
+    # API.md, § Device: Listening: "Arguments past the third are not part of
+    # a parameter subscription's identity and are ignored." The key and the
+    # push both carry exactly three ints, with the fourth argument dropped.
+    #--------------------------------------------------------------------------------
+    assert list(handler.listener_functions.keys()) == [("value", (0, 0, 1))]
+    assert receiver.drain() == [
+        ("/live/device/get/parameter/value", (0, 0, 1, 440.0)),
+        ("/live/device/get/parameter/value_string", (0, 0, 1, "440.0 Hz")),
+    ]
+
+
+#--------------------------------------------------------------------------------
+# 12. Fewer than three arguments is a malformed request, not a listener leak
+#--------------------------------------------------------------------------------
+
+def test_parameter_subscribe_with_too_few_arguments_is_a_structured_error(
+        handler, server, receiver):
+    address = "/live/device/start_listen/parameter/value"
+    dispatch(server, address, 0, 0)
+
+    #--------------------------------------------------------------------------------
+    # API.md, § Device: Listening: "sending fewer than three is a malformed
+    # request and answers on /live/error." params[2] is missing, so the
+    # normalisation raises IndexError before any dict is written.
+    #--------------------------------------------------------------------------------
+    messages = receiver.drain()
+    assert len(messages) == 1
+    error_address, params = messages[0]
+    assert error_address == "/live/error"
+    assert params[0] == "request"
+    assert params[1] == address
+
+    assert handler.listener_functions == {}
+    assert handler.listener_objects == {}

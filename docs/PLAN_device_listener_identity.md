@@ -303,6 +303,21 @@ running Live and stays out of the gate; no changes to it here.
 
 ## Live verification
 
+> **Status, pr-review 2026-08-27: all five checks SKIPPED BY ENVIRONMENT.**
+> The precondition fails. Live 12.4.3 is running (PID 70216), but
+> `diff -rq --exclude=__pycache__ abletonosc "$HOME/Music/Ableton/User
+> Library/Remote Scripts/AbletonOSC/abletonosc"` reports **14 differing
+> files** — `application.py`, `browser.py`, `clip.py`, `clip_slot.py`,
+> `device.py`, `handler.py`, `midimap.py`, `osc_server.py`,
+> `return_track.py`, `scene.py`, `song.py`, `song_structure.py`,
+> `track.py`, `view.py` — plus `track_callback.py` present only in the
+> checkout. The installed copy is an older install, not this branch, and
+> the review may not install, restart Live or bind the reply port. Any
+> datagram sent now would exercise that older `device.py`, so no result
+> would mean anything about this change set. Checks 1–5 below therefore
+> remain **unrun**; whoever installs this branch and restarts Live owns
+> them. Nothing was sent to Live and nothing in the set was touched.
+
 Precondition for all checks: the Remote Scripts copy equals this checkout
 byte for byte **and** Live has been restarted since it was copied. Method:
 `API.md` § "The no-probe variant" — send fire-and-forget UDP to
