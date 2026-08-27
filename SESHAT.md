@@ -86,7 +86,11 @@ ongoing cost — merging upstream releases — is close to zero.
   test_handler_lifecycle.py` constructs the *real* `AbletonOSCHandler` outside
   Live for the first time (conftest's `load_handler_module()` stubs the one
   trivial `ableton.v2` base class it needs) and pins the order, the hook, and
-  the listener bookkeeping.
+  the listener bookkeeping. The subclass *declarations* — each handler's
+  `class_identifier` value, and the absence of a subclass `__init__` or any
+  `self.class_identifier` assignment — are pinned separately and without
+  imports by `tests_unit/test_handler_subclass_contract.py`, which reaches
+  all twelve production subclasses by parsing them.
 
 - **`handler.py` — `_stop_listen` unbinds from the stored object.** Upstream
   unbinds the listener from the target it is *handed*. Listeners are keyed by
@@ -958,12 +962,16 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   of this — `test_invariants_are_set_before_init_api` and
   `test_identifier_is_not_clobbered_after_construction` drive the real
   `AbletonOSCHandler.__init__` through a local `Probe` subclass, so a revert
-  of the base constructor fails loudly. It does **not** catch the subclass
-  half: the suite never constructs a production handler (`TrackHandler` and
-  the rest import `Live` at module scope, out of reach here), so a merge that
-  restores one subclass's own `__init__` and drops its class attribute passes
-  the suite green — run it on every merge for the base-class case, and check
-  subclasses by eye for the other until a Live-free test covers them too. The
+  of the base constructor fails loudly. The subclass half is caught
+  statically by `tests_unit/test_handler_subclass_contract.py`: the suite
+  still never constructs a production handler (`TrackHandler` and the rest
+  import `Live` at module scope, out of reach here), so that file parses
+  `abletonosc/*.py` with `ast` instead, and fails on a restored subclass
+  `__init__`, on a dropped or typo'd class attribute, and on any
+  `self.class_identifier` assignment anywhere in a subclass — including one
+  pasted into `init_state()`, which shadows identity just as silently.
+  Between the two, `python3 -m pytest tests_unit/` on every merge covers both
+  halves. The
   `reload_imports` ordering above (osc_server and handler first) is part of
   the same fix and is likewise silent when lost.
 
