@@ -7,7 +7,10 @@ submodule at `priv/AbletonOSC`; `mix abletonosc.install` copies the tree
 wholesale into the user's Remote Scripts directory.
 
 This file lists **every divergence from upstream**, and is the thing to keep
-current when a commit lands here. Before the fork, Seshat's additions lived as
+current when a commit lands here. Its complement is [FORK_GAPS.md](FORK_GAPS.md):
+what the Live Object Model exposes that this fork does *not* yet — the
+inventory a handler is drawn from, kept here because the fork is where the
+gap closes. Before the fork, Seshat's additions lived as
 four files patched into the user's install at install time, which made the delta
 self-describing by construction. A fork loses that property unless someone
 writes it down. This is that.
