@@ -43,6 +43,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · A-4 · Object-valued read helpers
 
+**Plan:** [docs/PLAN_object_valued_read_helpers.md](docs/PLAN_object_valued_read_helpers.md)
+
 **Goal:** index-returning handlers for `Song.master_track`,
 `Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`,
 `Song.View.selected_chain`, `selected_parameter`, `mod_mapping_device` /
