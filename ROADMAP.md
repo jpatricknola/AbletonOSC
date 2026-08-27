@@ -72,6 +72,8 @@ subclass case.
 
 ## #2 · Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and the device.py property pair
 
+**Plan:** [docs/PLAN_listener_identity_normalization.md](docs/PLAN_listener_identity_normalization.md)
+
 **Goal:** every `_start_listen`/`_stop_listen` call site builds its identity
 tuple the same way `abletonosc/device.py`'s parameter-listener pair now does
 (shipped in "Device listener identity — parameter indices and property
