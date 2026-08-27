@@ -43,6 +43,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · Normalize listener argument identity in `track_callback.py`
 
+**Plan:** [docs/PLAN_track_callback_listener_identity.md](docs/PLAN_track_callback_listener_identity.md)
+
 **Goal:** `track_callback.py`'s `include_track_id` branch truncates its
 identity to exactly the arguments that are part of it — the same rule
 "Normalize listener argument identity in scene.py, clip.py, clip_slot.py, and
