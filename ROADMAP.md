@@ -334,6 +334,41 @@ Comment-only; no behaviour changes.
   no non-comment line, same as the A-4 `track_identity.py` precedent.
 - No dependencies.
 
+## #13 · Verify wildcard fan-out against Seshat's `/live/device/` usage
+
+**Goal:** confirm whether Seshat ever sends an OSC address *pattern* (not a
+literal address) under `/live/device/`, and if so, record what changes for
+it: `/live/device/get/parameters/*` now fans out to eleven replies instead of
+five (harmless — each carries its own `callback_address`), and
+`/live/device/set/parameter/* <t> <d> <p> <float>` now also matches
+`set/parameter/display_value` alongside `set/parameter/value` — a float
+assigned to Live's string setter, which if Live raises a Boost
+`ArgumentError` (a `TypeError` subclass) is **not** skipped by
+`_is_wildcard_skip` (`osc_server.py:105`), so the client gains a
+`/live/error` it did not previously get.
+
+**Why:** flagged in pr-review of "DeviceParameter rich reply" (2026-08-29).
+`OSCServer.process_message` (`osc_server.py:241`) fans an address pattern out
+over every matching registration, so that PR's "pin bump only" downstream
+claim holds for direct dispatch but is unmeasured for wildcard sends —
+the reviewer could not check Seshat's handlers from this repo, and neither
+could the nit-triage pass that declined fixing it inline.
+
+**Planner notes:**
+- Source: pr-review finding on `feat/device-parameter-rich-reply`, 2026-08-29
+  (non-blocking nit, declined for that PR as speculative and unverifiable
+  from this repo — recorded here rather than fixed blind).
+- Check Seshat's own OSC address construction (`lib/seshat/tools/handlers.ex`
+  and anywhere else it sends to this bridge) for any address containing a
+  wildcard character (`*`, `?`, `[`, `{`) under `/live/device/`. If none
+  exists, this closes with that finding recorded and no code change here.
+- If one does exist, decide whether the fix belongs in this fork (narrow
+  `set/parameter/*`'s effective family, or extend `_is_wildcard_skip` to
+  recognise the Boost `ArgumentError` case) or in how Seshat builds the
+  address.
+- No dependencies; verification-only, and may resolve to "no action" without
+  ever becoming a Python change here.
+
 ---
 
 ## Deliberately not planned

@@ -1544,7 +1544,7 @@ trusting it blind.
 
 ### Parameter description
 
-Everything above `value` / `min` / `max` / `is_quantized` describes what a
+Everything beyond `value` / `min` / `max` / `is_quantized` describes what a
 parameter *means* rather than where it sits in its range. Each bulk address
 answers **one element per parameter** in `device.parameters` order — the same
 order and length as `get/parameters/name`, and `track_id, device_id` alone for

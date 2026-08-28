@@ -229,7 +229,7 @@ class DeviceHandler(AbletonOSCHandler):
         # address this fork registers is documented in API.md; an address built from a
         # format string would be invisible to that tripwire.
         #--------------------------------------------------------------------------------
-        def _parameter_at(device, params: Tuple[Any]):
+        def _parameter_from_params(device, params: Tuple[Any]):
             #--------------------------------------------------------------------------------
             # Cast to int so we tolerate floats from interfaces such as TouchOSC that
             # send floats by default (upstream issue #33), exactly as
@@ -261,7 +261,9 @@ class DeviceHandler(AbletonOSCHandler):
             #--------------------------------------------------------------------------------
             try:
                 return parameter.default_value
-            except Exception:
+            except Exception as e:
+                self.logger.debug("AbletonOSC: %s.default_value raised %s: %s"
+                                  % (parameter, type(e).__name__, e))
                 return None
 
         def _value_items_or_empty(parameter, attribute: str):
@@ -279,7 +281,9 @@ class DeviceHandler(AbletonOSCHandler):
             #--------------------------------------------------------------------------------
             try:
                 return tuple(getattr(parameter, attribute))
-            except Exception:
+            except Exception as e:
+                self.logger.debug("AbletonOSC: %s.%s raised %s: %s"
+                                  % (parameter, attribute, type(e).__name__, e))
                 return ()
 
         def device_get_parameters_display_value(device, params: Tuple[Any] = ()):
@@ -301,7 +305,7 @@ class DeviceHandler(AbletonOSCHandler):
             return tuple(parameter.original_name for parameter in device.parameters)
 
         def device_get_parameter_display_value(device, params: Tuple[Any] = ()):
-            param_index, parameter = _parameter_at(device, params)
+            param_index, parameter = _parameter_from_params(device, params)
             return param_index, parameter.display_value
 
         def device_set_parameter_display_value(device, params: Tuple[Any] = ()):
@@ -311,35 +315,35 @@ class DeviceHandler(AbletonOSCHandler):
             # is Live's business — if it raises, _dispatch turns that into a structured
             # /live/error naming this request.
             #--------------------------------------------------------------------------------
-            _, parameter = _parameter_at(device, params)
+            _, parameter = _parameter_from_params(device, params)
             parameter.display_value = params[1]
 
         def device_get_parameter_state(device, params: Tuple[Any] = ()):
-            param_index, parameter = _parameter_at(device, params)
+            param_index, parameter = _parameter_from_params(device, params)
             return param_index, _enum_code(parameter.state)
 
         def device_get_parameter_is_enabled(device, params: Tuple[Any] = ()):
-            param_index, parameter = _parameter_at(device, params)
+            param_index, parameter = _parameter_from_params(device, params)
             return param_index, parameter.is_enabled
 
         def device_get_parameter_automation_state(device, params: Tuple[Any] = ()):
-            param_index, parameter = _parameter_at(device, params)
+            param_index, parameter = _parameter_from_params(device, params)
             return param_index, _enum_code(parameter.automation_state)
 
         def device_get_parameter_default_value(device, params: Tuple[Any] = ()):
-            param_index, parameter = _parameter_at(device, params)
+            param_index, parameter = _parameter_from_params(device, params)
             return param_index, _default_value_or_none(parameter)
 
         def device_get_parameter_original_name(device, params: Tuple[Any] = ()):
-            param_index, parameter = _parameter_at(device, params)
+            param_index, parameter = _parameter_from_params(device, params)
             return param_index, parameter.original_name
 
         def device_get_parameter_value_items(device, params: Tuple[Any] = ()):
-            param_index, parameter = _parameter_at(device, params)
+            param_index, parameter = _parameter_from_params(device, params)
             return (param_index, *_value_items_or_empty(parameter, "value_items"))
 
         def device_get_parameter_short_value_items(device, params: Tuple[Any] = ()):
-            param_index, parameter = _parameter_at(device, params)
+            param_index, parameter = _parameter_from_params(device, params)
             return (param_index, *_value_items_or_empty(parameter, "short_value_items"))
 
         #--------------------------------------------------------------------------------
@@ -349,11 +353,11 @@ class DeviceHandler(AbletonOSCHandler):
         # of its parameters. Both are silent, like every other method address here.
         #--------------------------------------------------------------------------------
         def device_parameter_begin_gesture(device, params: Tuple[Any] = ()):
-            _, parameter = _parameter_at(device, params)
+            _, parameter = _parameter_from_params(device, params)
             parameter.begin_gesture()
 
         def device_parameter_end_gesture(device, params: Tuple[Any] = ()):
-            _, parameter = _parameter_at(device, params)
+            _, parameter = _parameter_from_params(device, params)
             parameter.end_gesture()
 
         self.osc_server.add_handler("/live/device/get/parameters/display_value", create_device_callback(device_get_parameters_display_value))

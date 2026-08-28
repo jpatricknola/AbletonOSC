@@ -965,8 +965,12 @@ so treat any merge that reverts one as a regression, not a preference.
     one error per continuous parameter on its reply socket);
     `default_value` that raises becomes OSC nil in that parameter's own slot,
     so one such parameter cannot poison a bulk reply or shorten it out of
-    alignment with `get/parameters/name`. Both mirror upstream's own
-    `_get_property` habit of turning a "does not apply" into a graceful reply.
+    alignment with `get/parameters/name`. Both are broader than upstream's own
+    `_get_property` (`handler.py`), which catches only `RuntimeError` for the
+    same "does not apply" case; these two catch bare `Exception`, deliberately,
+    for the reason above, and log the exception at debug level rather than
+    `_get_property`'s info level, so it stays out of the way on the ok path
+    but is still visible if a future Live starts raising here.
     A bad *index* is still a structured error either way.
   - **Every address is registered with a literal string, never built in a
     loop.** Seshat's `vendored_addresses_test` scrapes
@@ -984,7 +988,7 @@ so treat any merge that reverts one as a regression, not a preference.
   installed copy, which the environment refused. `API.md` § "Parameter
   description" carries the same ⚠️ markers and the Live verification checks are
   in the archived plan. The Live-free tripwire is
-  `tests_unit/test_device_parameters.py` (54 cases: reply shapes and OSC types
+  `tests_unit/test_device_parameters.py` (55 cases: reply shapes and OSC types
   for all seventeen, both graceful-empty rules, float-index normalisation, the
   structured errors, and that the pre-existing numeric addresses still answer
   unchanged). See § Merge hazards.

@@ -460,6 +460,7 @@ def test_gestures_address_one_parameter_only(handler, server, receiver):
     "/live/device/get/parameter/original_name",
     "/live/device/get/parameter/value_items",
     "/live/device/get/parameter/short_value_items",
+    "/live/device/set/parameter/display_value",
     "/live/device/parameter/begin_gesture",
     "/live/device/parameter/end_gesture",
 ])
