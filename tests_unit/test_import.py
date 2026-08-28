@@ -85,9 +85,15 @@ def test_component_stub_carries_a_song_attribute():
     # read-only property fed by component_guard(); the stub keeps it a plain
     # attribute so the suite's post-construction `handler.song = ...`
     # fixtures still work. bind_song() is the accurate path.
+    #
+    # This reads a process-global: it holds because every fixture sets `song`
+    # on an instance or, via bind_song(), on a per-test subclass — never on
+    # the base class. A fixture that did `AbletonOSCHandler.song = ...` would
+    # make this fail order-dependently; that is the tripwire, not a flake.
     #--------------------------------------------------------------------------------
     module = load_handler_module()
     assert module.AbletonOSCHandler.song is None
+    assert "song" not in vars(module.AbletonOSCHandler)
 
 
 def test_server_starts_on_ephemeral_port(server):

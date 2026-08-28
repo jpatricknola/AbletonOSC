@@ -129,14 +129,16 @@ def load_handler_module():
             fixture in this suite assigns `handler.song = FakeSong(...)`
             *after* construction, which the real property would forbid. Tests
             that need the Live-accurate "already set when init_api() runs"
-            guarantee use bind_song() below.
+            guarantee use bind_song() below. The constructor takes no `song=`
+            on purpose: AbletonOSCHandler calls `super().__init__()` bare, so
+            such a kwarg could never be reached and would only invite a reader
+            to assume it is the tested mechanism.
             """
 
             song = None
 
-            def __init__(self, *args, song=None, **kwargs):
-                if song is not None:
-                    self.song = song
+            def __init__(self, *args, **kwargs):
+                pass
 
         component = types.ModuleType("ableton.v2.control_surface.component")
         component.Component = Component
