@@ -343,6 +343,31 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
 - No dependencies.
 
+## #13 · Document `song` in the handler constructor contract
+
+**Goal:** `abletonosc/handler.py`'s `AbletonOSCHandler` "Constructor
+contract" docstring lists `song` alongside the other invariants (`logger`,
+`manager`, `osc_server`, the three listener dicts) that `init_api()` may
+rely on already being set.
+
+**Why:** the docstring's step 2 enumerates what step 4 (`init_api()`) may
+read, but omits `song` even though `SongHandler.init_api` and
+`ViewHandler.init_api` both bind `self.song` / `self.song.view` into
+`partial()`s while the constructor is still registering addresses —
+exactly the invariant the docstring exists to name. A future handler
+author reading only the docstring would not learn that `song` is
+available that early, or that `tests_unit/conftest.py`'s `bind_song()`
+is how the test harness models it (see `SESHAT.md`'s test-harness entry).
+Comment-only; no behaviour changes.
+
+**Planner notes:**
+- Source: pr-review finding on `object-read-glue-tests`, 2026-08-28
+  (observation, not a blocking or applied finding — flagged as a future
+  comment-only addition, deliberately outside that item's file list).
+- `abletonosc/handler.py` only. Verify with a `git diff --stat` showing
+  no non-comment line, same as the A-4 `track_identity.py` precedent.
+- No dependencies.
+
 ---
 
 ## Deliberately not planned
