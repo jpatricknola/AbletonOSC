@@ -43,6 +43,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · B-2 · DeviceParameter rich reply
 
+**Plan:** [docs/PLAN_device_parameter_rich_reply.md](docs/PLAN_device_parameter_rich_reply.md)
+
 **Goal:** one richer `parameters` reply plus per-parameter addresses —
 `value_items`, `short_value_items`, `display_value` (get/set), `state`,
 `is_enabled`, `automation_state`, `default_value`, `original_name`,
