@@ -5,9 +5,11 @@ This drives the *real* shipped module, imported through conftest's synthetic
 root package — it imports nothing Live-side, exactly so it can be. It is the
 whole of the logic behind /live/view/get/selected_track_identity and the
 reworked /live/view/get/selected_track, get/selected_clip and
-get/selected_device: view.py itself imports `Live` at module scope and stays
-out of reach, so its registrations and closures are covered by the plan's
-Live verification checks, not here.
+get/selected_device. Kept parameterised on `song` rather than closed over
+`self`, it is testable as plain functions; the ViewHandler glue that calls it
+— the registrations, the closures and the replies that reach the socket — is
+tests_unit/test_view_object_reads.py's subject, and the SongHandler half is
+tests_unit/test_song_object_reads.py's.
 
 The fakes below use plain objects with default identity-based `==`, matching
 the LOM's object-identity equality. Whether Live's Boost.Python wrappers

@@ -2,11 +2,13 @@
 # Resolving a LOM track object back to the address family that reaches it.
 #
 # It lives in its own module, importing nothing but `typing`, for the same
-# reason track_callback.py does: view.py imports `Live` at module scope and
-# therefore cannot be imported outside Live, so any resolution logic written
-# as a closure inside ViewHandler.init_api could never be reached by
-# tests_unit/. Parameterised on `song` instead of closed over `self`, it is
-# the real shipped code under test in tests_unit/test_track_identity.py.
+# reason track_callback.py does: kept out of the handler closures, it is
+# testable as plain functions. Parameterised on `song` instead of closed over
+# `self`, it is the real shipped code under test in
+# tests_unit/test_track_identity.py, exhaustively and without a handler in the
+# way; the handler glue that calls it is driven separately by
+# tests_unit/test_view_object_reads.py and
+# tests_unit/test_song_object_reads.py.
 #
 # Seshat divergence — see SESHAT.md. Upstream has no equivalent: its view
 # getters resolve the selection through `song.tracks` alone, which raises
@@ -157,8 +159,11 @@ def selected_device_indices(song: Any) -> Tuple[int, int]:
 # API.md § "Object-valued reads" for the full pattern.
 #
 # The resolution lives here rather than in song.py / view.py for the same
-# reason identify_track does: both of those import `Live` at module scope and
-# are unreachable from tests_unit/.
+# reason identify_track does: as plain functions parameterised on `song` it
+# can be covered exhaustively, with no handler, no OSC server and no fixture
+# in the way. The registrations and closures in song.py / view.py that call it
+# are covered in turn by tests_unit/test_song_object_reads.py and
+# tests_unit/test_view_object_reads.py.
 #--------------------------------------------------------------------------------
 
 #--------------------------------------------------------------------------------

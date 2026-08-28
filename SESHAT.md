@@ -437,6 +437,21 @@ so treat any merge that reverts one as a regression, not a preference.
   - `CONTRIBUTING.md`'s Tests section documents both suites and their real
     preconditions, and its Live-reloading section says `/live/api/reload`
     rather than the non-existent `/live/reload`.
+  - `tests_unit/conftest.py`'s `Component` stub carries a **`song`**
+    attribute, and the module offers **`bind_song(handler_class, song)`**.
+    Live supplies a handler's song through
+    `ControlSurface.component_guard()`, which `manager.py` constructs every
+    handler inside — `Component.song` is a read-only property over the
+    `song=` constructor argument — so `self.song` is populated from the first
+    line of `init_state()`/`init_api()`. `SongHandler` and `ViewHandler` rely
+    on that: they bind `self.song` and `self.song.view` into `partial()`s
+    while the constructor is still registering addresses, which no
+    post-construction `handler.song = ...` fixture could satisfy.
+    `bind_song()` returns a per-test subclass whose `song` is a class
+    attribute, which is the Live-free image of that guarantee; the stub keeps
+    `song` a plain attribute rather than a property so the suite's existing
+    post-construction assignments still work. Any future handler that reads
+    `self.song` at registration time is testable the same way.
 
   The port collision with Seshat is deliberately *not* worked around: it is the
   interlock that stops this suite from firing `stop_listen` at properties
@@ -873,8 +888,9 @@ so treat any merge that reverts one as a regression, not a preference.
   All the resolution lives in **`track_identity.py`** (`group_track_index`,
   `owning_track_identity`, `device_identity`, `parameter_identity`,
   `chain_identity`, plus the inverse resolvers `resolve_track` /
-  `resolve_device`), because `song.py` and `view.py` import `Live` at module
-  scope and are unreachable from `tests_unit/`. `owning_track_identity`
+  `resolve_device`), so it can be covered exhaustively as plain functions
+  parameterised on `song`, with no handler or OSC server in the way.
+  `owning_track_identity`
   climbs `canonical_parent` with a 16-level cap: the cap is what keeps a
   cyclic parent chain from hanging Live's UI thread, and exhausting it is a
   loud `ValueError` → `/live/error` rather than a sentinel. ⚠️ The ascent and
@@ -894,11 +910,18 @@ so treat any merge that reverts one as a regression, not a preference.
   of `song` and `track` as well as `view` — all three now `from`-import it.
   See § Merge hazards.
 
-  `tests_unit/test_track_identity.py` (resolvers) and
-  `tests_unit/test_object_reads.py` (the two wrapper-borne addresses,
-  dispatched through the real handlers) are the Live-free tripwires; the
-  `song.py` / `view.py` registrations can only be checked against a running
-  Live.
+  The Live-free tripwires are `tests_unit/test_track_identity.py` (the
+  resolvers), `tests_unit/test_object_reads.py` (the two wrapper-borne
+  addresses, `/live/track/get/group_track` and `/live/clip_slot/get/clip`,
+  dispatched through the real handlers) and — added afterwards, once the
+  `Component` stub gained a `song` — `tests_unit/test_song_object_reads.py`
+  and `tests_unit/test_view_object_reads.py`, which dispatch the other seven
+  addresses through the real `SongHandler` / `ViewHandler`: the registrations,
+  the reply shapes, the `getter=` push address, `stop_listen` bookkeeping
+  across `clear_api()`, and every `set/appointed_device` rejection arriving as
+  a structured `/live/error`. What none of them can prove is the behaviour
+  against real LOM objects — the ⚠️ ascent and `==` questions above stay open
+  until someone runs A-4's Live verification checks.
 
 ### Seshat's own handlers
 
@@ -1153,10 +1176,13 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   `test_identifier_is_not_clobbered_after_construction` drive the real
   `AbletonOSCHandler.__init__` through a local `Probe` subclass, so a revert
   of the base constructor fails loudly. The subclass half is caught
-  statically by `tests_unit/test_handler_subclass_contract.py`: the suite
-  still never constructs a production handler (`TrackHandler` and the rest
-  import `Live` at module scope, out of reach here), so that file parses
-  `abletonosc/*.py` with `ast` instead, and fails on a restored subclass
+  statically by `tests_unit/test_handler_subclass_contract.py`: the
+  behavioural layer constructs seven of the twelve production handlers today
+  (device, scene, clip_slot, track, clip, song, view) but not
+  `application.py`, `browser.py`, `midimap.py`, `return_track.py` or
+  `song_structure.py`, which have no conftest loader — so that file parses
+  `abletonosc/*.py` with `ast` instead, covering all twelve declarations
+  regardless, and fails on a restored subclass
   `__init__`, on a dropped or typo'd class attribute, and on any
   `self.class_identifier` assignment anywhere in a subclass — including one
   pasted into `init_state()`, which shadows identity just as silently.

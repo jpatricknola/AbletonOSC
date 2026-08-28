@@ -153,9 +153,10 @@ def handlers(server):
     The three production handlers, all registered against one production
     OSCServer and sharing one fake song.
 
-    `self.song` is read at dispatch time, not at registration time, so
-    assigning it after construction is enough — and is the only way to get a
-    song in here at all without Live.
+    For these three, `self.song` is read at dispatch time rather than at
+    registration time, so assigning it after construction is enough.
+    (Handlers that read it *during* registration — song.py, view.py — need
+    conftest's `bind_song()` instead; see test_song_object_reads.py.)
     """
     load_handler_module()
     modules = {
