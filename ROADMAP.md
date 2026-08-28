@@ -41,29 +41,7 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · B-2 · DeviceParameter rich reply
-
-**Goal:** one richer `parameters` reply plus per-parameter addresses —
-`value_items`, `short_value_items`, `display_value` (get/set), `state`,
-`is_enabled`, `automation_state`, `default_value`, `original_name`,
-`begin_gesture` / `end_gesture`.
-
-**Why:** the integration audit's Medium–high, with no dependencies on other
-gaps and a named consumer (enum labels, disabled/automated state). First real
-gap PR — it proves the batching conventions the rest reuse: handlers +
-`API.md` rows + FORK_GAPS entry removal + inventory regeneration + Seshat pin.
-
-**Planner notes:**
-- Source: `CLOSING_THE_GAPS.md`, row **B-2**; closes FORK_GAPS "Device
-  parameters — numeric only".
-- `str_for_value` is **already shipped** as
-  `/live/device/get/parameter/value_string` (`device.py:210`, calling
-  `str_for_value` at `device.py:166`). The B-2 row still lists it; do not
-  re-add the address, and delete that clause from the row at ship time.
-- Shape PR: the wire form is the review subject.
-- No dependencies.
-
-## #2 · C-3 · Application dialogs and versions
+## #1 · C-3 · Application dialogs and versions
 
 **Goal:** read-only dialog state (`open_dialog_count`,
 `current_dialog_message`, `current_dialog_button_count`, listen where
@@ -89,7 +67,7 @@ dialog may guard unsaved work.
   property loop the other handlers use or stays hand-rolled.
 - No dependencies.
 
-## #3 · B-1 · Notes extended
+## #2 · B-1 · Notes extended
 
 **Goal:** `/live/clip/get/notes_extended` and `/live/clip/add/notes_extended`
 carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`,
@@ -112,7 +90,7 @@ old five-field addresses unchanged; then the ID-keyed members
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #4 · One `/live/song/undo` does not revert an OSC-created scene
+## #3 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -151,7 +129,7 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #5 · Make a failed live code reload safe and reported
+## #4 · Make a failed live code reload safe and reported
 
 **Goal:** a reload that raises does not activate a partially reloaded module
 graph — `/live/api/reload` either preserves a usable previous API or fails in a
@@ -181,10 +159,10 @@ is told nothing went wrong.
   listener dict — decide in this item whether to close it or record it as
   accepted, since the code comment currently points here for the answer.
 - Every gap PR uses reload during development; move this up if it bites
-  during #1–#3.
+  during #1–#2.
 - No dependencies.
 
-## #6 · Stop masking Remote Script import failures
+## #5 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -203,7 +181,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #7 · Remove the process-global and shared-file risks from song structure export
+## #6 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -225,7 +203,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #8 · Add bounded log retention
+## #7 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -242,7 +220,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #9 · A-3 · Return / master `Track` parity
+## #8 · A-3 · Return / master `Track` parity
 
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
@@ -266,7 +244,7 @@ over the difference.
 - Prefer a shared track resolver over three copies of the handler table.
 - No dependencies.
 
-## #10 · C-1 · `Song` remainder
+## #9 · C-1 · `Song` remainder
 
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
@@ -284,7 +262,7 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
   `scale_intervals` and `is_ableton_link_start_stop_sync_enabled` only.
 - No dependencies.
 
-## #11 · D-2 · Groove
+## #10 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -307,7 +285,7 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
 - No dependencies.
 
-## #12 · Document `song` in the handler constructor contract
+## #11 · Document `song` in the handler constructor contract
 
 **Goal:** `abletonosc/handler.py`'s `AbletonOSCHandler` "Constructor
 contract" docstring lists `song` alongside the other invariants (`logger`,
@@ -331,6 +309,41 @@ Comment-only; no behaviour changes.
 - `abletonosc/handler.py` only. Verify with a `git diff --stat` showing
   no non-comment line, same as the A-4 `track_identity.py` precedent.
 - No dependencies.
+
+## #12 · Verify wildcard fan-out against Seshat's `/live/device/` usage
+
+**Goal:** confirm whether Seshat ever sends an OSC address *pattern* (not a
+literal address) under `/live/device/`, and if so, record what changes for
+it: `/live/device/get/parameters/*` now fans out to eleven replies instead of
+five (harmless — each carries its own `callback_address`), and
+`/live/device/set/parameter/* <t> <d> <p> <float>` now also matches
+`set/parameter/display_value` alongside `set/parameter/value` — a float
+assigned to Live's string setter, which if Live raises a Boost
+`ArgumentError` (a `TypeError` subclass) is **not** skipped by
+`_is_wildcard_skip` (`osc_server.py:105`), so the client gains a
+`/live/error` it did not previously get.
+
+**Why:** flagged in pr-review of "DeviceParameter rich reply" (2026-08-29).
+`OSCServer.process_message` (`osc_server.py:241`) fans an address pattern out
+over every matching registration, so that PR's "pin bump only" downstream
+claim holds for direct dispatch but is unmeasured for wildcard sends —
+the reviewer could not check Seshat's handlers from this repo, and neither
+could the nit-triage pass that declined fixing it inline.
+
+**Planner notes:**
+- Source: pr-review finding on `feat/device-parameter-rich-reply`, 2026-08-29
+  (non-blocking nit, declined for that PR as speculative and unverifiable
+  from this repo — recorded here rather than fixed blind).
+- Check Seshat's own OSC address construction (`lib/seshat/tools/handlers.ex`
+  and anywhere else it sends to this bridge) for any address containing a
+  wildcard character (`*`, `?`, `[`, `{`) under `/live/device/`. If none
+  exists, this closes with that finding recorded and no code change here.
+- If one does exist, decide whether the fix belongs in this fork (narrow
+  `set/parameter/*`'s effective family, or extend `_is_wildcard_skip` to
+  recognise the Boost `ArgumentError` case) or in how Seshat builds the
+  address.
+- No dependencies; verification-only, and may resolve to "no action" without
+  ever becoming a Python change here.
 
 ---
 
