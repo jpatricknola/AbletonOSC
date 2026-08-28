@@ -43,6 +43,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · Test coverage for the object-read `song.py` / `view.py` glue
 
+**Plan:** [docs/PLAN_object_read_glue_tests.md](docs/PLAN_object_read_glue_tests.md)
+
 **Goal:** give the `tests_unit/conftest.py` `Component` stub a settable
 `song` attribute so `load_song_module()` / `load_view_module()` can pin the
 reply shapes, the listener push address and `stop_listen` bookkeeping for
