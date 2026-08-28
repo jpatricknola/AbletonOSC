@@ -195,8 +195,20 @@ def test_get_reports_a_nested_device_with_a_minus_one_device_index(song_handler,
     assert receiver.drain() == [(GET, ("track", 1, -1))]
 
 
-def test_get_reply_is_a_triple_of_str_int_int(song_handler, song, server, receiver):
-    song.appointed_device = song.tracks[1].devices[0]
+@pytest.mark.parametrize("appointed", [
+    pytest.param(lambda song: song.tracks[1].devices[0], id="regular-track"),
+    pytest.param(lambda song: song.return_tracks[0].devices[0], id="return-track"),
+    pytest.param(lambda song: song.master_track.devices[0], id="master"),
+    pytest.param(lambda song: song.nested_device, id="nested-device"),
+])
+def test_get_reply_is_a_triple_of_str_int_int(song_handler, song, server, receiver, appointed):
+    """
+    Parametrised across all four categories, not just the regular-track case:
+    tuple equality does not distinguish `1` from `1.0`, so a float index
+    reaching the wire on the return/master/nested path would be a silent
+    decode change for Seshat and would otherwise pass unnoticed.
+    """
+    song.appointed_device = appointed(song)
     dispatch(server, GET)
     params = replies(receiver.drain(), GET)[0]
     assert len(params) == 3
@@ -277,6 +289,7 @@ def test_set_rejections_arrive_as_structured_errors(song_handler, song, server,
     assert error[1] == SET
     assert error[3] == len(args)
     assert tuple(error[4:]) == args
+    assert replies(messages, SET) == []
     assert song.appointed_device is song.tracks[1].devices[0]
 
 
@@ -354,6 +367,8 @@ def test_clear_api_unbinds_the_appointed_device_listener(song_handler, song,
     song_handler.clear_api()
     assert song.appointed_device_listeners == []
     assert song_handler.listener_functions == {}
+    assert song_handler.listener_objects == {}
+    assert song_handler.listener_lom_properties == {}
 
 
 def test_a_push_that_cannot_resolve_has_no_error_envelope(song_handler, song,

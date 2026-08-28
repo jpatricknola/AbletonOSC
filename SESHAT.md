@@ -625,10 +625,12 @@ so treat any merge that reverts one as a regression, not a preference.
   - **New module `abletonosc/track_identity.py`** holds the whole resolution
     (`identify_track`, `selected_track_identity`, `selected_track_index`,
     `selected_device_indices`), importing nothing Live-side, on the
-    `track_callback.py` model: `view.py` imports `Live` at module scope, so
-    logic left as a closure inside `ViewHandler.init_api` could never be reached
-    by `tests_unit/`. `tests_unit/test_track_identity.py` drives the shipped
-    module directly. It is also the module the inverse resolvers landed in —
+    `track_callback.py` model: at the time, `view.py` imported `Live` at module
+    scope, so logic left as a closure inside `ViewHandler.init_api` could never
+    have been reached by `tests_unit/` — the extraction predates the loaders
+    that later made the module reachable (see the A-4 entry's Live-free
+    tripwires paragraph below). `tests_unit/test_track_identity.py` drives the
+    shipped module directly. It is also the module the inverse resolvers landed in —
     `resolve_track` / `resolve_device`, added by A-4's object-valued reads
     (see that entry below), and what A-3 (return/master `Track` parity) will
     build on.
