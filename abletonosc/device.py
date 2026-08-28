@@ -206,6 +206,174 @@ class DeviceHandler(AbletonOSCHandler):
             param_index = int(params[0])
             return param_index, device.parameters[param_index].name
 
+        #--------------------------------------------------------------------------------
+        # Device: Describe parameters
+        #
+        # The numeric block above says where a parameter sits in its range. The
+        # addresses below say what it *means*: the string the GUI shows, the enum
+        # labels a quantized parameter cycles through, whether Live has greyed it out
+        # or handed it to automation, what it resets to, and the name a rack macro or
+        # a Max device renamed it from.
+        #
+        # Shape: one bulk address per field that is a single scalar per parameter,
+        # answering in device.parameters order exactly as parameters/name does, plus a
+        # per-parameter address for each. There is deliberately no combined record
+        # address: API.md "Round trips cost ticks, not datagrams" measured a burst of
+        # N different addresses answering inside one tick, identical to a single bulk
+        # endpoint, so a record buys no latency — and value_items is variable-length
+        # per parameter, so it could not sit in a fixed-arity record anyway.
+        #
+        # Every registration below is a literal address string, never assembled in a
+        # loop. Seshat's vendored_addresses_test scrapes add_handler("...") literals
+        # (plus the methods/properties_r/properties_rw lists) to check that every
+        # address this fork registers is documented in API.md; an address built from a
+        # format string would be invisible to that tripwire.
+        #--------------------------------------------------------------------------------
+        def _parameter_at(device, params: Tuple[Any]):
+            #--------------------------------------------------------------------------------
+            # Cast to int so we tolerate floats from interfaces such as TouchOSC that
+            # send floats by default (upstream issue #33), exactly as
+            # device_get_parameter_value does. The index comes back alongside the
+            # parameter because every per-parameter reply echoes it.
+            #--------------------------------------------------------------------------------
+            param_index = int(params[0])
+            return param_index, device.parameters[param_index]
+
+        def _enum_code(value):
+            #--------------------------------------------------------------------------------
+            # ParameterState and AutomationState are Boost.Python enums. A Boost enum
+            # is an int subclass, so the OSC builder would encode one as an int by
+            # accident; casting here makes the integer wire form deliberate, and stops
+            # a Live version that returns something else from silently changing the
+            # reply's OSC type tag. Same convention as /live/device/get/type, which
+            # already sends Live's device-type code. The code -> name tables are in
+            # API.md, under "Parameter description".
+            #--------------------------------------------------------------------------------
+            return int(value)
+
+        def _default_value_or_none(parameter):
+            #--------------------------------------------------------------------------------
+            # Live's docstring for default_value begins "Return the default value for
+            # this parameter.  A Default value is only" — i.e. not every parameter has
+            # one, and what a parameter without one does is unmeasured. A raise here
+            # would cost the whole bulk reply, so one parameter's failure becomes OSC
+            # nil in its own slot instead (the vendored builder encodes None as 'N').
+            #--------------------------------------------------------------------------------
+            try:
+                return parameter.default_value
+            except Exception:
+                return None
+
+        def _value_items_or_empty(parameter, attribute: str):
+            #--------------------------------------------------------------------------------
+            # Live: "Return the list of possible values for this parameter. Raises an
+            # error if 'is_quantized' is False." The exception class is unmeasured —
+            # Live 12.4.3's own Push2/model/repr guards the same read with
+            # (AttributeError, RuntimeError) — so the catch is broad.
+            #
+            # Answering with no items rather than a /live/error is deliberate: a client
+            # describing a whole device reads this per parameter, and would otherwise
+            # collect one error per continuous parameter on its reply socket.
+            # parameters/is_quantized already says which parameters can have items at
+            # all, so an empty list is not ambiguous.
+            #--------------------------------------------------------------------------------
+            try:
+                return tuple(getattr(parameter, attribute))
+            except Exception:
+                return ()
+
+        def device_get_parameters_display_value(device, params: Tuple[Any] = ()):
+            return tuple(parameter.display_value for parameter in device.parameters)
+
+        def device_get_parameters_state(device, params: Tuple[Any] = ()):
+            return tuple(_enum_code(parameter.state) for parameter in device.parameters)
+
+        def device_get_parameters_is_enabled(device, params: Tuple[Any] = ()):
+            return tuple(parameter.is_enabled for parameter in device.parameters)
+
+        def device_get_parameters_automation_state(device, params: Tuple[Any] = ()):
+            return tuple(_enum_code(parameter.automation_state) for parameter in device.parameters)
+
+        def device_get_parameters_default_value(device, params: Tuple[Any] = ()):
+            return tuple(_default_value_or_none(parameter) for parameter in device.parameters)
+
+        def device_get_parameters_original_name(device, params: Tuple[Any] = ()):
+            return tuple(parameter.original_name for parameter in device.parameters)
+
+        def device_get_parameter_display_value(device, params: Tuple[Any] = ()):
+            param_index, parameter = _parameter_at(device, params)
+            return param_index, parameter.display_value
+
+        def device_set_parameter_display_value(device, params: Tuple[Any] = ()):
+            #--------------------------------------------------------------------------------
+            # The value is passed through uncast: display_value is Live's *string*
+            # setter ("100 Hz"), and Live does the parsing. A string Live cannot parse
+            # is Live's business — if it raises, _dispatch turns that into a structured
+            # /live/error naming this request.
+            #--------------------------------------------------------------------------------
+            _, parameter = _parameter_at(device, params)
+            parameter.display_value = params[1]
+
+        def device_get_parameter_state(device, params: Tuple[Any] = ()):
+            param_index, parameter = _parameter_at(device, params)
+            return param_index, _enum_code(parameter.state)
+
+        def device_get_parameter_is_enabled(device, params: Tuple[Any] = ()):
+            param_index, parameter = _parameter_at(device, params)
+            return param_index, parameter.is_enabled
+
+        def device_get_parameter_automation_state(device, params: Tuple[Any] = ()):
+            param_index, parameter = _parameter_at(device, params)
+            return param_index, _enum_code(parameter.automation_state)
+
+        def device_get_parameter_default_value(device, params: Tuple[Any] = ()):
+            param_index, parameter = _parameter_at(device, params)
+            return param_index, _default_value_or_none(parameter)
+
+        def device_get_parameter_original_name(device, params: Tuple[Any] = ()):
+            param_index, parameter = _parameter_at(device, params)
+            return param_index, parameter.original_name
+
+        def device_get_parameter_value_items(device, params: Tuple[Any] = ()):
+            param_index, parameter = _parameter_at(device, params)
+            return (param_index, *_value_items_or_empty(parameter, "value_items"))
+
+        def device_get_parameter_short_value_items(device, params: Tuple[Any] = ()):
+            param_index, parameter = _parameter_at(device, params)
+            return (param_index, *_value_items_or_empty(parameter, "short_value_items"))
+
+        #--------------------------------------------------------------------------------
+        # The gesture pair takes the /live/song/cue_point/jump form — object segment,
+        # then verb — rather than /live/device/<method>, because the generic `methods`
+        # loop at the top of this file reaches a Device, and these are methods of one
+        # of its parameters. Both are silent, like every other method address here.
+        #--------------------------------------------------------------------------------
+        def device_parameter_begin_gesture(device, params: Tuple[Any] = ()):
+            _, parameter = _parameter_at(device, params)
+            parameter.begin_gesture()
+
+        def device_parameter_end_gesture(device, params: Tuple[Any] = ()):
+            _, parameter = _parameter_at(device, params)
+            parameter.end_gesture()
+
+        self.osc_server.add_handler("/live/device/get/parameters/display_value", create_device_callback(device_get_parameters_display_value))
+        self.osc_server.add_handler("/live/device/get/parameters/state", create_device_callback(device_get_parameters_state))
+        self.osc_server.add_handler("/live/device/get/parameters/is_enabled", create_device_callback(device_get_parameters_is_enabled))
+        self.osc_server.add_handler("/live/device/get/parameters/automation_state", create_device_callback(device_get_parameters_automation_state))
+        self.osc_server.add_handler("/live/device/get/parameters/default_value", create_device_callback(device_get_parameters_default_value))
+        self.osc_server.add_handler("/live/device/get/parameters/original_name", create_device_callback(device_get_parameters_original_name))
+        self.osc_server.add_handler("/live/device/get/parameter/display_value", create_device_callback(device_get_parameter_display_value))
+        self.osc_server.add_handler("/live/device/set/parameter/display_value", create_device_callback(device_set_parameter_display_value))
+        self.osc_server.add_handler("/live/device/get/parameter/state", create_device_callback(device_get_parameter_state))
+        self.osc_server.add_handler("/live/device/get/parameter/is_enabled", create_device_callback(device_get_parameter_is_enabled))
+        self.osc_server.add_handler("/live/device/get/parameter/automation_state", create_device_callback(device_get_parameter_automation_state))
+        self.osc_server.add_handler("/live/device/get/parameter/default_value", create_device_callback(device_get_parameter_default_value))
+        self.osc_server.add_handler("/live/device/get/parameter/original_name", create_device_callback(device_get_parameter_original_name))
+        self.osc_server.add_handler("/live/device/get/parameter/value_items", create_device_callback(device_get_parameter_value_items))
+        self.osc_server.add_handler("/live/device/get/parameter/short_value_items", create_device_callback(device_get_parameter_short_value_items))
+        self.osc_server.add_handler("/live/device/parameter/begin_gesture", create_device_callback(device_parameter_begin_gesture))
+        self.osc_server.add_handler("/live/device/parameter/end_gesture", create_device_callback(device_parameter_end_gesture))
+
         self.osc_server.add_handler("/live/device/get/parameter/value", create_device_callback(device_get_parameter_value))
         self.osc_server.add_handler("/live/device/get/parameter/value_string", create_device_callback(device_get_parameter_value_string))
         self.osc_server.add_handler("/live/device/set/parameter/value", create_device_callback(device_set_parameter_value))

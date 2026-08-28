@@ -206,7 +206,7 @@ fork side has since landed are marked._
 | High | `Application.open_dialog_count`, `current_dialog_message`, `current_dialog_button_count` | Detect and describe a blocking Live dialog without AX or pixels | Small read-only extension. Keep `press_current_dialog_button` out of the tool surface unless a separately reviewed, non-file use case proves safe — a current dialog may guard unsaved work |
 | High | Return/master mixer and device addressing | An empty return cannot become a usable reverb/delay path without human device loading | **Landed** (`/live/return_track/*`, `/live/master/*`) for top-level devices; the remaining subset is under [Addressing gaps](#addressing-gaps) |
 | High | `Application.View.is_view_visible`, `hide_view` | Closes `show_view`'s blind loop; makes view smoke tests self-verifying | **Landed.** `focused_document_view` (Session vs Arranger, exact) still open and belongs in the same handler |
-| Medium–high | `DeviceParameter.value_items`, `is_enabled`, `automation_state`, `default_value`, `original_name` | Tools expose raw min/max but cannot name enum choices, tell whether a parameter is disabled, or warn that automation owns it | Extend the parameter read surface as one unit before any device-specific API — see [Shape gaps](#device-parameters--numeric-only) |
+| Medium–high | `DeviceParameter.value_items`, `is_enabled`, `automation_state`, `default_value`, `original_name` | Tools expose raw min/max but cannot name enum choices, tell whether a parameter is disabled, or warn that automation owns it | **Landed** as one unit, ahead of any device-specific API — see [Closed](#device-parameters--numeric-only--closed-2026-08-29) |
 | Medium–high | Extended note identity and modification (`note_id`, `apply_note_modifications`, selection/by-ID methods) | Safe single-note edits; keeps probability, deviation, release velocity the flattened reply discards | `edit_notes` composes remove + add today, keyed on the five-field reply; a widened reply carrying `note_id` would let it preserve probability, deviation and release velocity. See [Shape gaps](#notes--liveclipgetnotes-flattens-to-five-fields) |
 | Medium | Count-in and automation state (`count_in_duration`, `is_counting_in`, `session_automation_record`, `re_enable_automation_enabled`) | Recording readiness and automation ownership are musically meaningful, exact, and invisible today | One focused transport/automation feature; the `re_enable_automation` action is already bridged |
 | Medium | `Song.View.draw_mode`, `follow_song` | Readable absolute state instead of focus-routed toggle shortcuts | Fold into a concrete view/automation workflow; no value as isolated knobs |
@@ -334,16 +334,6 @@ is registered today but the client has no way to learn an ID.
 deviation cannot be written. Fix is a widened reply (and a `notes_extended`
 address to keep the old shape stable), not a new member.
 
-### Device parameters — numeric only
-
-`/live/device/get/parameters/{name,value,min,max,is_quantized}` give the
-range but not the meaning: `value_items` (the enum labels a quantized
-parameter cycles through), `display_value`, `str_for_value`, `state`,
-`is_enabled`, `automation_state`, `default_value`, `original_name` are
-all member gaps in the inventory, but the *shape* gap is that a quantized
-parameter cannot be described to a user without them. Closing them
-together as one richer `parameters` reply is the natural unit.
-
 ### Routing — names, not objects
 
 `/live/track/get/available_input_routing_types` etc. return names;
@@ -385,6 +375,39 @@ curated entry, and is the first consumer of this pattern). The generated
 inventory below still lists the closed members as gaps: it is regenerated only
 from a `/live/application/dump_lom` taken against a Live running the *installed*
 copy, and no dump has been taken since this landed.
+
+### Device parameters — numeric only — closed 2026-08-29
+
+Was a shape gap: `/live/device/get/parameters/{name,value,min,max,is_quantized}`
+and the singular `parameter/{value,value_string,name}` gave a parameter's range
+but not its meaning, so a quantized parameter could not be described to a user
+at all — no enum labels, no GUI string, no way to tell a greyed-out or
+automation-owned knob from a live one. Closed by roadmap item B-2, which adds
+seventeen addresses to `abletonosc/device.py`: six bulk lists
+(`get/parameters/{display_value,state,is_enabled,automation_state,default_value,original_name}`,
+one element per parameter in `device.parameters` order), the matching six
+per-parameter getters, `set/parameter/display_value`,
+`get/parameter/{value_items,short_value_items}` and the
+`parameter/{begin_gesture,end_gesture}` pair. `API.md` § "Parameter
+description" is the permanent record — including the two graceful-empty rules
+(empty item list for a non-quantized parameter, OSC nil for a missing
+`default_value`) and the ⚠️ markers on everything still unmeasured against a
+running Live.
+
+Members this closed: `display_value` (get and set), `state`, `is_enabled`,
+`automation_state`, `default_value`, `original_name`, `value_items`,
+`short_value_items`, `begin_gesture`, `end_gesture` — ten of the twelve the
+inventory row counts. `str_for_value` was never a gap in practice: it is
+shipped as `/live/device/get/parameter/value_string`.
+
+Still open on this class, now as ordinary member gaps rather than a shape gap:
+`re_enable_automation` (a mutation that belongs with an automation-shaped
+item), and **listeners** on the three observable members `state`,
+`automation_state` and `display_value` — Live offers `add_<name>_listener` for
+each, and the pattern to follow is `device_get_parameter_value_listener`. The
+generated inventory below still lists the closed members as gaps: it is
+regenerated only from a `/live/application/dump_lom` taken against a Live
+running the *installed* copy, and no dump has been taken since this landed.
 
 ## Generated inventory
 

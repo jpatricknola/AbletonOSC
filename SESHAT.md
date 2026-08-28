@@ -925,6 +925,70 @@ so treat any merge that reverts one as a regression, not a preference.
   against real LOM objects — the ⚠️ ascent and `==` questions above stay open
   until someone runs A-4's Live verification checks.
 
+- **`device.py` — DeviceParameter description addresses.** Upstream's
+  parameter surface is numeric: `get/parameters/{name,value,min,max,is_quantized}`,
+  the singular `get/parameter/{value,value_string,name}` and the two setters.
+  That is enough to *move* a parameter and not enough to *explain* one, so
+  seventeen fork-owned addresses were added to `init_api`, closing ten
+  `Live.DeviceParameter.DeviceParameter` member gaps (FORK_GAPS § Closed,
+  "Device parameters — numeric only"):
+
+  | Bulk (one element per parameter) | Per parameter |
+  |---|---|
+  | `get/parameters/display_value` | `get/parameter/display_value`, `set/parameter/display_value` |
+  | `get/parameters/state` | `get/parameter/state` |
+  | `get/parameters/is_enabled` | `get/parameter/is_enabled` |
+  | `get/parameters/automation_state` | `get/parameter/automation_state` |
+  | `get/parameters/default_value` | `get/parameter/default_value` |
+  | `get/parameters/original_name` | `get/parameter/original_name` |
+  | — | `get/parameter/value_items`, `get/parameter/short_value_items` |
+  | — | `parameter/begin_gesture`, `parameter/end_gesture` |
+
+  All seventeen are new, all under `/live/device/` (regular tracks only, like
+  the rest of the family), all hand-written callees under
+  `create_device_callback` with no `include_ids`. **Nothing existing changes
+  shape**: no reply, push or error envelope moves, and no listener is added or
+  changed — downstream needs a pin bump and nothing else.
+
+  Three decisions worth keeping:
+
+  - **Parallel bulk lists, not a combined record address.** A record buys no
+    latency — `API.md` § "Round trips cost ticks, not datagrams" measured a
+    burst of N addresses answering inside one tick, identical to a single bulk
+    endpoint — and `value_items` is variable-length per parameter, so it could
+    not sit in a fixed-arity record. Parallel lists are also what Seshat's
+    `get_device_parameters` already zips.
+  - **Two graceful-empty rules, both deliberate divergences from "let it
+    raise".** `value_items` / `short_value_items` on a non-quantized parameter
+    answer the three indices and no items instead of a `/live/error` (Live
+    raises on that read, and a client describing a whole device would collect
+    one error per continuous parameter on its reply socket);
+    `default_value` that raises becomes OSC nil in that parameter's own slot,
+    so one such parameter cannot poison a bulk reply or shorten it out of
+    alignment with `get/parameters/name`. Both mirror upstream's own
+    `_get_property` habit of turning a "does not apply" into a graceful reply.
+    A bad *index* is still a structured error either way.
+  - **Every address is registered with a literal string, never built in a
+    loop.** Seshat's `vendored_addresses_test` scrapes
+    `add_handler("/live/...")` literals plus the `methods` / `properties_r` /
+    `properties_rw` lists, and checks each address it finds appears verbatim in
+    `API.md`. An address assembled from a format string would be invisible to
+    that tripwire, so the block is seventeen literal registrations.
+
+  `state` and `automation_state` are Boost.Python enums (int subclasses) and go
+  on the wire as integer codes, cast with an explicit `int()` — the same
+  convention as `/live/device/get/type`. ⚠️ The codes, the exception
+  `value_items` raises, `default_value` on a parameter without one, what
+  `display_value =` does with an unparsable string, and an unmatched
+  `end_gesture` are all **unmeasured**: measurement needs a probe in the
+  installed copy, which the environment refused. `API.md` § "Parameter
+  description" carries the same ⚠️ markers and the Live verification checks are
+  in the archived plan. The Live-free tripwire is
+  `tests_unit/test_device_parameters.py` (54 cases: reply shapes and OSC types
+  for all seventeen, both graceful-empty rules, float-index normalisation, the
+  structured errors, and that the pre-existing numeric addresses still answer
+  unchanged). See § Merge hazards.
+
 ### Seshat's own handlers
 
 Three modules that upstream has no equivalent of. Each carries its own header
@@ -1103,6 +1167,12 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   `tests_unit/test_device_listeners.py` is the tripwire — run
   `python3 -m pytest tests_unit/` on every merge. See the deliberate-changes
   section above.
+
+  The same bullet covers the **DeviceParameter description block**: a merge
+  that takes upstream's "Get/set individual parameters" section wholesale drops
+  all seventeen registrations added above it, with no conflict and no error —
+  the addresses simply stop existing and clients go back to timing out.
+  `tests_unit/test_device_parameters.py` is that block's tripwire.
 
 - **`scene.py`'s `create_scene_callback`, `clip.py`'s `create_clip_callback`
   and `clip_slot.py`'s `create_clip_slot_callback`.** Upstream's versions of

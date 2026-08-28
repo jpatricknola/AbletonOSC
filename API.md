@@ -1515,6 +1515,23 @@ trusting it blind.
 | `/live/device/get/parameter/value_string` | `track_id, device_id, parameter_id` | `track_id, device_id, parameter_id, value` | Get parameter as string (e.g., "2500 Hz") |
 | `/live/device/get/parameter/name` | `track_id, device_id, parameter_id` | `track_id, device_id, parameter_id, name` | Get single parameter's name |
 | `/live/device/set/parameter/value` | `track_id, device_id, parameter_id, value` | | Set single parameter |
+| `/live/device/get/parameters/display_value` | `track_id, device_id` | `track_id, device_id, [display_value, ...]` | Parameter values as the GUI shows them (e.g. "2500 Hz", "On") |
+| `/live/device/get/parameters/state` | `track_id, device_id` | `track_id, device_id, [state, ...]` | Per parameter: enabled / disabled / irrelevant, as an integer code (see Parameter description) |
+| `/live/device/get/parameters/is_enabled` | `track_id, device_id` | `track_id, device_id, [is_enabled, ...]` | False where a parameter has been macro-mapped or disabled by Max |
+| `/live/device/get/parameters/automation_state` | `track_id, device_id` | `track_id, device_id, [automation_state, ...]` | Per parameter: none / playing / overridden, as an integer code (see Parameter description) |
+| `/live/device/get/parameters/default_value` | `track_id, device_id` | `track_id, device_id, [default_value, ...]` | Reset value per parameter; OSC nil where the parameter has none |
+| `/live/device/get/parameters/original_name` | `track_id, device_id` | `track_id, device_id, [original_name, ...]` | Name before a rack macro or Max device renamed the parameter |
+| `/live/device/get/parameter/display_value` | `track_id, device_id, parameter_id` | `track_id, device_id, parameter_id, display_value` | Single parameter's GUI string |
+| `/live/device/set/parameter/display_value` | `track_id, device_id, parameter_id, display_value` | | Set a parameter from Live's own GUI string ("880 Hz"); Live parses it |
+| `/live/device/get/parameter/state` | `track_id, device_id, parameter_id` | `track_id, device_id, parameter_id, state` | Integer code (see Parameter description) |
+| `/live/device/get/parameter/is_enabled` | `track_id, device_id, parameter_id` | `track_id, device_id, parameter_id, is_enabled` | |
+| `/live/device/get/parameter/automation_state` | `track_id, device_id, parameter_id` | `track_id, device_id, parameter_id, automation_state` | Integer code (see Parameter description) |
+| `/live/device/get/parameter/default_value` | `track_id, device_id, parameter_id` | `track_id, device_id, parameter_id, default_value` | OSC nil where the parameter has no default |
+| `/live/device/get/parameter/original_name` | `track_id, device_id, parameter_id` | `track_id, device_id, parameter_id, original_name` | |
+| `/live/device/get/parameter/value_items` | `track_id, device_id, parameter_id` | `track_id, device_id, parameter_id, [item, ...]` | Enum labels of a quantized parameter; the three indices and no items otherwise |
+| `/live/device/get/parameter/short_value_items` | `track_id, device_id, parameter_id` | `track_id, device_id, parameter_id, [item, ...]` | Same, preferring Live's short labels where it has them |
+| `/live/device/parameter/begin_gesture` | `track_id, device_id, parameter_id` | | Start a continuous edit: the `set/parameter/value` writes that follow become one undo step and one automation gesture |
+| `/live/device/parameter/end_gesture` | `track_id, device_id, parameter_id` | | End the continuous edit opened by `begin_gesture` |
 
 ### Device Type Reference
 
@@ -1524,6 +1541,68 @@ trusting it blind.
   report 2). The first two were documented the other way round until then; if
   another source disagrees, it is repeating the old guess.
 - `class_name`: Live instrument/effect name (e.g., Operator, Reverb). External plugins: AuPluginDevice, PluginDevice. Racks: InstrumentGroupDevice, etc.
+
+### Parameter description
+
+Everything above `value` / `min` / `max` / `is_quantized` describes what a
+parameter *means* rather than where it sits in its range. Each bulk address
+answers **one element per parameter** in `device.parameters` order — the same
+order and length as `get/parameters/name`, and `track_id, device_id` alone for
+a device with no parameters — so a client can send several of them in one
+burst and zip the replies. There is no combined record address on purpose: a
+burst of N addresses answers inside a single tick, identical to one bulk
+endpoint (see "Round trips cost ticks, not datagrams"), and `value_items` is
+variable-length so it could not sit in a fixed-arity record anyway.
+
+**`state` and `automation_state` go on the wire as integer codes**, the same
+convention as `/live/device/get/type`.
+
+| `state` | meaning | | `automation_state` | meaning |
+|---|---|---|---|---|
+| 0 | `enabled` | | 0 | `none` — no automation on this parameter |
+| 1 | `disabled` — greyed out | | 1 | `playing` — automation is driving the value |
+| 2 | `irrelevant` — no effect in the device's current mode | | 2 | `overridden` — a manual edit has overridden the automation (the "Re-enable Automation" state) |
+
+⚠️ **The codes above are unmeasured (2026-08-29).** The member names are
+Live's, and `enabled`, `none` and `overridden` appear as constants in Live
+12.4.5's shipped Remote Script bytecode, but the integer each maps to comes
+from the LOM reference and has not been read off a running Live. The handler
+sends whatever `int()` of Live's enum yields, so a correction changes this
+table and no code — re-derive it with
+`dict(Live.DeviceParameter.ParameterState.names)` and the `AutomationState`
+equivalent, via the probe rig above, before depending on a specific number.
+
+**`value_items` / `short_value_items` answer the three indices and no items at
+all for a parameter that is not quantized.** Live raises on that read ("Raises
+an error if `is_quantized` is False"), and reporting it as `/live/error` would
+mean one error per continuous parameter for a client describing a whole
+device, so an empty list is the answer instead;
+`get/parameters/is_quantized` already says which parameters can have items.
+Where items exist, item `i` is the label for the quantized value `min + i`.
+⚠️ Both the index rule and the exception Live raises are unmeasured
+(2026-08-29); the handler catches broadly. A bad *parameter index* is still a
+`/live/error` — the empty answer covers the member read, not the lookup.
+
+**`default_value` can be OSC nil (`N`).** Live's docstring says a default
+value exists only for some parameters, so where the read raises the reply
+carries nil in that parameter's slot rather than dropping the element — a bulk
+reply always stays the same length as `get/parameters/name`. ⚠️ Whether a real
+parameter ever raises is unmeasured (2026-08-29).
+
+**`set/parameter/display_value` takes Live's own GUI string**, passed through
+uncast and unparsed by the bridge; Live does the parsing. Read the result back
+with `get/parameter/value` or `get/parameter/value_string`. ⚠️ What Live does
+with a string it cannot parse is unmeasured (2026-08-29) — if it raises, that
+arrives as a structured `/live/error` naming the request.
+
+**`parameter/begin_gesture` / `parameter/end_gesture`** bracket a run of
+`set/parameter/value` writes so Live treats them as one continuous edit: one
+undo step, and one automation gesture rather than one per write. Both are
+silent. They take the *object segment then verb* form
+(`/live/device/parameter/<verb>`) rather than `/live/device/<verb>`, because
+the generic method loop in `device.py` reaches a `Device` and these are
+methods of one of its parameters. ⚠️ An `end_gesture` with no matching
+`begin_gesture` is assumed harmless; unmeasured (2026-08-29).
 
 ### Device: Listening
 
