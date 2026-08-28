@@ -8,11 +8,12 @@ so what is under test is the whole path: the address as registered, the
 wrapper's index normalisation and wildcard fan-out, the worker, and the reply
 that reaches the socket. Only the LOM objects are fakes.
 
-The other seven addresses in this item (song.py's appointed_device trio and
-view.py's four Song.View getters) cannot be reached from here: both modules
-`import Live` at module scope. Their resolution logic is
-tests_unit/test_track_identity.py's subject, and their registration and push
-behaviour are the plan's Live verification checks.
+The other seven addresses in this item live in song.py (the appointed_device
+trio) and view.py (the four Song.View getters), which need conftest's empty
+`Live` stub and a song bound before construction; they are driven the same
+way, in tests_unit/test_song_object_reads.py and
+tests_unit/test_view_object_reads.py. Their shared resolution logic is
+tests_unit/test_track_identity.py's subject.
 """
 
 import pytest

@@ -22,25 +22,32 @@ that pretend to no Live *behaviour* whatsoever:
    class — it imports no Live module, calls Component with no arguments and
    uses none of its behaviour — so a stub whose Component.__init__ accepts
    and ignores everything makes the real base class testable without
-   pretending to be Live.
-2. load_clip_module() installs an *empty* module as sys.modules["Live"]
-   before importing the real clip.py. clip.py does `import Live` at module
-   scope, but the only thing it ever dereferences off it is
-   Live.Clip.MidiNoteSpecification, inside clip_add_notes at call time — so
-   an empty module satisfies the import and any test that dispatched
-   clip_add_notes would fail loudly on the missing attribute rather than
-   quietly exercising a fake Live.
+   pretending to be Live. The stub carries one piece of Live's real shape
+   deliberately: a `song` attribute (see the class docstring), because a
+   handler may read `self.song` at *registration* time.
+2. _install_empty_live_stub() installs an *empty* module as
+   sys.modules["Live"] for the three loaders whose module does `import Live`
+   at module scope but only ever dereferences it inside a callback, at call
+   time: clip.py (Live.Clip.MidiNoteSpecification in clip_add_notes),
+   song.py (Live.Track.Track in get/track_data) and view.py
+   (Live.Application.get_application() in show_view / get/is_view_visible /
+   hide_view). An empty module satisfies the import, and any test that
+   dispatched one of those addresses would fail loudly on the missing
+   attribute rather than quietly exercising a fake Live. No test in this
+   suite dispatches them.
 
 Nothing else stubs anything: osc_server.py and track_callback.py are
 imported exactly as they ship, and each stub is only installed when a test
-actually calls the loader that needs it. Most production *subclasses*
-(track.py, song.py, ...) import Live itself at module scope and use it for
-real, so they stay out of reach until that is addressed separately — but
-device.py, scene.py and clip_slot.py import only typing/functools and
-.handler, so load_device_module(), load_scene_module() and
-load_clip_slot_module() construct the real handlers on top of the same
-Component stub and drive them end to end; test_device_listeners.py and
-test_listener_identity.py do exactly that.
+actually calls the loader that needs it. device.py, scene.py, clip_slot.py
+and track.py import only typing/functools/.handler and the Live-free
+.track_callback / .track_identity, so load_device_module(),
+load_scene_module(), load_clip_slot_module() and load_track_module()
+construct the real handlers on top of the Component stub alone;
+load_clip_module(), load_song_module() and load_view_module() add the empty
+Live stub. Seven of the twelve production handlers are therefore driven end
+to end (device, scene, clip_slot, track, clip, song, view); application.py,
+browser.py, midimap.py, return_track.py and song_structure.py have no loader
+yet, because nothing has needed one.
 
 test_import.py smoke-tests the loader so it cannot fail only when the
 first real dispatcher test is collected.
@@ -103,8 +110,32 @@ def load_handler_module():
             Stands in for ableton.v2's Component. The real one takes
             (name=None, parent=None, register_component=None, song=None,
             layer=None, is_enabled=True, *a, **k); AbletonOSCHandler calls it
-            with no arguments and uses nothing it provides.
+            with no arguments and uses nothing it provides *except* `song`.
+
+            `song` is modelled because handlers read it at registration time.
+            In Live 12.4.3's ableton/v2/control_surface/component.py the
+            constructor's `song=` argument is stored as `self._song` and
+            `Component.song` is a read-only property over it; AbletonOSCHandler
+            calls `super().__init__()` with no arguments, so the value is
+            supplied instead by the `ControlSurface.component_guard()` block
+            that manager.py constructs every handler inside. Either way the
+            song is available from the first line of init_state()/init_api(),
+            which SongHandler and ViewHandler rely on: they bind `self.song`
+            and `self.song.view` into partial()s while the constructor is
+            still running.
+
+            The stub keeps `song` a plain class attribute defaulting to None
+            rather than a read-only property, deliberately: every existing
+            fixture in this suite assigns `handler.song = FakeSong(...)`
+            *after* construction, which the real property would forbid. Tests
+            that need the Live-accurate "already set when init_api() runs"
+            guarantee use bind_song() below. The constructor takes no `song=`
+            on purpose: AbletonOSCHandler calls `super().__init__()` bare, so
+            such a kwarg could never be reached and would only invite a reader
+            to assume it is the tested mechanism.
             """
+
+            song = None
 
             def __init__(self, *args, **kwargs):
                 pass
@@ -182,26 +213,90 @@ def load_track_module():
     return load_module("abletonosc.track")
 
 
-def load_clip_module():
+def _install_empty_live_stub():
     """
-    Import the real `abletonosc.clip` beneath the synthetic root, after
-    installing an empty `Live` module to satisfy its module-scope
-    `import Live` (see the module docstring for why that is safe: the only
-    dereference is Live.Clip.MidiNoteSpecification, inside clip_add_notes at
-    call time, and no test in this suite dispatches that address).
+    Install an empty module as sys.modules["Live"], for the loaders whose
+    production module does `import Live` at module scope but dereferences it
+    only inside a callback, at call time (see the module docstring).
 
-    Guarded like the Component stub, and installed only when this loader is
-    called. `sys.modules` is process-global for the whole pytest session,
-    though, so once installed the stub is visible to every test collected
-    afterwards, not just ones that call this loader — test_import.py's
-    test_abletonosc_package_init_never_executed accounts for that by
-    tolerating a `Live` module in sys.modules as long as it carries no
+    Guarded like the Component stub, and installed only when one of those
+    loaders is called. `sys.modules` is process-global for the whole pytest
+    session, though, so once installed the stub is visible to every test
+    collected afterwards, not just ones that call such a loader —
+    test_import.py's test_abletonosc_package_init_never_executed accounts for
+    that by tolerating a `Live` module in sys.modules as long as it carries no
     `__file__` (a real Live module, loaded from disk, always would).
     """
-    load_handler_module()
     if "Live" not in sys.modules:
         sys.modules["Live"] = types.ModuleType("Live")
+
+
+def load_clip_module():
+    """
+    Import the real `abletonosc.clip` beneath the synthetic root, over the
+    empty `Live` stub: clip.py's only dereference is
+    Live.Clip.MidiNoteSpecification, inside clip_add_notes at call time, and
+    no test in this suite dispatches that address.
+    """
+    load_handler_module()
+    _install_empty_live_stub()
     return load_module("abletonosc.clip")
+
+
+def load_song_module():
+    """
+    Import the real `abletonosc.song` beneath the synthetic root, over the
+    empty `Live` stub: song.py's only dereference is Live.Track.Track, inside
+    song_get_track_data (/live/song/get/track_data) at call time, and no test
+    in this suite dispatches that address. Its other module-scope imports —
+    os, sys, tempfile, json — are stdlib.
+
+    `SongHandler.init_api` binds `self.song` into a partial() for every
+    property, method and listener it registers, so the song must already be
+    on the instance when the constructor runs: build the handler through
+    bind_song(), not by assigning `handler.song` afterwards.
+    """
+    load_handler_module()
+    _install_empty_live_stub()
+    return load_module("abletonosc.song")
+
+
+def load_view_module():
+    """
+    Import the real `abletonosc.view` beneath the synthetic root, over the
+    empty `Live` stub: view.py's only dereferences are
+    Live.Application.get_application() inside show_view, get_is_view_visible
+    and hide_view, all at call time, and no test in this suite dispatches
+    those addresses.
+
+    `ViewHandler.init_api` binds `self.song.view` into its four listen
+    registrations during construction, so — as for load_song_module() — the
+    handler must be built through bind_song().
+    """
+    load_handler_module()
+    _install_empty_live_stub()
+    return load_module("abletonosc.view")
+
+
+def bind_song(handler_class, song):
+    """
+    Return a subclass of `handler_class` whose `song` is `song` from the
+    first line of init_state()/init_api().
+
+    The Live-free image of `ControlSurface.component_guard()`, which is what
+    supplies a real Component's song before any handler code runs. A class
+    attribute is the mechanism because there is no earlier hook: the
+    AbletonOSCHandler constructor registers the whole address table, so an
+    instance assignment can only ever happen too late. Each call makes its
+    own subclass, so nothing is process-global and two tests cannot see each
+    other's song.
+
+    `class_identifier` is inherited unchanged, so listener pushes still go out
+    on /live/song/... and /live/view/... . test_handler_subclass_contract.py
+    parses abletonosc/*.py only, so a test-side subclass does not trip its
+    "no subclass __init__" checks.
+    """
+    return type(handler_class.__name__ + "BoundToSong", (handler_class,), {"song": song})
 
 
 class Receiver:

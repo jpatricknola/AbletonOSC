@@ -6,8 +6,8 @@
 > `abletonosc/track.py`, `abletonosc/clip_slot.py` and `abletonosc/view.py`
 > (the nine addresses), and `API.md` § "Object-valued reads" (the wire
 > contract). The queued follow-up — Live-free test coverage for the
-> `song.py`/`view.py` dispatch glue — is `ROADMAP.md` "#2 · Test coverage for
-> the object-read `song.py` / `view.py` glue".
+> `song.py`/`view.py` dispatch glue — shipped as
+> [`docs/archive/PLAN_object_read_glue_tests.md`](PLAN_object_read_glue_tests.md).
 
 Roadmap item: **#1 · A-4 · Object-valued read helpers** — from
 `CLOSING_THE_GAPS.md` row A-4, closing FORK_GAPS "Object-valued reads

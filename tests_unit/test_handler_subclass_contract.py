@@ -10,10 +10,13 @@ routes, and deleted every subclass __init__ so the base's documented order
 constructor that runs.
 
 test_handler_lifecycle.py pins the base half of that by construction, but
-the production subclasses stay out of its reach: five of the twelve
-(application.py, browser.py, clip.py, song.py, view.py) `import Live` at
-module scope, and only device.py is loaded and driven end to end today
-(test_device_listeners.py). So a typo'd identifier, or a merge that restores
+not every production subclass is within the behavioural layer's reach: seven
+of the twelve are loaded and driven end to end today (device, scene,
+clip_slot, track, clip, song, view — see test_device_listeners.py,
+test_listener_identity.py, test_object_reads.py, test_song_object_reads.py
+and test_view_object_reads.py), while application.py, browser.py, midimap.py,
+return_track.py and song_structure.py have no conftest loader yet. So a
+typo'd identifier in one of those five, or a merge that restores
 upstream's `self.class_identifier = ...` inside a subclass __init__ - which
 shadows the class attribute *after* init_api() ran - would pass the whole
 suite green and surface only as listener pushes on the wrong address, in

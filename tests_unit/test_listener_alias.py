@@ -13,8 +13,9 @@ third off from the first two.
 
 These drive the real `AbletonOSCHandler` and the real `OSCServer`, using the
 same Probe pattern as test_handler_lifecycle.py — the aliasing lives in the
-base class, so nothing here needs view.py (which imports Live and stays out
-of reach).
+base class, so nothing here needs view.py at all. (view.py *is* loadable and
+driven, in test_view_object_reads.py; the Probe is still the right subject
+for the alias itself, which no handler-specific fake can make clearer.)
 """
 
 import pytest
