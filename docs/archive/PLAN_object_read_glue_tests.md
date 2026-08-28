@@ -1,5 +1,18 @@
 # Plan: Test coverage for the object-read `song.py` / `view.py` glue
 
+> **Archived 2026-08-28 — shipped.** This is the plan as written *before*
+> implementation; the code as merged may differ. The change lives in
+> `tests_unit/conftest.py` (the `Component` stub's `song` attribute,
+> `load_song_module()`, `load_view_module()`, `bind_song()`) and the two new
+> modules `tests_unit/test_song_object_reads.py` and
+> `tests_unit/test_view_object_reads.py`; no production behaviour changed,
+> and the only production-file edit is comment text in
+> `abletonosc/track_identity.py`. No `API.md` rows (no address changed). The
+> follow-up the pr-review nit triage queued — documenting `song` in
+> `abletonosc/handler.py`'s constructor-contract docstring — is
+> `ROADMAP.md`'s "Document `song` in the handler constructor contract" entry
+> (cited by title, not by rank).
+
 Roadmap item: **Test coverage for the object-read `song.py` / `view.py`
 glue** (source: the pr-review finding on `object-valued-read-helpers`,
 2026-08-27, recorded in the roadmap entry itself — there is no separate
