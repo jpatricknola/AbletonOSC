@@ -1,3 +1,14 @@
+**Archived 2026-08-29 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in
+`abletonosc/device.py` (the "Device: Describe parameters" block, seventeen
+new addresses) and `API.md` § "Parameter description". The Live
+verification section's six checks did not run — the installed Remote
+Scripts copy was not this checkout, so nothing was measured; the ⚠️ markers
+in `API.md` stay. The one follow-up the review raised — whether Seshat ever
+sends a wildcard address under `/live/device/`, which would now fan out
+differently — is tracked as `ROADMAP.md` "Verify wildcard fan-out against
+Seshat's `/live/device/` usage".
+
 # Plan: DeviceParameter rich reply (B-2)
 
 Roadmap item: **#1 · B-2 · DeviceParameter rich reply** — from
