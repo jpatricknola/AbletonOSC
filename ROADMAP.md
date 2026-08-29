@@ -43,6 +43,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · A-3 · Return / master `Track` parity
 
+**Plan:** [docs/PLAN_return_master_track_parity.md](docs/PLAN_return_master_track_parity.md)
+
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
 `start_listen`, `insert_device`, `mixer_device.sends` on returns.
