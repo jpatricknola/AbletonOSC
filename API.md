@@ -260,12 +260,17 @@ accepted deliberately: the rule is "resolves inside the root", not "is not a
 symlink". Every rejection is logged at error level and **nothing is opened —
 no Live method is called at all on a refused request.**
 
-**All three always reply**, on the address they were called on, including on
-every refusal — the `/live/browser/*` convention, not the silent-on-success
-convention of the generic `/live/track/<method>` and `/live/clip_slot/<method>`
-loops. A path refusal is caller-fixable and undiagnosable from silence, the
-importing caller needs the clip's length back, and silence would otherwise be
-indistinguishable from an install that predates these addresses.
+**On a target the address applies to, all three always reply**, on the address
+they were called on, including on every refusal — the `/live/browser/*`
+convention, not the silent-on-success convention of the generic
+`/live/track/<method>` and `/live/clip_slot/<method>` loops. A path refusal is
+caller-fixable and undiagnosable from silence, the importing caller needs the
+clip's length back, and silence would otherwise be indistinguishable from an
+install that predates these addresses. `replace_sample` has one applicability
+failure outside that convention: on a device that is not a Simpler, binding the
+method raises and the direct request receives structured `/live/error` instead
+of a reply on `/live/device/replace_sample` (and an address-pattern request
+skips it silently), as detailed below and in the address row.
 
 The `"ok"`/`"error"` discriminator sits at a **fixed index** — 2 for the
 clip-slot and device addresses, 1 for the track address — so a client switches
@@ -276,8 +281,11 @@ success and three on a refusal. Do not count arguments; read the fixed slot.
 **Two failure channels, and the split is deliberate.** A bad `track_index`,
 `clip_index` or `device_index` raises inside the wrapper *before* the worker
 runs, so it arrives as the structured `/live/error ["request", address, …]`
-envelope like every other address in its family. Everything the worker decides
-— a refused name, an occupied slot, a malformed argument list, an exception
+envelope like every other address in its family. A non-Simpler target for
+`replace_sample` takes that channel too: the worker binds the method before it
+does anything else, and the resulting `AttributeError` means the endpoint does
+not apply. Everything else the worker decides — a refused name, an unreadable
+occupancy flag, an occupied slot, a malformed argument list, an exception
 raised by Live inside the call — arrives as an `"error"` reply on the request
 address instead. A client that treats the two as one will mis-handle both.
 
@@ -1497,7 +1505,7 @@ Container for clips. Create, delete, and query clip existence.
 | `/live/clip_slot/get/has_stop_button` | `track_index, clip_index` | `track_index, clip_index, has_stop_button` | Has stop button? |
 | `/live/clip_slot/set/has_stop_button` | `track_index, clip_index, has_stop_button` | | Set stop button (1=on, 0=off) |
 | `/live/clip_slot/duplicate_clip_to` | `track_index, clip_index, target_track, target_clip` | | Duplicate clip to target slot |
-| `/live/clip_slot/create_audio_clip` | `track_index, clip_index, name` | `track_index, clip_index, "ok", length` or `track_index, clip_index, "error", message` | ⚠️ **Seshat extension.** Import an audio file into this Session slot as an audio clip. `name` is a path *relative to the import root* `~/.seshat/generated`, never an absolute path — see **Handlers that name a file to read** for the rule, the always-reply convention and the two failure channels. Refusals (all with `"error"`, and none of which calls a Live *method* — the occupied-slot check does read `ClipSlot.has_clip`): the name fails the rule; the slot already holds a clip (the fork's own check, on `has_clip`); Live raised inside `create_audio_clip`, whose message is carried through. The discriminator is always field 2. A bad `track_index`/`clip_index` is `/live/error` instead, not an `"error"` reply. ⚠️ `length` is `clip.length` in beats read back immediately, `-1.0` if it cannot be read; whether the returned `Clip` is readable synchronously, and what Live raises for a non-audio file or a MIDI track's slot, are **unmeasured**. Read back with `/live/clip/get/file_path` and `/live/clip/get/is_audio_clip`. **No listen pair** — a method, not a property |
+| `/live/clip_slot/create_audio_clip` | `track_index, clip_index, name` | `track_index, clip_index, "ok", length` or `track_index, clip_index, "error", message` | ⚠️ **Seshat extension.** Import an audio file into this Session slot as an audio clip. `name` is a path *relative to the import root* `~/.seshat/generated`, never an absolute path — see **Handlers that name a file to read** for the rule, the always-reply convention and the two failure channels. Refusals (all with `"error"`, and none of which calls a Live *method* — the occupancy check does read `ClipSlot.has_clip`): the name fails the rule; `has_clip` raises before occupancy can be determined (the message carries the exception text); the slot already holds a clip (the fork's own check, on `has_clip`); Live raised inside `create_audio_clip`, whose message is carried through. The discriminator is always field 2. A bad `track_index`/`clip_index` is `/live/error` instead, not an `"error"` reply. ⚠️ `length` is `clip.length` in beats read back immediately, `-1.0` if it cannot be read; whether the returned `Clip` is readable synchronously, and what Live raises for a non-audio file or a MIDI track's slot, are **unmeasured**. Read back with `/live/clip/get/file_path` and `/live/clip/get/is_audio_clip`. **No listen pair** — a method, not a property |
 
 Every `get/` property above **except `get/clip`** also has
 `/live/clip_slot/start_listen/<property> <track_index> <clip_index>` and
