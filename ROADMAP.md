@@ -50,6 +50,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · `/live/application/get/has_option` documents a contract Live does not implement
 
+**Plan:** [docs/PLAN_has_option_contract.md](docs/PLAN_has_option_contract.md)
+
 **Goal:** `/live/application/get/has_option` either answers a question a caller
 can actually ask, or is removed. API.md stops describing it as an Options.txt
 query.
