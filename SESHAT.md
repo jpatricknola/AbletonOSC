@@ -1285,7 +1285,7 @@ so treat any merge that reverts one as a regression, not a preference.
   | `abletonosc/song.py` | `/live/song/get/groove_pool` and its listen pair, hand-written beside the `appointed_device` block |
   | `abletonosc/clip.py` | `/live/clip/get|set/groove` and its listen pair, hand-written after the extended-notes block; the `##"groove"` TODO line replaced by a pointer to it |
   | `abletonosc/__init__.py`, `manager.py` | the export, the handler-list entry, and a `reload_imports` entry ordered *before* `clip` and `song` |
-  | `tests_unit/` | `test_groove.py` (69 cases), a `load_groove_module()` loader, and the `groove.py` row in the subclass-identifier map |
+  | `tests_unit/` | `test_groove.py` (73 cases), a `load_groove_module()` loader, and the `groove.py` row in the subclass-identifier map |
 
   Decisions worth keeping:
 
@@ -1312,6 +1312,18 @@ so treat any merge that reverts one as a regression, not a preference.
     reaches the collection — so the `get → set` round trip is *correct* rather
     than merely tolerated. `API.md` § "Object-valued reads" carries the reasoning
     and is the permanent record.
+  - **`/live/groove/stop_listen/*` resolves nothing.** Every other address in
+    the family goes through `resolve_groove`, which validates the index against
+    the current pool. Stop deliberately does not: the base `_stop_listen`
+    unbinds from the object in `listener_objects`, ignoring whatever target it
+    is handed, so resolving first buys nothing and loses the case that matters
+    — a groove removed from the pool renumbers it, and an index that has fallen
+    out of range would raise, answer `/live/error`, and strand a live listener
+    bound to a groove the pool no longer holds until `clear_api`. Stop keys
+    straight off the normalised index instead; an index carrying no
+    subscription is silent, the way every other handler's stop is. Nothing is
+    indexed on that path, so the negative-index wrap `resolve_groove` exists to
+    prevent is unreachable there by construction.
   - **`Groove.base` is excluded from the pool dump and has no listen pair.** Its
     wire type is unverified, and the OSC builder drops an entire reply it cannot
     encode — so keeping it out of the five-field dump means an encoding surprise

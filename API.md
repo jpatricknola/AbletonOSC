@@ -1811,7 +1811,12 @@ and clip indices renumber — the same caveat, with the same remedy: re-read
 `/live/song/get/groove_pool` (or subscribe to it) rather than caching an index
 across an edit. Listener bookkeeping survives renumbering the way every
 indexed family's does: `_stop_listen` unbinds from the object actually
-subscribed, not from whatever the index now names.
+subscribed, not from whatever the index now names. `/live/groove/stop_listen/*`
+therefore resolves nothing — it keys straight off the normalised index — so a
+subscription still stops cleanly after the groove it named has been removed
+from the pool and the index has fallen out of range. An index that carries no
+subscription is silent rather than an error, on that address only; the getters
+and setters still answer `/live/error` for an out-of-range index.
 
 **The canonical field order**, shared by the pool dump and this section, is
 Live's own Groove Pool column order (`GROOVE_FIELDS` in `abletonosc/groove.py`;

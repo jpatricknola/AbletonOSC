@@ -184,10 +184,39 @@ class GrooveHandler(AbletonOSCHandler):
             self.osc_server.add_handler("/live/groove/set/%s" % prop,
                                         create_groove_callback(self._set_property, prop))
 
+        #--------------------------------------------------------------------------------
+        # stop_listen resolves nothing, on purpose.
+        #
+        # A subscription's identity is the normalised index, and the object it
+        # was bound to is already in `listener_objects` — the base
+        # `_stop_listen` unbinds from *that*, deliberately ignoring whatever
+        # target it is handed (see handler.py's comment on renumbering). So
+        # resolving the current pool member first buys nothing, and costs the
+        # one case that matters: removing a groove renumbers the pool, so the
+        # index a client subscribed under can be out of range by the time it
+        # stops. `resolve_groove` would raise, the client would get
+        # /live/error, and the stored listener would survive — still bound to
+        # a groove the pool no longer holds, still pushing — until
+        # `clear_api`. Keying straight off the index unbinds it instead, which
+        # is what API.md § "Groove API" promises.
+        #
+        # An index that never carried a subscription is not an error here: the
+        # base logs "No listener function found" and sends nothing, exactly as
+        # every other handler's stop does. Nothing is indexed, so a negative
+        # index cannot wrap; it simply names no subscription.
+        #--------------------------------------------------------------------------------
+        def create_groove_stop_listen_callback(prop):
+            def groove_stop_listen_callback(params: Tuple[Any]):
+                index = int(params[0])
+                listener_key = (prop, (index,))
+                target = self.listener_objects.get(listener_key)
+                self._stop_listen(target, prop, (index,))
+
+            return groove_stop_listen_callback
+
         for prop in properties_rw:
             self.osc_server.add_handler("/live/groove/start_listen/%s" % prop,
                                         create_groove_callback(self._start_listen, prop,
                                                                include_ids=True))
             self.osc_server.add_handler("/live/groove/stop_listen/%s" % prop,
-                                        create_groove_callback(self._stop_listen, prop,
-                                                               include_ids=True))
+                                        create_groove_stop_listen_callback(prop))

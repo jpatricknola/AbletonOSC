@@ -489,6 +489,57 @@ def test_stop_listen_unbinds_from_the_groove(groove_handler, song, server, recei
     assert receiver.drain() == []
 
 
+def test_stop_listen_unbinds_after_the_pool_shrinks_past_the_index(groove_handler, song,
+                                                                   server, receiver):
+    """
+    The renumbering case, which is the whole reason stop_listen resolves
+    nothing. Subscribe to the last groove in the pool, then remove it: index 1
+    is now out of range, so resolving the current pool member would raise and
+    the client would get /live/error while the stored listener stayed bound to
+    an object the pool no longer holds — pushing forever, under an index that
+    means nothing. Keying off the normalised index unbinds it instead.
+    """
+    dispatch(server, "/live/groove/start_listen/timing_amount", 1)
+    receiver.drain()
+    removed = song.groove_pool.grooves.pop()
+    assert len(removed.listeners["timing_amount"]) == 1
+
+    dispatch(server, "/live/groove/stop_listen/timing_amount", 1)
+    assert errors(receiver.drain()) == []
+    assert removed.listeners["timing_amount"] == []
+    assert groove_handler.listener_functions == {}
+    assert groove_handler.listener_objects == {}
+
+    removed.notify("timing_amount")
+    assert receiver.drain() == []
+
+
+def test_stop_listen_on_an_unsubscribed_index_is_silent(groove_handler, song,
+                                                        server, receiver):
+    """
+    Not an error, and deliberately not resolved either: the base logs "No
+    listener function found" and sends nothing, exactly as every other
+    handler's stop does. 99 is out of range, so a resolving stop would have
+    answered /live/error here.
+    """
+    dispatch(server, "/live/groove/stop_listen/timing_amount", 99)
+    assert receiver.drain() == []
+
+
+def test_stop_listen_on_a_negative_index_names_no_subscription(groove_handler, song,
+                                                               server, receiver):
+    """
+    Nothing is indexed on the stop path, so a negative index cannot wrap onto
+    the last groove and evict its listener — it simply names no subscription.
+    """
+    dispatch(server, "/live/groove/start_listen/timing_amount", 1)
+    receiver.drain()
+
+    dispatch(server, "/live/groove/stop_listen/timing_amount", -1)
+    assert receiver.drain() == []
+    assert len(song.groove_pool.grooves[1].listeners["timing_amount"]) == 1
+
+
 def test_a_float_start_and_an_int_stop_name_one_subscription(groove_handler, song,
                                                              server, receiver):
     """
