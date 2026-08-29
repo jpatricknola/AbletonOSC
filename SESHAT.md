@@ -549,7 +549,9 @@ so treat any merge that reverts one as a regression, not a preference.
   the fork imports these addresses, so nothing would fail to load and no
   existing test would notice their absence on its own. The tripwire is
   `tests_unit/test_application.py`, which constructs the real handler and
-  asserts the whole table.
+  asserts the registration table by *equality*
+  (`test_registration_table_is_exactly_this`), so a dropped address fails
+  there and an undocumented new one does too.
 
 - **`clip.py` — `quantize` in the generic methods list.** From upstream PR #198
   (that PR's warp-marker and extended-note work is not taken). Gives

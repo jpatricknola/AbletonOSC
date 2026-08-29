@@ -148,6 +148,12 @@ class FakeApplication:
         for fn in list(self.open_dialog_count_listeners):
             fn()
 
+    def set_peak_process_usage(self, value):
+        """Change the value the way Live would: assign, then notify."""
+        self.peak_process_usage = value
+        for fn in list(self.peak_process_usage_listeners):
+            fn()
+
 
 class FakeControlSurface:
     """
@@ -208,21 +214,55 @@ def test_class_identifier_is_application(handler):
     assert handler.class_identifier == "application"
 
 
-def test_upstream_addresses_stay_registered(server, handler):
-    #--------------------------------------------------------------------------------
-    # get/version and get/average_process_usage keep upstream's own callback,
-    # byte-identical, reaching Live.Application.get_application() inline
-    # rather than through the get_application() seam (see the parametrize
-    # block above); dump_lom is the fork's pre-existing address. None of the
-    # three is dispatched anywhere else in this file, so without this check a
-    # merge or edit that dropped one of their add_handler() calls would pass
-    # silently — SESHAT.md's merge-hazard note claims this file "asserts the
-    # whole table", which is only true with this registration check included.
-    #--------------------------------------------------------------------------------
-    for address in ("/live/application/get/version",
-                    "/live/application/get/average_process_usage",
-                    "/live/application/dump_lom"):
-        assert address in server._callbacks
+#--------------------------------------------------------------------------------
+# The whole registration table, written out. SESHAT.md's merge-hazard note
+# claims this file "asserts the whole table" — that claim is only true with
+# an exact comparison here, because a merge that took upstream's
+# application.py wholesale would drop addresses without failing any
+# behavioural test in this file. Equality, not containment: an address added
+# without a documented row in API.md fails here too, which is the other half
+# of the tripwire.
+#
+# get/version and get/average_process_usage keep upstream's own callback,
+# byte-identical, reaching Live.Application.get_application() inline rather
+# than through the get_application() seam; dump_lom is the fork's
+# pre-existing address. None of the three is dispatched anywhere else in
+# this file.
+#--------------------------------------------------------------------------------
+REGISTERED_ADDRESSES = {
+    # Upstream's own, plus the fork's pre-existing dump_lom.
+    "/live/application/get/version",
+    "/live/application/get/average_process_usage",
+    "/live/application/dump_lom",
+    # Generic-loop scalar reads.
+    "/live/application/get/open_dialog_count",
+    "/live/application/get/current_dialog_message",
+    "/live/application/get/current_dialog_button_count",
+    "/live/application/get/peak_process_usage",
+    "/live/application/get/number_of_push_apps_running",
+    # Listen pairs — the two observable members only.
+    "/live/application/start_listen/open_dialog_count",
+    "/live/application/stop_listen/open_dialog_count",
+    "/live/application/start_listen/peak_process_usage",
+    "/live/application/stop_listen/peak_process_usage",
+    # Exact version identity.
+    "/live/application/get/bugfix_version",
+    "/live/application/get/build_id",
+    "/live/application/get/variant",
+    "/live/application/get/version_string",
+    # Options.txt.
+    "/live/application/get/has_option",
+    # The two flattened list reads.
+    "/live/application/get/unavailable_features",
+    "/live/application/get/control_surfaces",
+    # The two message methods.
+    "/live/application/show_message",
+    "/live/application/show_on_the_fly_message",
+}
+
+
+def test_registration_table_is_exactly_this(server, handler):
+    assert set(server._callbacks) == REGISTERED_ADDRESSES
 
 
 #--------------------------------------------------------------------------------
@@ -413,36 +453,52 @@ def test_show_message_passes_exactly_one_argument(server, receiver, monkeypatch,
 # Listen pairs — the two observable members only
 #--------------------------------------------------------------------------------
 
-def test_start_listen_pushes_immediately_and_on_change(server, receiver, monkeypatch):
-    application = FakeApplication(open_dialog_count=0)
+#--------------------------------------------------------------------------------
+# Both observable members, not just one: the pair is registered by a loop
+# over properties_listen, so a bug that reached only the first entry — a
+# mis-bound partial(), a name captured by reference — would be invisible if
+# only open_dialog_count were ever dispatched.
+#--------------------------------------------------------------------------------
+@pytest.mark.parametrize("prop, initial, changed", [
+    ("open_dialog_count", 0, 1),
+    ("peak_process_usage", 0.25, 0.5),
+])
+def test_start_listen_pushes_immediately_and_on_change(server, receiver, monkeypatch,
+                                                       prop, initial, changed):
+    application = FakeApplication(**{prop: initial})
     build_handler(server, monkeypatch, application)
     receiver.drain()
 
-    dispatch(server, "/live/application/start_listen/open_dialog_count")
-    assert len(application.open_dialog_count_listeners) == 1
+    dispatch(server, "/live/application/start_listen/%s" % prop)
+    assert len(getattr(application, "%s_listeners" % prop)) == 1
     #--------------------------------------------------------------------------------
     # The initial push is part of the base _start_listen contract: a client
     # learns the current value without a separate get.
     #--------------------------------------------------------------------------------
-    assert receiver.drain() == [("/live/application/get/open_dialog_count", (0,))]
+    assert receiver.drain() == [("/live/application/get/%s" % prop, (initial,))]
 
-    application.set_open_dialog_count(1)
-    assert receiver.drain() == [("/live/application/get/open_dialog_count", (1,))]
+    getattr(application, "set_%s" % prop)(changed)
+    assert receiver.drain() == [("/live/application/get/%s" % prop, (changed,))]
 
 
-def test_stop_listen_unbinds_and_silences_pushes(server, receiver, monkeypatch):
-    application = FakeApplication(open_dialog_count=0)
+@pytest.mark.parametrize("prop, initial, changed", [
+    ("open_dialog_count", 0, 1),
+    ("peak_process_usage", 0.25, 0.5),
+])
+def test_stop_listen_unbinds_and_silences_pushes(server, receiver, monkeypatch,
+                                                 prop, initial, changed):
+    application = FakeApplication(**{prop: initial})
     handler = build_handler(server, monkeypatch, application)
     receiver.drain()
 
-    dispatch(server, "/live/application/start_listen/open_dialog_count")
+    dispatch(server, "/live/application/start_listen/%s" % prop)
     receiver.drain()
 
-    dispatch(server, "/live/application/stop_listen/open_dialog_count")
-    assert application.open_dialog_count_listeners == []
+    dispatch(server, "/live/application/stop_listen/%s" % prop)
+    assert getattr(application, "%s_listeners" % prop) == []
     assert handler.listener_functions == {}
 
-    application.set_open_dialog_count(1)
+    getattr(application, "set_%s" % prop)(changed)
     assert receiver.drain() == []
 
 

@@ -410,11 +410,15 @@ Both `show_*` addresses also sit inside `/live/application/*`'s wildcard
 blast radius: `*` matches one or more non-`/` characters within a single
 address segment (see the intro's "Wildcard patterns supported" note and
 `osc_server.py`'s `process_message`), so a broadcast like
-`/live/application/* "x"` reaches them along with every getter and calls
-`show_message("x")` as a side effect — raising exactly this undismissable
-dialog even though the sender may only have meant the getters. `dump_lom`
-sits in the same blast radius already, for the unrelated reason noted in
-its own row above.
+`/live/application/* "x"` calls `show_message("x")` as a side effect —
+raising exactly this undismissable dialog even though the sender may have
+meant something else entirely. Because `*` cannot cross a `/`, that pattern
+does *not* reach any `/live/application/get/...` address: it matches exactly
+the three top-level routes — `dump_lom`, `show_message` and
+`show_on_the_fly_message`. Sweeping the getters takes
+`/live/application/get/*`, which is a different, side-effect-free pattern.
+`dump_lom` sits in the `/live/application/*` blast radius already, for the
+unrelated reason noted in its own row above.
 
 > **Not yet measured against a running Live (as of 2026-08-29).** The
 > application addresses above landed without the usual measurement pass:

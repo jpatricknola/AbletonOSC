@@ -61,7 +61,7 @@ def test_application_get_open_dialog_count(client):
     # Asserting exactly 0 would assume a modal Live dialog blocks the tick
     # loop this client is talking to, so the query would time out rather than
     # reach here if one were open. That assumption is unverified — it is
-    # docs/PLAN_application_dialogs_and_versions.md's Open question 3, and
+    # docs/archive/PLAN_application_dialogs_and_versions.md's Open question 3, and
     # Live verification for this item was skipped by environment (see the
     # plan's "Live verification" section). If dialogs are queued and
     # asynchronous instead, a stray dialog left open by something else in the
