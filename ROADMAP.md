@@ -50,6 +50,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · Create an audio clip from a file, and settle the path-safety shape for reads
 
+**Plan:** [docs/PLAN_audio_clip_from_file.md](docs/PLAN_audio_clip_from_file.md)
+
 **Goal:** `Track.create_audio_clip`, `ClipSlot.create_audio_clip` and
 `SimplerDevice.replace_sample` are reachable over OSC, and the fork has one
 reviewed answer — documented in API.md and enforced identically by all three
