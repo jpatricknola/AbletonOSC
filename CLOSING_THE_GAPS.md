@@ -11,9 +11,9 @@ five addressing gaps and four shape gaps._
 scheduled work; the order is impact-per-effort, most valuable first, and
 the tail is genuinely last rather than out of scope. The only surface that
 stays permanently unaddressed is what a safety argument keeps out, and that
-is rule 5 alone. Rule 4 is not an exclusion: the path-taking handlers are
-scheduled work — ranked on the roadmap — and the rule constrains the shape
-of their handlers, not whether they get written. A bucket is never held
+is rule 5 alone. Rule 4 was never an exclusion, and is now not even pending:
+its three path-taking handlers have shipped, and the rule they settled
+constrains the shape of any later one, not whether it gets written. A bucket is never held
 back for want of a downstream consumer requesting it.
 
 Buckets are named, not numbered. FORK_GAPS.md points at four of them by
@@ -94,24 +94,40 @@ Two things a bucket must never be:
    `tuning_system`, `tracks`, `scenes`, `slices`, `Device.view`.
    Hand-written, taking or returning an index, a name or a flattened
    tuple; say which in the PR.
-4. Handlers taking an absolute filesystem path (`Track.create_audio_clip`,
-   `ClipSlot.create_audio_clip`, `SimplerDevice.replace_sample`) follow
-   the fork's path-safety rule, which constrains their shape and does not
-   keep them out. Note what the rule cannot be here: `/live/browser/export`
-   answers the hazard by naming the destination itself, which works only
-   because no caller cared what the file was called. These three are the
-   opposite — Live's signature takes the path as the *subject* of the call
-   (`create_audio_clip((Track), (object)path, (float)position)`), and the
-   caller is choosing which file. They are also reads rather than writes,
-   so traversal and clobber, the concerns `export` removed, do not apply
-   in the same form. The bucket must therefore decide a shape rather than
-   copy one: a rooted allowlist (`realpath` the argument, require it under
-   a declared root set, reject otherwise with `export`'s error shape) is
-   the presumed answer, with a `BrowserItem.uri` form alongside it if
-   measurement shows a URI resolves to a filesystem path. Settle the root
-   set against a stated consumer use case — there is none on record yet.
-   All three ship together so the shape is reviewed once, as their own
-   roadmap item rather than inside the `Sample` or `SimplerDevice` bucket.
+4. Handlers naming a file for Live to **read** follow the fork's read-side
+   path rule, which is **settled and shipped** — it was decided once, with
+   `Track.create_audio_clip`, `ClipSlot.create_audio_clip` and
+   `SimplerDevice.replace_sample`, which is why all three shipped together
+   as their own roadmap item rather than inside the `Sample` or
+   `SimplerDevice` bucket. The rule, in full in `API.md` § "Handlers that
+   name a file to read" and implemented in `abletonosc/path_safety.py`:
+
+   - **The wire never carries a path.** The argument is a name *relative to
+     one fixed root*, `~/.seshat/generated`, and the handler builds the
+     absolute path itself. Given a fixed root, an absolute argument names
+     nothing the relative form does not, so it only re-creates the hazard.
+     This is smaller and stronger than the rooted allowlist over an absolute
+     path this rule used to presume.
+   - Resolve **both** sides with `realpath`, require the result to be a
+     regular file strictly under the resolved root, refuse otherwise. That
+     is what defeats `..` and a symlink pointing out of the root; a symlink
+     resolving *inside* the root is fine, because the rule is "resolves
+     inside", not "is not a symlink".
+   - **Always reply**, on the address called, including on every refusal,
+     with `"ok"`/`"error"` at a fixed index. Index errors stay on the
+     structured `/live/error` envelope; everything the worker decides is an
+     `"error"` reply.
+   - Nothing is opened and no Live method is called on a refused request.
+   - **One root, not a root set.** The consumer use case that decided it is
+     Seshat's generated-audio import; a second root needs a second *stated*
+     consumer, the same bar this one cleared. The `BrowserItem.uri` form is
+     declined, not deferred: the files these addresses exist to import are
+     deliberately outside Live's browser tree, so a URI could never name one.
+   - `/live/browser/export` is the **write**-side rule and stays as it is —
+     no destination from the wire at all. A read has to name *which* existing
+     file; a write does not. `/live/application/dump_lom` is the one
+     outstanding violation of the write-side rule (`issues.md`, Low).
+
 5. `press_current_dialog_button` is the one exception to the coverage goal
    and it is a **safety** exception, not a scheduling one: a dialog on
    screen may be guarding unsaved work, and pressing its buttons blind is
@@ -166,9 +182,9 @@ too small to fill a PR or too large to fit one.
 | Bucket | Scope | ~Members |
 |---|---|---|
 | **Object view classes** | The per-object view resolver is the substance; the members are cheap once it exists. `Song.View`: `draw_mode`, `follow_song`, `highlighted_clip_slot`, `select_device`. `Application.View`: `focused_document_view` (High in the dispositions — the exact Session-vs-Arranger read `/live/view` cannot give), `available_main_views`, `browse_mode`, `focus_view`, `scroll_view`, `zoom_view`, `toggle_browse` — per the cautions, document `focus_view`/`toggle_browse` as overlapping the absolute `show_view`/`hide_view` pair, and measure the two `*_view` argument forms before writing them. `Track.View`: `is_collapsed`, `device_insert_mode`, `select_instrument`. `Clip.View`: `grid_quantization`, `grid_is_triplet`, the envelope show/hide four; plus the `Clip.view` member itself. Closes the [View addressing gap](FORK_GAPS.md#songview--applicationview--liveview-is-a-fixed-set). This is the bucket the dispositions table names. | 21 |
-| **`Track` remainder** | `is_frozen`, `can_be_frozen`, `back_to_arranger`, `implicit_arm`, `muted_via_solo`, `performance_impact`, `input_meter_left/right/level`, `is_part_of_selection`, `can_show_chains`, `is_showing_chains`, `create_midi_clip`, `duplicate_clip_slot`, `duplicate_device`, `jump_in_running_session_clip`, `get_data`/`set_data`. (`create_audio_clip` is ranked on the roadmap under rule 4. The take-lane trio → clip resolver. The four `current_*_routing` → *Routing as stable identifiers*.) | 22 |
+| **`Track` remainder** | `is_frozen`, `can_be_frozen`, `back_to_arranger`, `implicit_arm`, `muted_via_solo`, `performance_impact`, `input_meter_left/right/level`, `is_part_of_selection`, `can_show_chains`, `is_showing_chains`, `create_midi_clip`, `duplicate_clip_slot`, `duplicate_device`, `jump_in_running_session_clip`, `get_data`/`set_data`. (`create_audio_clip` has **shipped** as `/live/track/create_audio_clip`, with the read-side path rule of rule 4. The take-lane trio → clip resolver. The four `current_*_routing` → *Routing as stable identifiers*.) | 22 |
 | **`Clip` warp markers and sample time** | `warp_markers`, `add`/`move`/`remove_warp_marker`, `available_warp_modes`, `sample_rate`, and the three conversions `beat_to_sample_time`, `sample_to_beat_time`, `seconds_to_sample_time`. **Split out of the `Clip` remainder**: a warp marker is object-valued, so the list read and the add/move/remove arguments are a designed shape under rule 3, and reviewing that shape next to a pile of scalars buries it. The audio-clip-only members also want a Live session with a warped audio clip to verify, which the scalar half does not. | 9 |
-| **`Clip` / `ClipSlot` / `Scene` scalars and methods** | What is left once envelopes and warp markers leave: `crop`, `duplicate_region`, `quantize_pitch`, `signature_numerator`/`denominator`, `scrub`/`stop_scrub`, `move_playing_pos`, `note_number_to_name`, `set_fire_button_state` on all three classes, and `ClipSlot.color`, `color_index`, `is_recording`. Generic loop and thin methods throughout. (`ClipSlot.create_audio_clip` is ranked on the roadmap; `Clip.view` → *Object view classes*; the three `is_*_clip` flags → clip resolver.) | 15 |
+| **`Clip` / `ClipSlot` / `Scene` scalars and methods** | What is left once envelopes and warp markers leave: `crop`, `duplicate_region`, `quantize_pitch`, `signature_numerator`/`denominator`, `scrub`/`stop_scrub`, `move_playing_pos`, `note_number_to_name`, `set_fire_button_state` on all three classes, and `ClipSlot.color`, `color_index`, `is_recording`. Generic loop and thin methods throughout. (`ClipSlot.create_audio_clip` has **shipped** as `/live/clip_slot/create_audio_clip`; `Clip.view` → *Object view classes*; the three `is_*_clip` flags → clip resolver.) | 15 |
 | **`Device` / `MixerDevice` remainder** | `Device`: `is_active`, `latency_in_ms`/`_samples`, `class_display_name`, `can_have_chains`, `can_have_drum_pads`, `can_compare_ab`, `is_using_compare_preset_b`, `save_preset_to_compare_ab_slot`, `store_chosen_bank`. `MixerDevice`: `crossfade_assign` and `panning_mode` are scalars; `crossfader`, `track_activator`, `left`/`right_split_stereo` and `song_tempo` are each a `DeviceParameter`, so they follow the object-read pattern, and `crossfader`/`song_tempo` exist on the Main track only. Closes the [`MixerDevice` addressing gap](FORK_GAPS.md#mixerdevice--four-of-eleven-members-and-only-via-track) for regular tracks; `ChainMixerDevice` stays behind the device resolver. Ship this before the rack buckets: it is what makes `RackDevice`'s 13 `Device`-generic rows close for free. | 17 |
 | **Tuning system and set data** | `TuningSystem` (whole class), `Song.tuning_system` (object-valued — index- or name-keyed, never the generic loop), `Song.get_data`/`set_data`. | 10 |
 
@@ -183,14 +199,14 @@ family, which is also how `RackDevice` divides internally.
 | **Drum racks** | `DrumChain` in full (`in_note`/`out_note`, `choke_group`, and the `Chain`-shaped remainder) and `DrumPad` (`note`, `chains`, `name`, `mute`/`solo`, `delete_all_chains`), plus `RackDevice`'s pad-side members: `drum_pads`, `visible_drum_pads`, `has_drum_pads`, `can_have_drum_pads`, `copy_pad`. Carries the curated [pad-map read](FORK_GAPS.md#drumchainin_note-and-rack-chain-insertion--read-the-drum-rack-pad-map): `/live/device/get/drum_pads <track> <device>` → `(chain_index, in_note, name)*`, with `in_note`/`out_note` setters for building a kit programmatically. Ships after *Rack chains*, whose `Chain` shape it reuses. | 30 |
 | **Rack macros and variations** | `RackDevice`'s macro and variation half: `selected_variation_index`, `variation_count`, `visible_macro_count`, `has_macro_mappings`, `macros_mapped`, `add_macro`, `remove_macro`, `randomize_macros`, `store_variation`, `recall_selected_variation`, `recall_last_used_variation`, `delete_selected_variation`. Independent of the chain and pad halves — it touches no chain addressing — so it can ship in any order among the three. | 12 |
 | **Device view classes** | The view classes that need a device address, split from *Object view classes* for that reason alone: `Device.view`, `RackDevice.View` (`selected_chain`, `selected_drum_pad`, `is_collapsed`, `is_showing_chain_devices`, `drum_pads_scroll_position`), `SimplerDevice.View` (`selected_slice`, `is_collapsed`, and the seven read-only sample markers), `Eq8Device.View`. Closes the [`Device.view` residual](FORK_GAPS.md#deviceview). | 17 |
-| **Browser tree** | `Browser` roots (`instruments`, `sounds`, `drums`, `audio_effects`, `midi_effects`, `max_for_live`, `plugins`, `clips`, `samples`, `packs`, `user_library`, `user_folders`, `current_project`, `legacy_libraries`, `colors`), `BrowserItem` traversal (`children`, `iter_children`, `name`, `uri`, `source`, `is_device`, `is_folder`, `is_loadable`, `is_selected`), `filter_type`, `hotswap_target`, `relation_to_hotswap_target`. Also settles [loading an `.agr` into the Groove Pool](FORK_GAPS.md#loading-an-agr-groove-file-into-the-pool) — there is no `Browser.grooves` root, so if `.agr` files are reachable at all it is through `packs`. Measure that first: a "no" is a Live limit worth recording, not a reason to widen the groove family. `BrowserItem.source` is the member to measure for the roadmap's audio-clip item — if it yields a filesystem path, a URI form becomes possible there. Needs no device resolver; listed here because it is an object-tree traversal like the rest. | 27 |
+| **Browser tree** | `Browser` roots (`instruments`, `sounds`, `drums`, `audio_effects`, `midi_effects`, `max_for_live`, `plugins`, `clips`, `samples`, `packs`, `user_library`, `user_folders`, `current_project`, `legacy_libraries`, `colors`), `BrowserItem` traversal (`children`, `iter_children`, `name`, `uri`, `source`, `is_device`, `is_folder`, `is_loadable`, `is_selected`), `filter_type`, `hotswap_target`, `relation_to_hotswap_target`. Also settles [loading an `.agr` into the Groove Pool](FORK_GAPS.md#loading-an-agr-groove-file-into-the-pool) — there is no `Browser.grooves` root, so if `.agr` files are reachable at all it is through `packs`. Measure that first: a "no" is a Live limit worth recording, not a reason to widen the groove family. ⚠️ `BrowserItem.source` still wants measuring on this bucket's own account (does it yield a filesystem path?), but it no longer belongs to the audio-clip item: that item shipped and **declined** a URI form, because the files it imports live deliberately outside Live's browser tree, where no URI could name them. Needs no device resolver; listed here because it is an object-tree traversal like the rest. | 27 |
 | **`Sample`** | The whole class, and **the owner of the slice API** — the inventory settles the open question the curated entry raised: `slices`, `insert_slice`, `move_slice`, `remove_slice`, `reset_slices` and `clear_slices` are `Sample` members, not `SimplerDevice` ones. Also the warp members (`warping`, `warp_mode`, `warp_markers`), the marker pair, `gain`/`gain_display_string`, `file_path`, `length`, `sample_rate`, the four slicing controls (`slicing_style`, `slicing_beat_division`, `slicing_region_count`, `slicing_sensitivity`), the granulation and texture sets, and the two beat/sample conversions. At the ceiling on its own; do not add to it. | 30 |
-| **`SimplerDevice`** | `playback_mode`, `slicing_playback_mode`, `pad_slicing`, `multi_sample_mode`, `voices`, `retrigger`, the two pitch-bend ranges, `playing_position` and `playing_position_enabled`, `sample` (object-valued — returns the `Sample` the bucket above exposes, so ship that one first), the warp trio `warp_as`/`warp_double`/`warp_half` with their three `can_*` reads, `crop`, `reverse`, `guess_playback_length`. `replace_sample` is not here: it is ranked on the roadmap with the two `create_audio_clip` members under rule 4. | 20 |
+| **`SimplerDevice`** | `playback_mode`, `slicing_playback_mode`, `pad_slicing`, `multi_sample_mode`, `voices`, `retrigger`, the two pitch-bend ranges, `playing_position` and `playing_position_enabled`, `sample` (object-valued — returns the `Sample` the bucket above exposes, so ship that one first), the warp trio `warp_as`/`warp_double`/`warp_half` with their three `can_*` reads, `crop`, `reverse`, `guess_playback_length`. `replace_sample` is not here: it **shipped** as `/live/device/replace_sample`, with the two `create_audio_clip` members, settling rule 4's read-side path rule. | 20 |
 
 The former *Simpler and Sample* bucket was 62 members. It is now three
 buckets — *`Sample`*, *`SimplerDevice`* and the `SimplerDevice.View` share
-of *Device view classes* — plus the three path-taking handlers ranked on
-the roadmap. Nothing left it; it was only ever three PRs wearing one name.
+of *Device view classes* — plus the three path-taking handlers, which have
+since shipped. Nothing left it; it was only ever three PRs wearing one name.
 
 ## Not buckets — ride-alongs and measurement
 
@@ -230,12 +246,20 @@ One row per bucket, one bucket per PR.
 | Member buckets | 6 | 94 |
 | Object families | 7 | 163 |
 | Tail — device classes | 6 | 120 |
-| Ranked on the roadmap (rule 4 path handlers) | 1 | 3 |
-| **Full coverage** | **27** | **419** |
+| **Full coverage** | **26** | **419** |
 
-**27 PRs, down from the ~28 buckets the previous count named — but the
-previous figure counted a 62-member bucket and an 87-member bucket as one
-PR each.** The bucket count barely moves because splitting the four
+**26 PRs.** The rule 4 path handlers had a row of their own here (1 PR,
+3 members) until they shipped: `/live/clip_slot/create_audio_clip`,
+`/live/track/create_audio_clip` and `/live/device/replace_sample` all landed
+together, closing those three members and settling the read-side path rule
+above. The row is gone; the member column deliberately stays at **419**,
+because that is [FORK_GAPS.md](FORK_GAPS.md)'s figure and its inventory has
+not been regenerated since (that needs a `/live/application/dump_lom` from a
+Live running the new code). Moving it to 416 here would desync the two files;
+the next regeneration moves both.
+
+**It was 27 PRs, down from the ~28 buckets an earlier count named — but that
+figure counted a 62-member bucket and an 87-member bucket as one PR each.** The bucket count barely moves because splitting the four
 oversized buckets is offset by merging the sub-PR items away: the
 `Application` listen pairs, the lone `DeviceParameter` follow-up and the
 seven tiny device classes no longer hold rows of their own.

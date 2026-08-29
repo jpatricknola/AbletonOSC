@@ -2,6 +2,7 @@ from typing import Tuple, Any, Callable, Optional
 from .handler import AbletonOSCHandler
 from .track_callback import create_track_callback as _create_track_callback
 from .track_identity import group_track_index
+from .path_safety import ImportPathError, resolve_import_path
 
 
 class TrackHandler(AbletonOSCHandler):
@@ -115,6 +116,79 @@ class TrackHandler(AbletonOSCHandler):
             track.clip_slots[clip_index].delete_clip()
 
         self.osc_server.add_handler("/live/track/delete_clip", create_track_callback(track_delete_clip))
+
+        #--------------------------------------------------------------------------------
+        # Seshat extension: import an audio file onto this track's Arrangement.
+        #
+        #   /live/track/create_audio_clip [track_id, name, position]
+        #     -> [track_index, "ok", position, length]
+        #     -> [track_index, "error", message]
+        #
+        # `name` is a path *relative to* path_safety.IMPORT_ROOT, never an
+        # absolute path — see path_safety.py and API.md § "Handlers that name a
+        # file to read". Nothing is opened and no Live method is called on a
+        # refused name.
+        #
+        # Always replies, including on every refusal, for the reasons spelled out
+        # on /live/clip_slot/create_audio_clip. The "ok"/"error" discriminator is
+        # at a fixed index (1) on both paths; the two replies are deliberately
+        # *not* the same length (success 4, refusal 3) and the refusal must not
+        # be padded to match — the invariant is the discriminator's index.
+        #
+        # The created Clip is not addressable by any /live/clip/* address (that
+        # needs the Arrangement and take-lane resolver, which is unranked), so
+        # the reply carries back the position it was asked for plus the clip's
+        # length, and /live/track/get/arrangement_clips/start_time is how a
+        # caller finds it again.
+        #
+        # Under `*` this fans out, creating one clip per regular track and
+        # replying once per track. The effects are not all-or-nothing: clips
+        # created on earlier tracks stay created. A refused name is not a raise,
+        # so a bad name under `*` produces N "error" replies and creates nothing.
+        #--------------------------------------------------------------------------------
+        def track_create_audio_clip(track, params: Tuple[Any] = ()):
+            #--------------------------------------------------------------------------------
+            # A missing or non-numeric position is a refusal, not an IndexError or
+            # a ValueError: either would be a silent wildcard skip on a
+            # /live/track/* pattern request, so a malformed request could
+            # masquerade as "this endpoint does not apply".
+            #--------------------------------------------------------------------------------
+            if len(params) < 2:
+                message = "expected [name, position], got %d argument(s)" % len(params)
+                self.logger.error("track create_audio_clip refused: %s" % message)
+                return ("error", message)
+            try:
+                position = float(params[1])
+            except (TypeError, ValueError):
+                message = "position must be a number, got %r" % (params[1],)
+                self.logger.error("track create_audio_clip refused: %s" % message)
+                return ("error", message)
+
+            try:
+                path = resolve_import_path(params[0])
+            except ImportPathError as e:
+                self.logger.error("track create_audio_clip refused: %s" % e)
+                return ("error", str(e))
+
+            try:
+                clip = track.create_audio_clip(path, position)
+            except Exception as e:
+                self.logger.error("track create_audio_clip failed: %s" % e)
+                return ("error", str(e))
+
+            #--------------------------------------------------------------------------------
+            # -1.0 rather than a shorter reply if the length cannot be read: the
+            # arity is part of the contract on the success path.
+            #--------------------------------------------------------------------------------
+            try:
+                length = float(clip.length)
+            except Exception:
+                length = -1.0
+
+            return ("ok", position, length)
+
+        self.osc_server.add_handler("/live/track/create_audio_clip",
+                                    create_track_callback(track_create_audio_clip))
 
         def track_get_clip_names(track, _):
             return tuple(clip_slot.clip.name if clip_slot.clip else None for clip_slot in track.clip_slots)

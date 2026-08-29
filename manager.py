@@ -183,6 +183,16 @@ class Manager(ControlSurface):
             #--------------------------------------------------------------------------------
             importlib.reload(abletonosc.track_identity)
             #--------------------------------------------------------------------------------
+            # path_safety before clip_slot, device and track, for the same
+            # `from`-import reason as track_identity above: all three do
+            # `from .path_safety import ...`, so an edit to the import rule
+            # reloaded *after* them would log success while the previous edit's
+            # resolver went on deciding which files /live/clip_slot/create_audio_clip,
+            # /live/track/create_audio_clip and /live/device/replace_sample open.
+            # No Live-free test can catch that.
+            #--------------------------------------------------------------------------------
+            importlib.reload(abletonosc.path_safety)
+            #--------------------------------------------------------------------------------
             # groove before clip and song, for the same `from`-import reason as
             # track_identity above: both of them `from .groove import ...` the
             # pool resolvers, so a groove.py edit reloaded *after* them would

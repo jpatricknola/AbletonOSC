@@ -1,5 +1,6 @@
 from typing import Tuple, Any
 from .handler import AbletonOSCHandler
+from .path_safety import ImportPathError, resolve_import_path
 
 class DeviceHandler(AbletonOSCHandler):
     class_identifier = "device"
@@ -384,3 +385,64 @@ class DeviceHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/device/get/parameter/name", create_device_callback(device_get_parameter_name))
         self.osc_server.add_handler("/live/device/start_listen/parameter/value", create_device_callback(device_get_parameter_value_listener, include_ids = True, id_count = 3))
         self.osc_server.add_handler("/live/device/stop_listen/parameter/value", create_device_callback(device_get_parameter_remove_value_listener, include_ids = True, id_count = 3))
+
+        #--------------------------------------------------------------------------------
+        # Seshat extension: replace a Simpler's sample with a file from the
+        # import root.
+        #
+        #   /live/device/replace_sample [track_index, device_index, name]
+        #     -> [track_index, device_index, "ok", file_path]
+        #     -> [track_index, device_index, "error", message]
+        #
+        # `name` is a path *relative to* path_safety.IMPORT_ROOT, never an
+        # absolute path — see path_safety.py and API.md § "Handlers that name a
+        # file to read". Nothing is opened and no Live method is called on a
+        # refused name.
+        #
+        # Always replies, including on every refusal, for the reasons spelled out
+        # on /live/clip_slot/create_audio_clip. The "ok"/"error" discriminator is
+        # at a fixed index (2) on both paths.
+        #
+        # `file_path` is device.sample.file_path read back *after* the call — the
+        # proof the swap landed — and "" if it cannot be read, which does not
+        # change the arity. Reading one attribute off Sample does not open that
+        # class: Sample stays an unranked bucket.
+        #
+        # Order is load-bearing, and this is the one place among the three
+        # addresses where it is observable: the method is bound with getattr
+        # **before** the path is resolved. On a non-Simpler that raises
+        # AttributeError, which is what makes this endpoint a silent
+        # _is_wildcard_skip under an address-pattern request such as
+        # `/live/device/* 0 0 "x.wav"` — the correct outcome there. Resolving
+        # first would instead answer an "error" triple from every matched device
+        # endpoint on a bad name. getattr is a bind, not a call, so the path
+        # rule's "no Live method is called on a rejected request" still holds.
+        #
+        # SimplerDevice on a regular track, top-level devices only, like every
+        # other /live/device/* address. A Simpler inside a rack waits on the
+        # device path resolver.
+        #--------------------------------------------------------------------------------
+        def device_replace_sample(device, params: Tuple[Any] = ()):
+            replace_sample = getattr(device, "replace_sample")
+
+            try:
+                path = resolve_import_path(params[0] if params else "")
+            except ImportPathError as e:
+                self.logger.error("device replace_sample refused: %s" % e)
+                return ("error", str(e))
+
+            try:
+                replace_sample(path)
+            except Exception as e:
+                self.logger.error("device replace_sample failed: %s" % e)
+                return ("error", str(e))
+
+            try:
+                file_path = str(device.sample.file_path)
+            except Exception:
+                file_path = ""
+
+            return ("ok", file_path)
+
+        self.osc_server.add_handler("/live/device/replace_sample",
+                                    create_device_callback(device_replace_sample))

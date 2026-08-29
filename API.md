@@ -212,6 +212,94 @@ observable, so it is the only one that could not have a listen pair even if a
 consumer asked. Without the install they are unknown addresses: the getters
 never reply and the setter silently does nothing.
 
+### Handlers that name a file to read
+
+⚠️ **Seshat extension.** Three addresses take an argument that names a file on
+disk for Live to **read**, and all three follow one rule. Upstream AbletonOSC
+has none of them.
+
+| Address | What it does |
+|---|---|
+| `/live/clip_slot/create_audio_clip` | Imports the file into a Session slot as an audio clip |
+| `/live/track/create_audio_clip` | Imports the file onto the track's Arrangement at a position |
+| `/live/device/replace_sample` | Swaps the sample of a top-level Simpler |
+
+**The wire never carries a path.** The argument is a *name relative to a single
+fixed import root*:
+
+    ~/.seshat/generated
+
+A bare `foo.wav` is the normal form; `sub/foo.wav` also resolves. The handler
+joins the name onto the root and builds the absolute path itself, so a caller
+can never hand Live a path of its own choosing. Given a fixed root, an absolute
+argument could only ever name files the relative form already names — it would
+buy the caller nothing and keep exactly the shape this rule exists to remove.
+
+The root is **not created by this fork**. A root that does not exist simply
+refuses everything; the consumer creates it (Seshat, mode 0700, alongside
+`~/.seshat/browser-exports`). It is not configurable and no environment
+variable redirects it: it is one constant on one line in
+`abletonosc/path_safety.py`, and changing it is a fork change.
+
+The rule, in order, is:
+
+1. reject a non-string, an empty string, or a name containing a NUL;
+2. reject an absolute path — the refusal message names the root, because
+   nothing else on the wire tells a caller where names resolve from;
+3. resolve **both** sides with `realpath`: `root = realpath(IMPORT_ROOT)` and
+   `candidate = realpath(join(root, name))`;
+4. reject unless `candidate` is strictly under `root` — the root itself is a
+   rejection. Resolving first is what defeats a `..` component and a symlink
+   inside the root that points outside it;
+5. reject unless `candidate` is a regular file. Already resolved, so this one
+   check also refuses a directory, a dangling symlink and a device node;
+6. otherwise hand `candidate` to Live.
+
+A symlink inside the root that resolves to a file **inside** the root is
+accepted deliberately: the rule is "resolves inside the root", not "is not a
+symlink". Every rejection is logged at error level and **nothing is opened —
+no Live method is called at all on a refused request.**
+
+**All three always reply**, on the address they were called on, including on
+every refusal — the `/live/browser/*` convention, not the silent-on-success
+convention of the generic `/live/track/<method>` and `/live/clip_slot/<method>`
+loops. A path refusal is caller-fixable and undiagnosable from silence, the
+importing caller needs the clip's length back, and silence would otherwise be
+indistinguishable from an install that predates these addresses.
+
+The `"ok"`/`"error"` discriminator sits at a **fixed index** — 2 for the
+clip-slot and device addresses, 1 for the track address — so a client switches
+on it positionally. **Arity is not the invariant:** the clip-slot and device
+addresses reply four fields either way, but the track address replies four on
+success and three on a refusal. Do not count arguments; read the fixed slot.
+
+**Two failure channels, and the split is deliberate.** A bad `track_index`,
+`clip_index` or `device_index` raises inside the wrapper *before* the worker
+runs, so it arrives as the structured `/live/error ["request", address, …]`
+envelope like every other address in its family. Everything the worker decides
+— a refused name, an occupied slot, a malformed argument list, an exception
+raised by Live inside the call — arrives as an `"error"` reply on the request
+address instead. A client that treats the two as one will mis-handle both.
+
+**This is the read-side rule. `/live/browser/export` is the write-side one**,
+and it is deliberately different: it takes no destination from the wire at all,
+chooses one inside a private root and replies with the absolute path it wrote.
+A read has to name *which* existing file; a write does not. (`EXPORT_ROOT` is
+`abspath` + `expanduser` and explicitly **not** `realpath`, because Seshat
+re-derives that exact string in Elixir with `Path.expand/1`; `IMPORT_ROOT`'s
+resolved form never leaves the handler, so it can and must resolve both sides.
+See the comments in `abletonosc/browser.py` and `abletonosc/path_safety.py`.)
+
+One address still violates the write-side rule and is **not** covered here:
+`/live/application/dump_lom` takes an arbitrary wire path and writes it with
+Live's privileges. It is tracked in `issues.md` (Low) and should adopt
+`browser/export`'s pattern, not this one.
+
+The command socket is loopback-only, so a caller reaching any of these
+addresses is already local code running as the user and could read the file
+without Live at all. That is why the read side can be a bounded root rather
+than `export`'s no-argument form.
+
 ### Queries that raise instead of replying
 
 Some queries make AbletonOSC raise internally. **Since the dispatch-boundary
@@ -1283,6 +1371,7 @@ query.** One request, one action per regular track.
 | `/live/track/delete_device` | `track_id, device_id` | Delete a device from the track's chain. **No reply on success** — `_call_method` returns nothing. A bad index raises inside the callback and comes back as `/live/error ["request", "/live/track/delete_device", ...]`. Callers wanting positive confirmation re-read `/live/track/get/num_devices` |
 | `/live/track/insert_device` | `track_id, device_name[, position]` | ⚠️ Seshat extension. Insert a device by name into the track's chain; `position` (default `-1`) is the `DeviceIndex` argument of `Track.insert_device`. **No reply on success**, like every other `/live/track/<method>`; a name Live rejects, or a Live older than 12.3 (where the LOM member does not exist), raises inside the callback and comes back as `/live/error ["request", "/live/track/insert_device", ...]`. Callers wanting the new device's index re-read `/live/track/get/devices/name`, or use the return/master forms below, which reply with it. ⚠️ Which `DeviceName` strings Live accepts is **unmeasured** — the LOM signature is known, the name semantics are not |
 | `/live/track/stop_all_clips` | `track_id` | Stop all clips on track |
+| `/live/track/create_audio_clip` | `track_id, name, position` | ⚠️ Seshat extension. Import an audio file onto the track's **Arrangement** at `position`. `name` is a path *relative to the import root* `~/.seshat/generated`, never an absolute path — see **Handlers that name a file to read**, which is also where the always-reply convention and the two failure channels are spelled out. Replies `track_index, "ok", position, length` on success, or `track_index, "error", message` on any refusal (a name the rule rejects, a malformed argument list, or an exception Live raised inside the call). The discriminator is always field 1; the two replies are deliberately different lengths and the refusal is not padded. A bad `track_id` is `/live/error` instead, not an `"error"` reply. ⚠️ `position` is passed to Live unmodified as a float; **beats in Arrangement time is inferred** from `/live/track/get/arrangement_clips/start_time`'s units, not measured. ⚠️ `length` is `clip.length` read back off the returned `Clip` immediately, and is `-1.0` if it cannot be read; whether the returned `Clip` is readable synchronously is **unmeasured**. The created clip is **not addressable** by any `/live/clip/*` address — find it again with `/live/track/get/arrangement_clips/start_time`. Under `track_id = "*"` this creates one clip **per regular track** and replies once per track; a refused name creates nothing, but a partial fan-out leaves clips already created in place |
 
 ### Track Getters
 
@@ -1386,6 +1475,7 @@ Container for clips. Create, delete, and query clip existence.
 | `/live/clip_slot/get/has_stop_button` | `track_index, clip_index` | `track_index, clip_index, has_stop_button` | Has stop button? |
 | `/live/clip_slot/set/has_stop_button` | `track_index, clip_index, has_stop_button` | | Set stop button (1=on, 0=off) |
 | `/live/clip_slot/duplicate_clip_to` | `track_index, clip_index, target_track, target_clip` | | Duplicate clip to target slot |
+| `/live/clip_slot/create_audio_clip` | `track_index, clip_index, name` | `track_index, clip_index, "ok", length` or `track_index, clip_index, "error", message` | ⚠️ **Seshat extension.** Import an audio file into this Session slot as an audio clip. `name` is a path *relative to the import root* `~/.seshat/generated`, never an absolute path — see **Handlers that name a file to read** for the rule, the always-reply convention and the two failure channels. Refusals (all with `"error"`, and none of which calls into Live): the name fails the rule; the slot already holds a clip (the fork's own check, on `has_clip`); Live raised inside `create_audio_clip`, whose message is carried through. The discriminator is always field 2. A bad `track_index`/`clip_index` is `/live/error` instead, not an `"error"` reply. ⚠️ `length` is `clip.length` in beats read back immediately, `-1.0` if it cannot be read; whether the returned `Clip` is readable synchronously, and what Live raises for a non-audio file or a MIDI track's slot, are **unmeasured**. Read back with `/live/clip/get/file_path` and `/live/clip/get/is_audio_clip`. **No listen pair** — a method, not a property |
 
 Every `get/` property above **except `get/clip`** also has
 `/live/clip_slot/start_listen/<property> <track_index> <clip_index>` and
@@ -2032,6 +2122,7 @@ trusting it blind.
 | `/live/device/get/parameter/short_value_items` | `track_id, device_id, parameter_id` | `track_id, device_id, parameter_id, [item, ...]` | Same, preferring Live's short labels where it has them |
 | `/live/device/parameter/begin_gesture` | `track_id, device_id, parameter_id` | | Start a continuous edit: the `set/parameter/value` writes that follow become one undo step and one automation gesture |
 | `/live/device/parameter/end_gesture` | `track_id, device_id, parameter_id` | | End the continuous edit opened by `begin_gesture` |
+| `/live/device/replace_sample` | `track_id, device_id, name` | `track_id, device_id, "ok", file_path` or `track_id, device_id, "error", message` | ⚠️ **Seshat extension.** Replace a **Simpler's** sample with a file from the import root. `name` is a path *relative to* `~/.seshat/generated`, never an absolute path — see **Handlers that name a file to read**. The discriminator is always field 2. `file_path` is `device.sample.file_path` read back after the call — the proof the swap landed — and `""` if it cannot be read, which does not change the arity. ⚠️ Whether the read-back reflects the new sample immediately is **unmeasured**. `SimplerDevice` only: on any other device the method binding raises `AttributeError`, which reaches the caller as `/live/error` and is a **silent skip** under an address-pattern request such as `/live/device/*`. Regular tracks and top-level devices only, like every other `/live/device/*` address; a Simpler inside a rack is not reachable |
 
 ### Device Type Reference
 

@@ -128,6 +128,28 @@ ALIASES = {
         "get_selected_notes": "/live/clip/get/selected_notes",
         "get_selected_notes_extended": "/live/clip/get/selected_notes_extended",
     },
+    #--------------------------------------------------------------------------------
+    # /live/device/replace_sample is registered under the "device" prefix, whose
+    # class list is Live.Device.Device and Live.DeviceParameter.DeviceParameter
+    # only — it does not include SimplerDevice — so segment equality alone would
+    # keep counting this member a gap after it shipped. An honest alias: the
+    # capability *is* reachable, under a prefix the class map does not associate
+    # with the class.
+    #
+    # Deliberately not fixed by adding Live.SimplerDevice.SimplerDevice to
+    # PREFIX_CLASSES["device"]: that would silently re-mark every other
+    # SimplerDevice member whose name happens to collide with a /live/device/*
+    # segment as covered.
+    #
+    # Track.create_audio_clip and ClipSlot.create_audio_clip need no alias —
+    # /live/track/create_audio_clip and /live/clip_slot/create_audio_clip are
+    # segments of their own addresses under prefixes whose class lists do reach
+    # those classes, and neither leaks to Live.TakeLane.TakeLane (which has a
+    # create_audio_clip of its own but is in no prefix's class list).
+    #--------------------------------------------------------------------------------
+    "Live.SimplerDevice.SimplerDevice": {
+        "replace_sample": "/live/device/replace_sample",
+    },
 }
 
 

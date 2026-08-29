@@ -12,8 +12,12 @@ Seshat's `vendored_addresses_test`._
 aim upstream's README states, carried on here. Every row in this file is
 work to be done, and the only surface deliberately left unaddressed is what
 a **safety** argument keeps out (rule 5 in
-[CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md), and the path-safety rule for
-handlers taking a filesystem path). No gap is out of scope for want of a
+[CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md)). The path-safety rule for
+handlers naming a file to read is **no longer** on that list: it was settled
+and shipped with the three `create_audio_clip` / `replace_sample` addresses —
+see `API.md` § "Handlers that name a file to read" and
+`abletonosc/path_safety.py`. It is a rule handlers follow, not an exclusion.
+No gap is out of scope for want of a
 consumer asking for it; a gap not yet worth doing is a gap ranked low, and
 it says so here.
 
@@ -176,11 +180,12 @@ Remote-Script-only member does what its name suggests.
   `LomTypes.pyc`; the apiref page lists only `playback_mode`,
   `slicing_playback_mode` and `sample`. Signatures still want checking
   against Live's shipped Python before building.
-- **Fork today:** no Simpler-specific addresses.
-- **Shape to build:** `replace_sample`, `playback_mode` setter, `slices`
-  getter; Seshat would write the trigger clip itself from the slice times
-  via `write_midi_notes`, standing in for Live's UI-only *Slice to New MIDI
-  Track*.
+- **Fork today:** `/live/device/replace_sample` only — shipped with the
+  read-side path rule (`API.md` § "Handlers that name a file to read"), for
+  a top-level Simpler on a regular track. No other Simpler-specific address.
+- **Shape to build:** `playback_mode` setter, `slices` getter; Seshat would
+  write the trigger clip itself from the slice times via `write_midi_notes`,
+  standing in for Live's UI-only *Slice to New MIDI Track*.
 - **Consumers:** "generate audio, keep it editable" output shape
   (`docs/evaluating/generative features/live-native-options.md` §2.4).
 
@@ -206,9 +211,19 @@ Cautions the audit attached to individual members, kept because the
 inventory's one-line docstrings do not carry them:
 
 - `ClipSlot.create_audio_clip`, `Track.create_audio_clip`,
-  `SimplerDevice.replace_sample` take absolute file paths. Any handler
-  must follow the fork's path-safety rule: the model must not hand
-  arbitrary paths to code running with Live's privileges.
+  `SimplerDevice.replace_sample` take absolute file paths, and **all three
+  now ship** — `/live/clip_slot/create_audio_clip`,
+  `/live/track/create_audio_clip`, `/live/device/replace_sample`. They
+  settled the fork's read-side path rule, which is now written down rather
+  than pending: the wire carries a name relative to one fixed root
+  (`~/.seshat/generated`) and the handler builds the absolute path itself.
+  See `API.md` § "Handlers that name a file to read" and
+  `abletonosc/path_safety.py`; any further handler naming a file to read
+  follows the same rule, and `/live/browser/export` remains the separate
+  write-side one. No member of the LOM is left waiting on this caution.
+  (The generated rows below still count these three as gaps: the inventory
+  has not been regenerated since they shipped — that needs a
+  `/live/application/dump_lom` from a Live running the new code.)
 - `Application.View.focus_view` overlaps `show_view` and `toggle_browse` is
   a relative toggle where absolute show/hide already exists. Both are still
   coverage; document the overlap on the row so a caller reaching for one is

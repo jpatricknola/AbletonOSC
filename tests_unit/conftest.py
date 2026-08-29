@@ -62,7 +62,7 @@ imported exactly as they ship, and each stub is only installed when a test
 actually calls the loader that needs it. device.py, scene.py, clip_slot.py,
 track.py, return_track.py and groove.py import only
 logging/typing/functools/.handler and the Live-free .track_callback /
-.track_identity, so load_device_module(), load_scene_module(),
+.track_identity / .path_safety, so load_device_module(), load_scene_module(),
 load_clip_slot_module(), load_track_module(), load_return_track_module() and
 load_groove_module() construct the real handlers on top of the
 Component stub alone; load_clip_module(), load_song_module(),
@@ -71,6 +71,13 @@ Ten of the thirteen production handlers are therefore driven end to end
 (device, scene, clip_slot, track, return_track, groove, clip, song, view,
 application); browser.py, midimap.py and song_structure.py have no loader
 yet, because nothing has needed one.
+
+path_safety.py — the read-side import rule that clip_slot.py, track.py and
+device.py all `from`-import — needs no loader and no stub at all: it imports
+only os and typing, so a bare load_module("abletonosc.path_safety") reaches
+it, which is what tests_unit/test_path_safety.py drives it through as a plain
+function. Its presence in those three modules' import lists therefore does not
+change the "no Live stub needed" conclusion for any of their loaders.
 
 test_import.py smoke-tests the loader so it cannot fail only when the
 first real dispatcher test is collected.
@@ -192,10 +199,12 @@ def load_device_module():
     Import the real `abletonosc.device` beneath the synthetic root.
 
     Unlike the other handler subclasses, device.py imports nothing from Live
-    — only `typing` and `.handler` — so once load_handler_module() has put
-    the Component stub in place, the production DeviceHandler can be
-    constructed and dispatched against outside Live. Local fakes stand in
-    for the LOM objects its callbacks reach through `self.song`.
+    — only `typing`, `.handler` and the Live-free `.path_safety` (os +
+    typing, for /live/device/replace_sample's import rule) — so once
+    load_handler_module() has put the Component stub in place, the production
+    DeviceHandler can be constructed and dispatched against outside Live.
+    Local fakes stand in for the LOM objects its callbacks reach through
+    `self.song`.
     """
     load_handler_module()
     return load_module("abletonosc.device")
@@ -229,7 +238,9 @@ def load_groove_module():
 def load_clip_slot_module():
     """
     Import the real `abletonosc.clip_slot` beneath the synthetic root. Like
-    device.py it imports nothing from Live — only typing and .handler.
+    device.py it imports nothing from Live — only typing, .handler and the
+    Live-free .path_safety (os + typing, for
+    /live/clip_slot/create_audio_clip's import rule).
     """
     load_handler_module()
     return load_module("abletonosc.clip_slot")
@@ -239,8 +250,8 @@ def load_track_module():
     """
     Import the real `abletonosc.track` beneath the synthetic root. Like
     device.py it imports nothing from Live — only typing, .handler,
-    .track_callback and .track_identity — so no stub beyond Component is
-    needed.
+    .track_callback, .track_identity and .path_safety — so no stub beyond
+    Component is needed.
 
     Note that constructing `TrackHandler` registers its entire address table
     (getters, setters, methods and both listen pairs, for every property in

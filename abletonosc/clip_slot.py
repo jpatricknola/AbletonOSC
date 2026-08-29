@@ -1,5 +1,6 @@
 from typing import Tuple, Any
 from .handler import AbletonOSCHandler
+from .path_safety import ImportPathError, resolve_import_path
 
 class ClipSlotHandler(AbletonOSCHandler):
     class_identifier = "clip_slot"
@@ -89,6 +90,82 @@ class ClipSlotHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/clip_slot/get/clip",
                                     create_clip_slot_callback(clip_slot_get_clip,
                                                               pass_clip_index=True))
+
+        #--------------------------------------------------------------------------------
+        # Seshat extension: import an audio file into this slot as a clip.
+        #
+        #   /live/clip_slot/create_audio_clip [track_index, clip_index, name]
+        #     -> [track_index, clip_index, "ok", length]
+        #     -> [track_index, clip_index, "error", message]
+        #
+        # `name` is a path *relative to* path_safety.IMPORT_ROOT, never an
+        # absolute path — see path_safety.py and API.md § "Handlers that name a
+        # file to read". Nothing is opened and no Live method is called on a
+        # refused name.
+        #
+        # This address always replies, including on every refusal — browser.py's
+        # convention, not the silent-on-success convention of the generic
+        # /live/clip_slot/<method> loop above. A path refusal is caller-fixable
+        # and undiagnosable from silence, the consumer needs `length` back, and
+        # silence would otherwise be indistinguishable from an install that
+        # predates this address.
+        #
+        # The split between the two failure channels is deliberate and
+        # documented: a bad track_index or clip_index raises inside
+        # create_clip_slot_callback's lookup *before* this worker runs, so it
+        # arrives as the structured /live/error envelope like every other
+        # clip-slot address. Everything this worker can decide arrives as an
+        # "error" reply on the request address instead. The "ok"/"error"
+        # discriminator is at a fixed index (2) on both paths, so a client
+        # switches on it positionally.
+        #
+        # The has_clip refusal is the fork's own, not Live's: what Live does
+        # with an occupied slot is unmeasured, and an explicit refusal is what
+        # the consumer wants either way.
+        #--------------------------------------------------------------------------------
+        def clip_slot_create_audio_clip(clip_slot, params: Tuple[Any] = ()):
+            #--------------------------------------------------------------------------------
+            # params[0] is handed to the rule *unmodified*: a non-string is the
+            # rule's own refusal, not something coerced into a plausible name
+            # here. A missing argument becomes the empty string, so a malformed
+            # request is an "error" reply rather than an IndexError escaping as a
+            # structured error the caller cannot tell from a bad index.
+            #--------------------------------------------------------------------------------
+            try:
+                path = resolve_import_path(params[0] if params else "")
+            except ImportPathError as e:
+                self.logger.error("clip_slot create_audio_clip refused: %s" % e)
+                return ("error", str(e))
+
+            if clip_slot.has_clip:
+                message = "clip slot already contains a clip"
+                self.logger.error("clip_slot create_audio_clip refused: %s" % message)
+                return ("error", message)
+
+            try:
+                clip = clip_slot.create_audio_clip(path)
+            except Exception as e:
+                self.logger.error("clip_slot create_audio_clip failed: %s" % e)
+                return ("error", str(e))
+
+            #--------------------------------------------------------------------------------
+            # Read the length back off the returned Clip, falling back to the
+            # slot's own clip. -1.0 rather than a shorter reply if neither can be
+            # read: the arity is part of the contract, the discriminator is not
+            # allowed to move.
+            #--------------------------------------------------------------------------------
+            length = -1.0
+            for candidate in (clip, getattr(clip_slot, "clip", None)):
+                try:
+                    length = float(candidate.length)
+                except Exception:
+                    continue
+                break
+
+            return ("ok", length)
+
+        self.osc_server.add_handler("/live/clip_slot/create_audio_clip",
+                                    create_clip_slot_callback(clip_slot_create_audio_clip))
 
         def duplicate_clip_slot(clip_slot, args):
             target_track_index, target_clip_index = tuple(args)
