@@ -287,10 +287,21 @@ name, so a device that is not a Simpler is the silent wildcard skip
 [README](README.md#wildcard-queries) describes. The two `create_audio_clip`
 addresses do the opposite: a missing or malformed argument list is an `"error"`
 reply, never a skip. So `/live/clip_slot/* <t> <c>` and `/live/track/* <t>` each
-draw one `"error"` datagram from these addresses, where every other method on
-those prefixes stays silent. A malformed request is not the same thing as an
-endpoint that does not apply, and answering says which it was. (Nothing in
-Seshat sends a pattern request today.)
+draw one `"error"` datagram from these addresses — they are the only addresses
+on those two prefixes that *answer* a malformed pattern request at all. A
+malformed request is not the same thing as an endpoint that does not apply, and
+answering says which it was.
+
+⚠️ **That is not a claim that the rest of either prefix is inert.** A pattern
+request matches every address on the prefix, and the neighbours react to an
+empty argument tail in their own ways rather than staying quiet:
+`/live/track/stop_all_clips`, `/live/clip_slot/fire`, `/live/clip_slot/stop` and
+`/live/clip_slot/delete_clip` take no required argument, so they **execute**;
+`/live/track/insert_device`, `/live/track/delete_device` and
+`/live/clip_slot/create_clip` raise `TypeError` inside `_call_method`, which is
+not one of the wildcard-skip classes, so each answers its own `/live/error`. Do
+not use a pattern request on these prefixes to probe. (Nothing in Seshat sends
+one today.)
 
 **This is the read-side rule. `/live/browser/export` is the write-side one**,
 and it is deliberately different: it takes no destination from the wire at all,
@@ -1382,7 +1393,7 @@ query.** One request, one action per regular track.
 | `/live/track/delete_device` | `track_id, device_id` | Delete a device from the track's chain. **No reply on success** — `_call_method` returns nothing. A bad index raises inside the callback and comes back as `/live/error ["request", "/live/track/delete_device", ...]`. Callers wanting positive confirmation re-read `/live/track/get/num_devices` |
 | `/live/track/insert_device` | `track_id, device_name[, position]` | ⚠️ Seshat extension. Insert a device by name into the track's chain; `position` (default `-1`) is the `DeviceIndex` argument of `Track.insert_device`. **No reply on success**, like every other `/live/track/<method>` bar `/live/track/create_audio_clip`; a name Live rejects, or a Live older than 12.3 (where the LOM member does not exist), raises inside the callback and comes back as `/live/error ["request", "/live/track/insert_device", ...]`. Callers wanting the new device's index re-read `/live/track/get/devices/name`, or use the return/master forms below, which reply with it. ⚠️ Which `DeviceName` strings Live accepts is **unmeasured** — the LOM signature is known, the name semantics are not |
 | `/live/track/stop_all_clips` | `track_id` | Stop all clips on track |
-| `/live/track/create_audio_clip` | `track_id, name, position` | ⚠️ Seshat extension. Import an audio file onto the track's **Arrangement** at `position`. `name` is a path *relative to the import root* `~/.seshat/generated`, never an absolute path — see **Handlers that name a file to read**, which is also where the always-reply convention and the two failure channels are spelled out. Replies `track_index, "ok", position, length` on success, or `track_index, "error", message` on any refusal (a name the rule rejects, a malformed argument list, or an exception Live raised inside the call). The discriminator is always field 1; the two replies are deliberately different lengths and the refusal is not padded. A bad `track_id` is `/live/error` instead, not an `"error"` reply. ⚠️ `position` is passed to Live unmodified as a float; **beats in Arrangement time is inferred** from `/live/track/get/arrangement_clips/start_time`'s units, not measured. ⚠️ `length` is `clip.length` read back off the returned `Clip` immediately, and is `-1.0` if it cannot be read; whether the returned `Clip` is readable synchronously is **unmeasured**. The created clip is **not addressable** by any `/live/clip/*` address — find it again with `/live/track/get/arrangement_clips/start_time`. Under `track_id = "*"` this creates one clip **per regular track** and replies once per track; a refused name creates nothing, but a partial fan-out leaves clips already created in place |
+| `/live/track/create_audio_clip` | `track_id, name, position` | ⚠️ Seshat extension. Import an audio file onto the track's **Arrangement** at `position`. `name` is a path *relative to the import root* `~/.seshat/generated`, never an absolute path — see **Handlers that name a file to read**, which is also where the always-reply convention and the two failure channels are spelled out. Replies `track_index, "ok", position, length` on success, or `track_index, "error", message` on any refusal (a name the rule rejects, a malformed argument list, or an exception Live raised inside the call). The discriminator is always field 1; the two replies are deliberately different lengths and the refusal is not padded. A bad `track_id` is `/live/error` instead, not an `"error"` reply. ⚠️ `position` is passed to Live unmodified as a float; **beats in Arrangement time is inferred** from `/live/track/get/arrangement_clips/start_time`'s units, not measured. ⚠️ `length` is `clip.length` read back off the returned `Clip` immediately, and is `-1.0` if it cannot be read; whether the returned `Clip` is readable synchronously is **unmeasured**. The created clip is **not addressable** by any `/live/clip/*` address — find it again with `/live/track/get/arrangement_clips/start_time`. Under `track_id = "*"` this is attempted on **every regular track** — `song.tracks`, MIDI tracks included — and replies once per track; a refused name creates nothing, but a partial fan-out leaves clips already created in place. ⚠️ What Live raises for a non-audio or unreadable file, and for a **MIDI track**, is **unmeasured** — whatever it is, the worker catches it and returns it as this address's `"error"` reply, so a `*` fan-out over a mixed set can answer `"ok"` for some tracks and `"error"` for others |
 
 ### Track Getters
 

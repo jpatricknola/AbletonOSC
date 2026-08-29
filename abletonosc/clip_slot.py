@@ -137,7 +137,22 @@ class ClipSlotHandler(AbletonOSCHandler):
                 self.logger.error("clip_slot create_audio_clip refused: %s" % e)
                 return ("error", str(e))
 
-            if clip_slot.has_clip:
+            #--------------------------------------------------------------------------------
+            # The has_clip read is inside a `try` for the same reason as the
+            # length read-back below: reading a LOM member can raise rather than
+            # return falsy, and an escaping exception here would answer a
+            # /live/error instead of the "error" reply this address promises on
+            # every refusal. Nothing has been created at this point, so refusing
+            # is the accurate answer either way.
+            #--------------------------------------------------------------------------------
+            try:
+                occupied = clip_slot.has_clip
+            except Exception as e:
+                message = "clip slot has_clip could not be read: %s" % e
+                self.logger.error("clip_slot create_audio_clip refused: %s" % message)
+                return ("error", message)
+
+            if occupied:
                 message = "clip slot already contains a clip"
                 self.logger.error("clip_slot create_audio_clip refused: %s" % message)
                 return ("error", message)

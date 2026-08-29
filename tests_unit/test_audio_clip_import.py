@@ -213,6 +213,38 @@ def test_clip_slot_occupied_slot_replies_error_and_calls_nothing(
     assert slots(clip_slot_handler)[1].calls == []
 
 
+def test_clip_slot_unreadable_has_clip_replies_error_and_calls_nothing(
+        server, receiver, import_root):
+    """
+    The occupancy check reads a LOM member, and a LOM member can raise rather
+    than return falsy. That must stay on this address's "error" channel: an
+    escaping exception would answer /live/error instead, the one shape the
+    always-reply guarantee does not allow. Nothing has been created yet, so
+    refusing is the accurate answer either way.
+    """
+
+    class RaisingClipSlot(FakeClipSlot):
+        @property
+        def has_clip(self):
+            raise RuntimeError("slot detached")
+
+        @has_clip.setter
+        def has_clip(self, value):
+            pass
+
+    slot = RaisingClipSlot()
+    handler = load_clip_slot_module().ClipSlotHandler(FakeManager(server))
+    handler.song = FakeSong([FakeTrack(clip_slots=[slot])])
+
+    dispatch(server, "/live/clip_slot/create_audio_clip", 0, 0, "kick.wav")
+    messages = receiver.drain()
+    reply, = replies(messages, "/live/clip_slot/create_audio_clip")
+    assert reply[:3] == (0, 0, "error")
+    assert "slot detached" in reply[3]
+    assert errors(messages) == []
+    assert slot.calls == []
+
+
 def test_clip_slot_live_side_exception_is_caught_and_replied(
         server, receiver, import_root):
     handler = load_clip_slot_module().ClipSlotHandler(FakeManager(server))
