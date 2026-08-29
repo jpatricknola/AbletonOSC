@@ -195,7 +195,7 @@ fork side has since landed are marked._
 | Priority | Missing bridge surface | Why it matters | Disposition |
 |---|---|---|---|
 | High | `Application.open_dialog_count`, `current_dialog_message`, `current_dialog_button_count` | Detect and describe a blocking Live dialog without AX or pixels | **Landed** — see [Closed](#application-dialogs-and-versions--closed-2026-08-29). `press_current_dialog_button` stays out, as this row required: still no address for it unless a separately reviewed, non-file use case proves safe — a current dialog may guard unsaved work |
-| High | Return/master mixer and device addressing | An empty return cannot become a usable reverb/delay path without human device loading | **Landed** (`/live/return_track/*`, `/live/master/*`) for top-level devices; the remaining subset is under [Addressing gaps](#addressing-gaps) |
+| High | Return/master mixer and device addressing | An empty return cannot become a usable reverb/delay path without human device loading | **Landed** (`/live/return_track/*`, `/live/master/*`) for top-level devices, and widened to `Track` parity by A-3 — colour, meters, output routing, return sends and `insert_device`; see [Closed](#returnmaster-track-parity--closed-2026-08-29). What remains is devices *inside* racks, under [Addressing gaps](#addressing-gaps) |
 | High | `Application.View.is_view_visible`, `hide_view` | Closes `show_view`'s blind loop; makes view smoke tests self-verifying | **Landed.** `focused_document_view` (Session vs Arranger, exact) still open and belongs in the same handler |
 | Medium–high | `DeviceParameter.value_items`, `is_enabled`, `automation_state`, `default_value`, `original_name` | Tools expose raw min/max but cannot name enum choices, tell whether a parameter is disabled, or warn that automation owns it | **Landed** as one unit, ahead of any device-specific API — see [Closed](#device-parameters--numeric-only--closed-2026-08-29) |
 | Medium–high | Extended note identity and modification (`note_id`, `apply_note_modifications`, selection/by-ID methods) | Safe single-note edits; keeps probability, deviation, release velocity the flattened reply discards | **Landed** as one unit — see [Closed](#notes--flattened-to-five-fields--closed-2026-08-29). `/live/clip/get/notes_extended` carries `note_id`, probability, deviation and release velocity, and `apply_note_modifications` edits a note in place keeping its id, so Seshat's `edit_notes` no longer has to compose remove + add |
@@ -277,26 +277,42 @@ or Max-device `DeviceIO`. Needs a recursive path form; the whole
 `RackDevice`/`Chain`/`DrumPad`/`DrumChain` family in the inventory is
 unreachable until it exists.
 
-### `Track` — regular tracks get 107 addresses, return 20, master 15
+### `Track` — regular tracks get 109 addresses, return 60, master 49
 
-`/live/track/*` is `song.tracks` only. `Track` is also every return track
-and the master. `/live/return_track/*` restores `count`, `name`, `mute`,
-`solo`, `volume`, `panning`, `select`, `select_device`, `delete_device`,
-`devices`, plus `start_listen`/`stop_listen` pairs for `name`, `volume`,
-`panning`, `mute` and `solo`; `/live/master/*` restores `volume`, `panning`,
-`cue_volume` with their listen pairs, and the same device subset. Missing on
-returns/master: colour, routing, meters, `arm`-adjacent state,
-`has_*_input/output`, every `start_listen` address beyond the mixer
-properties just listed, `insert_device`, `mixer_device.sends` on returns.
+`/live/track/*` is `song.tracks` only. `Track` is also every return track and
+the master, reached instead through `/live/return_track/*` and
+`/live/master/*`. Since **A-3** those two prefixes carry the mixer surface
+(`name`, `volume`, `panning`, `mute`, `solo`, `cue_volume`), the device subset
+(`devices`, `device/*`, `delete_device`, `insert_device`, `select_device`),
+`select`, colour (`color`, `color_index`), the four `has_*_input/output`
+reads, the three `output_meter_*` reads, output routing (both `available_*`
+lists and both get/set pairs), the returns' own `mixer_device.sends`, and a
+`start_listen`/`stop_listen` pair for every mutable scalar among them.
 
-_The address counts in this heading are pre-fork-work figures and are no
-longer accurate; recount before quoting them._
+Counts measured from the registered address tables on 2026-08-29: **109 / 60 /
+49**, against 108 / 30 / 21 before A-3 landed (the "107 / 20 / 15" this
+heading carried for months predated the fork's return/master work entirely).
 
-### `MixerDevice` — three of eleven members, and only via `Track`
+Still missing on returns/master, and deliberately so unless a feature asks:
+the clip family (`clip_slots`, `arrangement_clips`, `stop_all_clips`,
+`delete_clip`, `fired_slot_index`, `playing_slot_index` — returns have no
+clips), input routing (neither has an input section in Live's UI), listen
+pairs for the four `has_*` reads (constants there), `arm` and the master's
+`mute`/`solo` (absent on those objects, measured 2026-07-31), and the
+regular-track-shaped members `is_visible`, `is_grouped`, `is_foldable`,
+`fold_state`, `can_be_armed`, `current_monitoring_state`, `group_track` and
+the split `devices/*` getters.
 
-`volume`, `panning`, `sends` reach `track.mixer_device`. `Chain.mixer_device`
-(`ChainMixerDevice`: volume, panning, sends, chain_activator) has no path,
-which is what makes rack chains silent even once devices are reachable.
+### `MixerDevice` — four of eleven members, and only via `Track`
+
+`volume`, `panning`, `sends` reach `track.mixer_device` on a regular track,
+and since **A-3** `sends` reaches a *return* track's mixer too
+(`/live/return_track/get|set/send`) — Live 12's return-to-return send
+section. `cue_volume` reaches the master's. `Chain.mixer_device`
+(`ChainMixerDevice`: volume, panning, sends, chain_activator) still has no
+path, which is what makes rack chains silent even once devices are reachable;
+so do `crossfade_assign`, `panning_mode`, `track_activator`, `crossfader`,
+`song_tempo` and the split-stereo members.
 
 ### `Song.View` / `Application.View` — `/live/view` is a fixed set
 
@@ -332,6 +348,46 @@ shifts when one is deleted. An ID or name-keyed form is the shape fix.
 
 Move entries here only in the same commit that lands the address, then
 delete them at the next tidy — the address docs are the permanent record.
+
+### Return/master `Track` parity — closed 2026-08-29
+
+Was an addressing gap: a return track and the master are `Live.Track.Track`
+objects, but the fork reached them through a hand-written address family built
+for the mixer-and-devices workflow, so a return could be renamed and faded but
+not coloured, metered, or re-routed, and had no reachable sends of its own.
+
+Closed by roadmap item **A-3**, which adds fifty-eight addresses to
+`abletonosc/return_track.py` — colour and colour index, the four
+`has_*_input/output` reads, the three `output_meter_*` reads, output routing
+(both `available_*` lists and both get/set pairs), `mixer_device.sends` on
+returns, and `insert_device`, each in a return-indexed and a master form except
+the sends — plus one string in `abletonosc/track.py`'s generic methods list for
+`/live/track/insert_device`. Address counts went 108 / 30 / 21 → **109 / 60 /
+49** for regular / return / master. `API.md` § "Return Track & Master: `Track`
+parity" is the permanent record, including the ⚠️ markers on everything still
+unmeasured against a running Live (whether the Main track has `color`,
+`insert_device` name semantics, return-send behaviour).
+
+Members this closed, on returns and the master: `color`, `color_index`,
+`has_audio_input`, `has_audio_output`, `has_midi_input`, `has_midi_output`,
+`output_meter_level`, `output_meter_left`, `output_meter_right`,
+`output_routing_type`, `output_routing_channel`,
+`available_output_routing_types`, `available_output_routing_channels`,
+`insert_device` (also on regular tracks), and `MixerDevice.sends` on a return.
+
+Deliberately still open, each recorded in `API.md` rather than shipped as dead
+wire surface: **listen pairs for the four `has_*` reads** (constants on a
+return and on the master, so a subscription could only deliver its one
+immediate push), **input routing** (neither object has an input section in
+Live's UI), **send listen pairs** (`Track.sends` is not observable — the same
+reason `/live/track/start_listen/send` does not exist), and the master's
+`mute`/`solo`/`arm` and a return's `arm` (absent on those objects, measured
+2026-07-31). The clip-family members do not apply to a return at all and stay
+in the Track section's residual list.
+
+The generated inventory below still lists the closed members as gaps: it is
+regenerated only from a `/live/application/dump_lom` taken against a Live
+running the *installed* copy, and no dump has been taken since this landed.
 
 ### Object-valued reads returned as `None` — closed 2026-08-27
 

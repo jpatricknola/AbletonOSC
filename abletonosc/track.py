@@ -28,6 +28,17 @@ class TrackHandler(AbletonOSCHandler):
 
         methods = [
             "delete_device",
+            #--------------------------------------------------------------------------------
+            # Seshat extension (A-3): the regular-track counterpart of
+            # /live/return_track/insert_device and /live/master/insert_device,
+            # so `Track.insert_device` is reachable on all three categories
+            # rather than on two of them. One string in the generic loop, so it
+            # behaves like every other /live/track/<method>: silent on success,
+            # failures arrive as a structured /live/error, and `*` fans out per
+            # the track-index wildcard contract. Live 12.3+ member; on an older
+            # Live the call raises and is reported that way.
+            #--------------------------------------------------------------------------------
+            "insert_device",
             "stop_all_clips"
         ]
         properties_r = [

@@ -59,17 +59,17 @@ that pretend to no Live *behaviour* whatsoever:
 
 Nothing else stubs anything: osc_server.py and track_callback.py are
 imported exactly as they ship, and each stub is only installed when a test
-actually calls the loader that needs it. device.py, scene.py, clip_slot.py
-and track.py import only typing/functools/.handler and the Live-free
-.track_callback / .track_identity, so load_device_module(),
-load_scene_module(), load_clip_slot_module() and load_track_module()
-construct the real handlers on top of the Component stub alone;
-load_clip_module(), load_song_module(), load_view_module() and
-load_application_module() add the empty Live stub. Eight of the twelve
-production handlers are therefore driven end to end (device, scene,
-clip_slot, track, clip, song, view, application); browser.py, midimap.py,
-return_track.py and song_structure.py have no loader yet, because nothing
-has needed one.
+actually calls the loader that needs it. device.py, scene.py, clip_slot.py,
+track.py and return_track.py import only typing/functools/.handler and the
+Live-free .track_callback / .track_identity, so load_device_module(),
+load_scene_module(), load_clip_slot_module(), load_track_module() and
+load_return_track_module() construct the real handlers on top of the
+Component stub alone; load_clip_module(), load_song_module(),
+load_view_module() and load_application_module() add the empty Live stub.
+Nine of the twelve production handlers are therefore driven end to end
+(device, scene, clip_slot, track, return_track, clip, song, view,
+application); browser.py, midimap.py and song_structure.py have no loader
+yet, because nothing has needed one.
 
 test_import.py smoke-tests the loader so it cannot fail only when the
 first real dispatcher test is collected.
@@ -233,6 +233,22 @@ def load_track_module():
     """
     load_handler_module()
     return load_module("abletonosc.track")
+
+
+def load_return_track_module():
+    """
+    Import the real `abletonosc.return_track` beneath the synthetic root.
+    Like device.py it imports nothing from Live — only typing, functools and
+    .handler — so no stub beyond Component is needed.
+
+    `ReturnTrackHandler.init_api` registers its whole address table (the
+    return-indexed and master forms of every scalar, routing, send and device
+    address) but touches `self.song` only from callbacks, so the
+    post-construction `handler.song = FakeSong(...)` pattern is enough here;
+    bind_song() is not needed.
+    """
+    load_handler_module()
+    return load_module("abletonosc.return_track")
 
 
 def _install_empty_live_stub():

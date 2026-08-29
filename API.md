@@ -78,6 +78,15 @@ Because pushes and query replies share a shape, a client that correlates
 replies by address will also receive listener pushes as if they were replies
 — a consumer's decode path has to expect both.
 
+**One family breaks that shape deliberately.** The return-track and master
+getters added by this fork answer a *query* with an `ok`/`error` envelope,
+while their listener pushes carry the bare value (§ "Return Track & Master:
+`Track` parity"). A push has no failure path to report, and the differing
+arity is what lets a consumer tell the two apart on one address — so a decoder
+written for `/live/return_track/*` and `/live/master/*` must branch on arity
+rather than assume the shapes match. Everywhere else in this document the
+paragraph above holds.
+
 Two gotchas that don't show in the address tables:
 
 - **An index-keyed listener must be unbound from the object it was registered
@@ -972,8 +981,10 @@ happened — and its view tools need the rest.
 through `song.tracks`, which holds audio and MIDI tracks and nothing else — a
 return track or the master track cannot be reached on any `/live/track/*`
 address, at any index. Return tracks and the master are addressable through
-Seshat's return_track extension (see below); sends, being a property of a
-*regular* track's mixer, live here.
+Seshat's return_track extension (see below). A *regular* track's sends live
+here; since A-3 a return track has its own sends too, on
+`/live/return_track/get|set/send` — Live 12 gives returns a send section of
+their own.
 
 Volume, panning, send, mute, solo, devices, clips.
 
@@ -1123,6 +1134,7 @@ query.** One request, one action per regular track.
 |---|---|---|
 | `/live/track/delete_clip` | `track_id, clip_index` | Delete the clip in slot `clip_index`. No reply — same address family as `/live/clip_slot/delete_clip`, which Seshat uses instead |
 | `/live/track/delete_device` | `track_id, device_id` | Delete a device from the track's chain. **No reply on success** — `_call_method` returns nothing. A bad index raises inside the callback and comes back as `/live/error ["request", "/live/track/delete_device", ...]`. Callers wanting positive confirmation re-read `/live/track/get/num_devices` |
+| `/live/track/insert_device` | `track_id, device_name[, position]` | ⚠️ Seshat extension. Insert a device by name into the track's chain; `position` (default `-1`) is the `DeviceIndex` argument of `Track.insert_device`. **No reply on success**, like every other `/live/track/<method>`; a name Live rejects, or a Live older than 12.3 (where the LOM member does not exist), raises inside the callback and comes back as `/live/error ["request", "/live/track/insert_device", ...]`. Callers wanting the new device's index re-read `/live/track/get/devices/name`, or use the return/master forms below, which reply with it. ⚠️ Which `DeviceName` strings Live accepts is **unmeasured** — the LOM signature is known, the name semantics are not |
 | `/live/track/stop_all_clips` | `track_id` | Stop all clips on track |
 
 ### Track Getters
@@ -1970,10 +1982,10 @@ still be reading one.
 
 ## Return Track & Master API (Seshat extension — not in upstream AbletonOSC)
 
-⚠️ These fifty-one addresses do **not** exist in stock AbletonOSC. They are served
-by `abletonosc/return_track.py` in this repository, installed
+⚠️ These one hundred and nine addresses do **not** exist in stock AbletonOSC.
+They are served by `abletonosc/return_track.py` in this repository, installed
 with `mix abletonosc.install` (restart Live afterwards). Without that install all
-fifty-one addresses are unknown and queries time out.
+one hundred and nine addresses are unknown and queries time out.
 
 They exist because upstream reaches regular tracks only: every `/live/track/*`
 handler resolves its index through `song.tracks`. Return tracks live in
@@ -2040,6 +2052,148 @@ track needs no index at all.
 | `/live/master/start_listen/cue_volume` | | | Push `/live/master/get/cue_volume [value]` on every change |
 | `/live/master/stop_listen/cue_volume` | | | |
 
+### Return Track & Master: `Track` parity
+
+A return track and the master are `Live.Track.Track` objects, the same class as
+every regular track — only the `song.tracks` lookup stood between them and most
+of the Track API. These addresses (roadmap item **A-3**) close that difference
+for the scalar properties, output routing, the returns' own sends and
+`insert_device`.
+
+Everything in this subsection follows the envelope rules of the section above,
+with one deliberate addition: **every getter here carries the ok/error
+envelope, the index-less master forms included** — unlike the shipped
+`/live/master/get/{volume,panning,cue_volume,devices}`, which reply with the
+bare value. The Main track refuses some members its class declares (reading
+`mute` raises `RuntimeError`), so a master getter for a *new* member has a
+failure path the fader getters do not, and an envelope is the only shape that
+can report it. A read that raises comes back as
+`["error", "could not read <prop>: <exception text>"]`, never as silence and
+never as a bare `None`.
+
+| Address | Query Params | Response Params | Description |
+|---|---|---|---|
+| `/live/return_track/get/color` | `return_index` | `return_index, "ok", color` | RGB colour as an int, same encoding as `/live/track/get/color` |
+| | | `return_index, "error", message` | Index out of range, or the member was refused |
+| `/live/return_track/set/color` | `return_index, color` | | Set the return's colour |
+| `/live/return_track/start_listen/color` | `return_index` | | Push `/live/return_track/get/color [return_index, color]` on every change |
+| `/live/return_track/stop_listen/color` | `return_index` | | |
+| `/live/return_track/get/color_index` | `return_index` | `return_index, "ok", color_index` | Index into Live's colour palette |
+| | | `return_index, "error", message` | Index out of range, or the member was refused |
+| `/live/return_track/set/color_index` | `return_index, color_index` | | |
+| `/live/return_track/start_listen/color_index` | `return_index` | | Push `[return_index, color_index]` |
+| `/live/return_track/stop_listen/color_index` | `return_index` | | |
+| `/live/return_track/get/has_audio_input` | `return_index` | `return_index, "ok", 0\|1` | ⚠️ Constant on a return, expected always `1` — **unmeasured**. No setter, **no listen pair** |
+| `/live/return_track/get/has_audio_output` | `return_index` | `return_index, "ok", 0\|1` | ⚠️ Constant, expected always `1` — **unmeasured** |
+| `/live/return_track/get/has_midi_input` | `return_index` | `return_index, "ok", 0\|1` | ⚠️ Constant, expected always `0` — **unmeasured** |
+| `/live/return_track/get/has_midi_output` | `return_index` | `return_index, "ok", 0\|1` | ⚠️ Constant, expected always `0` — **unmeasured** |
+| `/live/return_track/get/output_meter_level` | `return_index` | `return_index, "ok", level` | Output meter, 0.0 to 1.0 |
+| `/live/return_track/start_listen/output_meter_level` | `return_index` | | Push `[return_index, level]` on every change — ⚠️ a *high-rate* subscription while audio plays |
+| `/live/return_track/stop_listen/output_meter_level` | `return_index` | | |
+| `/live/return_track/get/output_meter_left` | `return_index` | `return_index, "ok", level` | Left channel |
+| `/live/return_track/start_listen/output_meter_left` | `return_index` | | Push `[return_index, level]` on every change — ⚠️ high-rate |
+| `/live/return_track/stop_listen/output_meter_left` | `return_index` | | |
+| `/live/return_track/get/output_meter_right` | `return_index` | `return_index, "ok", level` | Right channel |
+| `/live/return_track/start_listen/output_meter_right` | `return_index` | | Push `[return_index, level]` on every change — ⚠️ high-rate |
+| `/live/return_track/stop_listen/output_meter_right` | `return_index` | | |
+| `/live/return_track/get/available_output_routing_types` | `return_index` | `return_index, "ok", count, name × count` | Output routing choices, `count` first |
+| | | `return_index, "error", message` | Index out of range, or the read was refused |
+| `/live/return_track/get/available_output_routing_channels` | `return_index` | `return_index, "ok", count, name × count` | |
+| `/live/return_track/get/output_routing_type` | `return_index` | `return_index, "ok", display_name` | Current output route |
+| `/live/return_track/set/output_routing_type` | `return_index, display_name` | | Resolved against `available_output_routing_types` by display name; an unmatched name is logged and changes nothing |
+| `/live/return_track/get/output_routing_channel` | `return_index` | `return_index, "ok", display_name` | |
+| `/live/return_track/set/output_routing_channel` | `return_index, display_name` | | Resolved against `available_output_routing_channels` |
+| `/live/return_track/get/send` | `return_index, send_id` | `return_index, send_id, "ok", value` | One of the return's own sends, 0.0 to 1.0 |
+| | | `return_index, send_id, "error", message` | Either index out of range; the message names the real send count |
+| `/live/return_track/set/send` | `return_index, send_id, value` | | Set one of the return's sends |
+| `/live/return_track/insert_device` | `return_index, device_name[, position]` | `return_index, "ok", device_index, count` | Insert a device by name; `device_index` is its position **re-read** from the chain, `count` the new chain length |
+| | | `return_index, "error", message` | Index out of range, no name given, or the LOM call raised |
+| `/live/master/get/color` | | `"ok", color` / `"error", message` | ⚠️ Whether the Main track *has* `color` is **unmeasured** — the envelope answers truthfully either way |
+| `/live/master/set/color` | `color` | | ⚠️ If the Main track refuses the member the write raises and arrives on `/live/error`, not as silence |
+| `/live/master/start_listen/color` | | | Push `/live/master/get/color [color]` on every change |
+| `/live/master/stop_listen/color` | | | |
+| `/live/master/get/color_index` | | `"ok", color_index` / `"error", message` | Same ⚠️ |
+| `/live/master/set/color_index` | `color_index` | | |
+| `/live/master/start_listen/color_index` | | | Push `[color_index]` |
+| `/live/master/stop_listen/color_index` | | | |
+| `/live/master/get/has_audio_input` | | `"ok", 0\|1` / `"error", message` | ⚠️ Constant, expected always `1` — **unmeasured**. No setter, no listen pair |
+| `/live/master/get/has_audio_output` | | `"ok", 0\|1` / `"error", message` | ⚠️ Constant, expected always `1` — **unmeasured** |
+| `/live/master/get/has_midi_input` | | `"ok", 0\|1` / `"error", message` | ⚠️ Constant, expected always `0` — **unmeasured** |
+| `/live/master/get/has_midi_output` | | `"ok", 0\|1` / `"error", message` | ⚠️ Constant, expected always `0` — **unmeasured** |
+| `/live/master/get/output_meter_level` | | `"ok", level` / `"error", message` | Master output meter |
+| `/live/master/start_listen/output_meter_level` | | | Push `[level]` — ⚠️ high-rate |
+| `/live/master/stop_listen/output_meter_level` | | | |
+| `/live/master/get/output_meter_left` | | `"ok", level` / `"error", message` | |
+| `/live/master/start_listen/output_meter_left` | | | Push `[level]` — ⚠️ high-rate |
+| `/live/master/stop_listen/output_meter_left` | | | |
+| `/live/master/get/output_meter_right` | | `"ok", level` / `"error", message` | |
+| `/live/master/start_listen/output_meter_right` | | | Push `[level]` — ⚠️ high-rate |
+| `/live/master/stop_listen/output_meter_right` | | | |
+| `/live/master/get/available_output_routing_types` | | `"ok", count, name × count` | |
+| `/live/master/get/available_output_routing_channels` | | `"ok", count, name × count` | |
+| `/live/master/get/output_routing_type` | | `"ok", display_name` / `"error", message` | Usually the hardware output |
+| `/live/master/set/output_routing_type` | `display_name` | | |
+| `/live/master/get/output_routing_channel` | | `"ok", display_name` / `"error", message` | |
+| `/live/master/set/output_routing_channel` | `display_name` | | |
+| `/live/master/insert_device` | `device_name[, position]` | `"ok", device_index, count` | Insert a device into the master chain |
+| | | `"error", message` | No name given, or the LOM call raised |
+
+- **`has_audio_input` / `has_audio_output` / `has_midi_input` /
+  `has_midi_output` have no listen pair here**, unlike on a regular track. On a
+  return and on the master they are constants — always audio in, audio out,
+  never MIDI — so a subscription could only ever deliver the one immediate
+  push. Regular tracks have those pairs because upstream's generic loop
+  registers a pair for every property in its list, not because the values move.
+- **There is no input routing on returns or the master.** Neither has an input
+  section in Live's UI, so `input_routing_*` and `available_input_routing_*`
+  are deliberately not offered. The output half is, because both do have an
+  output chooser: a return routes to the Main track or elsewhere, the master to
+  a hardware output.
+- **The available-routing lists carry `count` first**, like `get/devices` —
+  the flat tail then stays parseable, and a tail whose length disagrees with
+  `count` is a shape error the caller rejects rather than truncating. Setting
+  resolves a **display name** against the matching list, exactly as
+  `/live/track/set/output_routing_type` does, and inherits that scheme's
+  ambiguity: two routings that display the same name are indistinguishable on
+  the wire (`FORK_GAPS.md` § "Routing — names, not objects").
+- **Meter subscriptions are high-rate.** `output_meter_*` changes on every
+  audio buffer while sound is passing, so `start_listen` on one is a stream,
+  not an occasional notification. Subscribe deliberately and stop when the
+  meter is no longer on screen.
+- **Sends on returns are new in the LOM's usable form with Live 12**, which
+  gives return tracks their own send section (return-to-return, disabled by
+  default behind Live's feedback guard). ⚠️ Unmeasured: whether
+  `len(mixer_device.sends)` on a return is the full return count and whether a
+  *disabled* send accepts a value write. The error message on a bad `send_id`
+  names whatever count Live reports. There is **no master form** (the master
+  has no sends) and **no listen pair** — `Track.sends` is not observable, the
+  same reason `/live/track/start_listen/send` doesn't exist.
+- **`insert_device` replies**, for the same reason `delete_device` does: it is
+  a method with a real failure path, and the caller's very next act is
+  addressing the device it just created. `device_index` is **re-read** from
+  `track.devices` after the call rather than assumed, because Live does not
+  always append at the end (an instrument lands before existing audio
+  effects); it is `-1` when the returned device is not on the chain yet, which
+  is what an asynchronously instantiating VST/AU plugin looks like — the same
+  convention `/live/browser/load_item` uses. The regular-track counterpart is
+  `/live/track/insert_device`, which stays silent like every other
+  `/live/track/<method>`. ⚠️ Which `DeviceName` strings Live accepts, and what
+  a rejected one raises, are **unmeasured**; `position` maps to the LOM's
+  `DeviceIndex` argument and defaults to `-1`.
+- **Setters keep the section's split.** An argument or bounds error is logged
+  in Live and answered with silence, as everywhere else here; the LOM write
+  itself is unguarded, so a member the object refuses raises and arrives as a
+  structured `/live/error` carrying the request. Silence therefore still means
+  "bad index or not installed", and `/live/error` means "Live refused this".
+- **Listener keys.** A return's colour and meter listeners are plain `Track`
+  properties, keyed `(prop, (return_index,))` through the base class. The
+  master's are keyed `(prop, ("master",))` through a hand-rolled helper —
+  the base class derives its push address from `class_identifier`, which is
+  `return_track` for this handler, so the master's pushes would otherwise go
+  out on `/live/return_track/get/color`. Neither can collide with the mixer
+  parameters' `("value", (index, "volume"))` / `("value", ("master",
+  "cue_volume"))`.
+
 ### Return Track & Master: Device Chains
 
 Upstream's `/live/device/*`, `/live/track/delete_device` and
@@ -2083,10 +2237,13 @@ device surface is repeated here — once indexed by return, once for the master.
   from an install that never happened, and would cost a full guard timeout to
   learn nothing either way. With the envelope, **an error reply means a bad
   index and silence means the extension isn't loaded.**
-- **The index-less master getters reply with the bare value**, no envelope:
-  `get/count`, `/live/master/get/volume`, `/live/master/get/panning`,
+- **The five *shipped* index-less getters reply with the bare value**, no
+  envelope: `get/count`, `/live/master/get/volume`, `/live/master/get/panning`,
   `/live/master/get/cue_volume` and `/live/master/get/devices` take nothing to
-  look up, so they have no failure to report.
+  look up, so they have no failure to report. Every master getter added since
+  (the `Track` parity subsection below) **does** carry the envelope: those read
+  members the Main track may refuse outright, which is a failure path a fader
+  read does not have.
 - **`delete_device` is the one setter-shaped address that replies.** It is a
   *method* with a real failure path — the same class as `load_item` — and the
   alternative is sandwiching it between two count reads to learn whether it
@@ -2130,9 +2287,13 @@ device surface is repeated here — once indexed by return, once for the master.
   returns) and `/live/song/delete_return_track [return_index]`. A newly created
   return's index is therefore the old `get/count` — query the count, create,
   then `set/name` at that index.
-- Sends belong to the *regular* track that feeds the return, so they stay on
+- The sends that feed a return belong to the *regular* track, and stay on
   `/live/track/get|set/send [track_id, send_id, ...]` in the Track API above.
-- **The listeners push the bare value**, not the ok/error envelope — a push has
+  A return's **own** sends (Live 12's return-to-return section) are a separate
+  thing and live here, on `/live/return_track/get|set/send`.
+- **The listeners push the bare value**, not the ok/error envelope — the one
+  documented exception to the general listener rule in § "Listener pattern",
+  which is cross-referenced there. A push has
   no failure path to report, and the differing arity is what lets
   `Seshat.Session.State` accept a push and a query reply on the same address
   without confusing them. Like upstream's listeners, each sends once immediately

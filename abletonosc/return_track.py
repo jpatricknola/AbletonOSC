@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Any, Tuple
 
 from .handler import AbletonOSCHandler
@@ -161,7 +162,123 @@ from .handler import AbletonOSCHandler
 # `mixer_device.panning.value` (Live displays it as 50L / C / 50R), and the
 # master's cue level is `mixer_device.cue_volume.value`, 0.0-1.0 on the *same* dB
 # curve as track volume — its parameter is named "Preview Volume" in Live.
+#
+# Track parity (roadmap item A-3)
+# -------------------------------
+#
+# A return track and the master are Live.Track.Track objects, the same class as
+# every regular track, so most of what /live/track/* answers applies to them —
+# it was only ever the `song.tracks` lookup that stood in the way. The surface
+# below closes that difference for the scalar properties, output routing, the
+# returns' own sends and `insert_device`:
+#
+#   /live/return_track/get/color            [index]   -> [index, "ok", color]
+#   /live/return_track/set/color            [index, color]
+#   /live/return_track/{start,stop}_listen/color       [index]
+#   ... and the same four for color_index
+#   /live/return_track/get/has_audio_input  [index]   -> [index, "ok", 0|1]
+#   ... and has_audio_output, has_midi_input, has_midi_output
+#   /live/return_track/get/output_meter_level         [index] -> [index, "ok", level]
+#   /live/return_track/{start,stop}_listen/output_meter_level [index]
+#   ... and output_meter_left, output_meter_right
+#   /live/return_track/get/available_output_routing_types     [index]
+#       -> [index, "ok", count, name0, name1, ...]
+#   /live/return_track/get/available_output_routing_channels  [index]
+#   /live/return_track/get/output_routing_type        [index] -> [index, "ok", name]
+#   /live/return_track/set/output_routing_type        [index, name]
+#   /live/return_track/get/output_routing_channel     [index] -> [index, "ok", name]
+#   /live/return_track/set/output_routing_channel     [index, name]
+#   /live/return_track/get/send             [index, send_id]
+#       -> [index, send_id, "ok", value] / [index, send_id, "error", message]
+#   /live/return_track/set/send             [index, send_id, value]
+#   /live/return_track/insert_device        [index, name[, position]]
+#       -> [index, "ok", device_index, count] / [index, "error", message]
+#
+# with the index-less master form of every one of them except the sends (the
+# master has none) — /live/master/get/color, /live/master/insert_device and so
+# on.
+#
+# Three decisions shape that list, and each is a deliberate departure:
+#
+# 1. Every *new* master getter carries the ok/error envelope, even though the
+#    shipped master getters (volume, panning, cue_volume, devices) reply with
+#    the bare value. The Main track refuses some members its class declares —
+#    reading `mute` raises RuntimeError, measured 2026-07-31 — and whether it
+#    refuses `color` is unmeasured. The envelope makes the address
+#    self-describing whichever way Live answers, where a bare reply would have
+#    to choose between a lie and silence.
+# 2. `has_audio_input` / `has_audio_output` / `has_midi_input` /
+#    `has_midi_output` get **no listen pair**. On a return and on the master
+#    they are constants (always audio in, audio out, never MIDI), so a listener
+#    would subscribe to a value that cannot change. Regular tracks have those
+#    pairs only because upstream's generic loop registers pairs blindly.
+# 3. **No input routing.** Returns and the master have no input section in
+#    Live's UI, so those addresses are not offered; the output half is, because
+#    both do have an output chooser (a return routes to the master or
+#    elsewhere, the master to a hardware out).
+#
+# The scalar and routing surfaces are table-driven: one row per property,
+# walked twice — once index-keyed for returns, once index-less for the master —
+# through shared generic callbacks. Sixty new hand-written methods would say
+# the same thing sixty times and drift the moment one of them was edited.
+#
+# Getters wrap the read in try/except and answer the error envelope with the
+# exception text, so a member a LOM object refuses is reported rather than
+# silently answered as None. Setters keep the shipped split: an argument or
+# bounds error is logged and silent, but the assignment itself is unguarded, so
+# a LOM write that raises escapes to OSCServer._dispatch and arrives as a
+# structured /live/error.
+#
+# `insert_device` replies, for the same reason `delete_device` does: it is a
+# method with a real failure path, and the caller's very next act is addressing
+# the device it just created. Its `device_index` is *re-read* from the chain
+# (`list(track.devices).index(...)`) rather than assumed, because Live does not
+# always append at the end, and is -1 when the returned object is not on the
+# chain yet (asynchronously instantiating plugins) — the same convention
+# browser.py's `load_item` uses.
 #--------------------------------------------------------------------------------
+
+
+#--------------------------------------------------------------------------------
+# Scalar Track properties shared by returns and the master, one row each:
+#
+#   prop      the LOM member name, which is also the address's last segment and
+#             the listener bookkeeping key's prop half
+#   parse     the coercion applied to a setter's argument, or None for
+#             read-only (no set/ address is registered)
+#   listen    whether to register the start_listen/stop_listen pair
+#   boolean   whether the getter reports 0/1 rather than the raw value, the
+#             `mute`/`solo` precedent for every boolean on this handler
+#
+# The four has_* rows are read-only *and* unlistenable on purpose — see the
+# header above.
+#--------------------------------------------------------------------------------
+SCALAR_PROPERTIES = (
+    ("color", int, True, False),
+    ("color_index", int, True, False),
+    ("has_audio_input", None, False, True),
+    ("has_audio_output", None, False, True),
+    ("has_midi_input", None, False, True),
+    ("has_midi_output", None, False, True),
+    ("output_meter_level", None, True, False),
+    ("output_meter_left", None, True, False),
+    ("output_meter_right", None, True, False),
+)
+
+#--------------------------------------------------------------------------------
+# Output routing, which cannot ride the scalar table: the value is a routing
+# *object*, read as `.display_name` and written by resolving a display name
+# against the matching available_* list. Each row is
+# (property, available_list_property).
+#
+# Same name-based scheme as /live/track/*, and it inherits that scheme's known
+# shape limitation with it (FORK_GAPS "Routing — names, not objects"): two
+# routings with the same display name are indistinguishable on the wire.
+#--------------------------------------------------------------------------------
+ROUTING_PROPERTIES = (
+    ("output_routing_type", "available_output_routing_types"),
+    ("output_routing_channel", "available_output_routing_channels"),
+)
 
 
 class ReturnTrackHandler(AbletonOSCHandler):
@@ -254,6 +371,75 @@ class ReturnTrackHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/master/delete_device", self._delete_master_device)
         self.osc_server.add_handler("/live/return_track/select_device", self._select_device)
         self.osc_server.add_handler("/live/master/select_device", self._select_master_device)
+
+        #--------------------------------------------------------------------------------
+        # Track parity: the scalar properties every regular track answers, walked
+        # once for returns and once for the master. No per-property methods — the
+        # only thing that differs between two rows is the name in the address and
+        # the two flags beside it.
+        #--------------------------------------------------------------------------------
+        for prop, parse, listen, boolean in SCALAR_PROPERTIES:
+            self.osc_server.add_handler(
+                "/live/return_track/get/%s" % prop,
+                partial(self._get_return_property, prop, boolean))
+            self.osc_server.add_handler(
+                "/live/master/get/%s" % prop,
+                partial(self._get_master_property, prop, boolean))
+
+            if parse is not None:
+                self.osc_server.add_handler(
+                    "/live/return_track/set/%s" % prop,
+                    partial(self._set_return_property, prop, parse))
+                self.osc_server.add_handler(
+                    "/live/master/set/%s" % prop,
+                    partial(self._set_master_property, prop, parse))
+
+            if listen:
+                self.osc_server.add_handler(
+                    "/live/return_track/start_listen/%s" % prop,
+                    partial(self._start_listen_return_property, prop))
+                self.osc_server.add_handler(
+                    "/live/return_track/stop_listen/%s" % prop,
+                    partial(self._stop_listen_return_property, prop))
+                self.osc_server.add_handler(
+                    "/live/master/start_listen/%s" % prop,
+                    partial(self._start_listen_master_property, prop))
+                self.osc_server.add_handler(
+                    "/live/master/stop_listen/%s" % prop,
+                    partial(self._stop_listen_master_property, prop))
+
+        #--------------------------------------------------------------------------------
+        # Output routing. No listen pairs: regular tracks have none either, and
+        # parity is the goal here.
+        #--------------------------------------------------------------------------------
+        for prop, available_prop in ROUTING_PROPERTIES:
+            self.osc_server.add_handler(
+                "/live/return_track/get/%s" % available_prop,
+                partial(self._get_return_routing_list, available_prop))
+            self.osc_server.add_handler(
+                "/live/master/get/%s" % available_prop,
+                partial(self._get_master_routing_list, available_prop))
+            self.osc_server.add_handler(
+                "/live/return_track/get/%s" % prop,
+                partial(self._get_return_routing, prop))
+            self.osc_server.add_handler(
+                "/live/master/get/%s" % prop,
+                partial(self._get_master_routing, prop))
+            self.osc_server.add_handler(
+                "/live/return_track/set/%s" % prop,
+                partial(self._set_return_routing, prop, available_prop))
+            self.osc_server.add_handler(
+                "/live/master/set/%s" % prop,
+                partial(self._set_master_routing, prop, available_prop))
+
+        #--------------------------------------------------------------------------------
+        # Sends on returns (Live 12 gives return tracks their own send section),
+        # and insert_device on both.
+        #--------------------------------------------------------------------------------
+        self.osc_server.add_handler("/live/return_track/get/send", self._get_send)
+        self.osc_server.add_handler("/live/return_track/set/send", self._set_send)
+        self.osc_server.add_handler("/live/return_track/insert_device", self._insert_device)
+        self.osc_server.add_handler("/live/master/insert_device", self._insert_master_device)
 
     #--------------------------------------------------------------------------------
     # Return tracks
@@ -782,6 +968,374 @@ class ReturnTrackHandler(AbletonOSCHandler):
             self.logger.error("Master: could not select device: %s" % e)
 
     #--------------------------------------------------------------------------------
+    # Track parity: shared generic callbacks
+    #
+    # Four for the scalar table (return get/set, master get/set), four more for
+    # its listen pairs, six for routing, and the sends and insert_device pair
+    # below them. Every one is bound to a row of SCALAR_PROPERTIES /
+    # ROUTING_PROPERTIES by functools.partial at registration time, so adding a
+    # property is adding a row.
+    #--------------------------------------------------------------------------------
+    def _get_return_property(self, prop, boolean, params: Tuple[Any] = ()) -> Tuple:
+        index, track, error = self._return_track(params, "get/%s" % prop)
+        if error is not None:
+            return (index, "error", error)
+
+        value, error = self._read_property(track, prop, "Return track %d" % index)
+        if error is not None:
+            return (index, "error", error)
+
+        return (index, "ok", (1 if value else 0) if boolean else value)
+
+    def _set_return_property(self, prop, parse, params: Tuple[Any] = ()) -> None:
+        index, track, error = self._return_track(params, "set/%s" % prop)
+        if error is not None:
+            return None
+
+        try:
+            value = parse(params[1])
+        except (IndexError, TypeError, ValueError):
+            self.logger.error("Return track: set/%s requires [index, value]" % prop)
+            return None
+
+        #--------------------------------------------------------------------------------
+        # Deliberately unguarded: a LOM object that refuses the member raises,
+        # and that exception is worth a structured /live/error rather than the
+        # silence an argument error gets. Same split as `track.name = ...` above.
+        #--------------------------------------------------------------------------------
+        self.logger.info("Setting property for return track %d: %s (new value %s)"
+                         % (index, prop, value))
+        setattr(track, prop, value)
+
+    def _get_master_property(self, prop, boolean, params: Tuple[Any] = ()) -> Tuple:
+        value, error = self._read_property(self.song.master_track, prop, "Master track")
+        if error is not None:
+            return ("error", error)
+
+        return ("ok", (1 if value else 0) if boolean else value)
+
+    def _set_master_property(self, prop, parse, params: Tuple[Any] = ()) -> None:
+        try:
+            value = parse(params[0])
+        except (IndexError, TypeError, ValueError):
+            self.logger.error("Master: set/%s requires [value]" % prop)
+            return None
+
+        self.logger.info("Setting property for master track: %s (new value %s)" % (prop, value))
+        setattr(self.song.master_track, prop, value)
+
+    def _read_property(self, track, prop, label):
+        """
+        Read `prop` off a Track, reporting a refusal instead of raising.
+
+        Returns (value, None) or (None, message). The catch is what turns a
+        member the Main track declares but refuses — reading `mute` raises
+        RuntimeError("Main track has no 'mute' property!") — into a
+        self-describing error envelope rather than a silent hole or a bare None
+        the caller cannot tell from a real value.
+        """
+        try:
+            value = getattr(track, prop)
+        except Exception as e:
+            message = "could not read %s: %s" % (prop, e)
+            self.logger.error("%s: %s" % (label, message))
+            return (None, message)
+
+        #--------------------------------------------------------------------------------
+        # Logged on the ok path like the base class's _get_property, so the
+        # value is readable from Live's log — the only evidence available when
+        # verifying against a running Live, since replies go to a port this
+        # side cannot bind.
+        #--------------------------------------------------------------------------------
+        self.logger.info("%s: getting property %s = %s" % (label, prop, value))
+        return (value, None)
+
+    def _start_listen_return_property(self, prop, params: Tuple[Any] = ()) -> None:
+        index, track, error = self._return_track(params, "start_listen/%s" % prop)
+        if error is not None:
+            return None
+
+        #--------------------------------------------------------------------------------
+        # Plain listenable Track properties, so the base class derives
+        # /live/return_track/get/<prop> on its own and pushes (index, value) —
+        # exactly as `name`, `mute` and `solo` above.
+        #--------------------------------------------------------------------------------
+        self._start_listen(track, prop, (index,))
+
+    def _stop_listen_return_property(self, prop, params: Tuple[Any] = ()) -> None:
+        index, track, error = self._return_track(params, "stop_listen/%s" % prop)
+        if error is not None:
+            return None
+
+        self._stop_listen_if_present(prop, (index,))
+
+    def _start_listen_master_property(self, prop, params: Tuple[Any] = ()) -> None:
+        self._listen_to_track_property(self.song.master_track, prop,
+                                       "/live/master/get/%s" % prop,
+                                       reply_prefix=(),
+                                       listener_params=("master",))
+
+    def _stop_listen_master_property(self, prop, params: Tuple[Any] = ()) -> None:
+        self._stop_listen_if_present(prop, ("master",))
+
+    def _listen_to_track_property(self, track, prop, address, reply_prefix,
+                                  listener_params) -> None:
+        """
+        Listen to a plain Track property, pushing its value on `address`.
+
+        The plain-property sibling of `_listen_to_mixer_param`, and hand-rolled
+        for the mirror-image reason: here the *object* is right (a Track, whose
+        notification is add_<prop>_listener, so the base class would bind
+        correctly) but the *address* is wrong — the base derives it from
+        `class_identifier`, which is "return_track" for this handler, and the
+        master's pushes have to go out on /live/master/get/<prop>.
+
+        Everything else is the base class's own bookkeeping, written into the
+        same dicts: keyed (prop, listener_params) with the track as the object,
+        so `_stop_listen` recovers remove_<prop>_listener from the key's prop
+        half (no alias needed — unlike the mixer parameters, whose prop is
+        forced to "value") and `_clear_listeners` tears these down on reload
+        with no special case. The master's key is (prop, ("master",)), which
+        cannot collide with a return's (prop, (index,)) or with any mixer key.
+        """
+        def property_changed_callback():
+            value = getattr(track, prop)
+            self.logger.info("Property %s changed of %s %s: %s"
+                             % (prop, self.class_identifier, str(listener_params), value))
+            self.osc_server.send(address, (*reply_prefix, value))
+
+        listener_key = (prop, tuple(listener_params))
+        self._stop_listen_if_present(prop, listener_params)
+
+        self.logger.info("Adding listener: %s %s" % (address, str(listener_params)))
+        add_listener_function = getattr(track, "add_%s_listener" % prop)
+        add_listener_function(property_changed_callback)
+        self.listener_functions[listener_key] = property_changed_callback
+        self.listener_objects[listener_key] = track
+
+        property_changed_callback()
+
+    #--------------------------------------------------------------------------------
+    # Output routing
+    #--------------------------------------------------------------------------------
+    def _get_return_routing_list(self, available_prop, params: Tuple[Any] = ()) -> Tuple:
+        index, track, error = self._return_track(params, "get/%s" % available_prop)
+        if error is not None:
+            return (index, "error", error)
+
+        names, error = self._routing_names(track, available_prop, "Return track %d" % index)
+        if error is not None:
+            return (index, "error", error)
+
+        return (index, "ok", len(names), *names)
+
+    def _get_master_routing_list(self, available_prop, params: Tuple[Any] = ()) -> Tuple:
+        names, error = self._routing_names(self.song.master_track, available_prop,
+                                           "Master track")
+        if error is not None:
+            return ("error", error)
+
+        return ("ok", len(names), *names)
+
+    def _routing_names(self, track, available_prop, label):
+        """
+        (names, None) / (None, message) for one of the available_* lists.
+
+        `count` goes first in the reply the callers build, for the same reason
+        `_device_chain` puts it there: the flat tail stays parseable, and a tail
+        whose length disagrees with the count is a shape error the caller
+        rejects rather than truncating.
+        """
+        try:
+            names = [routing.display_name for routing in getattr(track, available_prop)]
+        except Exception as e:
+            message = "could not read %s: %s" % (available_prop, e)
+            self.logger.error("%s: %s" % (label, message))
+            return (None, message)
+
+        self.logger.info("%s: getting property %s = %s" % (label, available_prop, names))
+        return (names, None)
+
+    def _get_return_routing(self, prop, params: Tuple[Any] = ()) -> Tuple:
+        index, track, error = self._return_track(params, "get/%s" % prop)
+        if error is not None:
+            return (index, "error", error)
+
+        name, error = self._routing_name(track, prop, "Return track %d" % index)
+        if error is not None:
+            return (index, "error", error)
+
+        return (index, "ok", name)
+
+    def _get_master_routing(self, prop, params: Tuple[Any] = ()) -> Tuple:
+        name, error = self._routing_name(self.song.master_track, prop, "Master track")
+        if error is not None:
+            return ("error", error)
+
+        return ("ok", name)
+
+    def _routing_name(self, track, prop, label):
+        """
+        (display_name, None) / (None, message) for a routing property.
+
+        The wire carries the display name, not the routing object — the same
+        shape (and the same known ambiguity) as /live/track/get/output_routing_type.
+        """
+        try:
+            name = getattr(track, prop).display_name
+        except Exception as e:
+            message = "could not read %s: %s" % (prop, e)
+            self.logger.error("%s: %s" % (label, message))
+            return (None, message)
+
+        self.logger.info("%s: getting property %s = %s" % (label, prop, name))
+        return (name, None)
+
+    def _set_return_routing(self, prop, available_prop, params: Tuple[Any] = ()) -> None:
+        index, track, error = self._return_track(params, "set/%s" % prop)
+        if error is not None:
+            return None
+
+        try:
+            name = str(params[1])
+        except (IndexError, TypeError, ValueError):
+            self.logger.error("Return track: set/%s requires [index, name]" % prop)
+            return None
+
+        self._apply_routing(track, prop, available_prop, name, "Return track %d" % index)
+
+    def _set_master_routing(self, prop, available_prop, params: Tuple[Any] = ()) -> None:
+        try:
+            name = str(params[0])
+        except (IndexError, TypeError, ValueError):
+            self.logger.error("Master: set/%s requires [name]" % prop)
+            return None
+
+        self._apply_routing(self.song.master_track, prop, available_prop, name, "Master track")
+
+    def _apply_routing(self, track, prop, available_prop, name, label) -> None:
+        """
+        Resolve `name` against the available_* list and assign it.
+
+        Ported from track.py's resolve-by-display-name loop, including its
+        behaviour on no match: a warning in Live's log and nothing written. The
+        setter stays silent on the wire either way, like every setter here.
+        """
+        for routing in getattr(track, available_prop):
+            if routing.display_name == name:
+                self.logger.info("%s: setting property %s (new value %s)" % (label, prop, name))
+                setattr(track, prop, routing)
+                return
+
+        self.logger.warning("%s: couldn't find %s: %s" % (label, prop, name))
+
+    #--------------------------------------------------------------------------------
+    # Sends on returns
+    #
+    # Live 12 gives return tracks their own send section (return-to-return,
+    # disabled by default behind Live's feedback guard). `mixer_device.sends` is
+    # the same LOM path a regular track's sends take, so this is upstream's
+    # /live/track/get|set/send with the return lookup and the reply envelope in
+    # front of it. No master form: the master has no sends. No listen pairs:
+    # regular tracks have none either.
+    #--------------------------------------------------------------------------------
+    def _get_send(self, params: Tuple[Any] = ()) -> Tuple:
+        index, send_id, send, error = self._return_send(params, "get/send")
+        if error is not None:
+            return (index, send_id, "error", error)
+
+        self.logger.info("Return track %d: getting send %d = %s" % (index, send_id, send.value))
+        return (index, send_id, "ok", send.value)
+
+    def _set_send(self, params: Tuple[Any] = ()) -> None:
+        index, send_id, send, error = self._return_send(params, "set/send")
+        if error is not None:
+            return None
+
+        try:
+            value = float(params[2])
+        except (IndexError, TypeError, ValueError):
+            self.logger.error("Return track: set/send requires [index, send_id, value]")
+            return None
+
+        self.logger.info("Return track %d: setting send %d (new value %s)"
+                         % (index, send_id, value))
+        send.value = value
+
+    #--------------------------------------------------------------------------------
+    # insert_device
+    #--------------------------------------------------------------------------------
+    def _insert_device(self, params: Tuple[Any] = ()) -> Tuple:
+        index, track, error = self._return_track(params, "insert_device")
+        if error is not None:
+            return (index, "error", error)
+
+        device_index, count, error = self._insert_device_into(
+            track, params, 1, "Return track %d" % index)
+        if error is not None:
+            return (index, "error", error)
+
+        return (index, "ok", device_index, count)
+
+    def _insert_master_device(self, params: Tuple[Any] = ()) -> Tuple:
+        device_index, count, error = self._insert_device_into(
+            self.song.master_track, params, 0, "Master track")
+        if error is not None:
+            return ("error", error)
+
+        return ("ok", device_index, count)
+
+    def _insert_device_into(self, track, params: Tuple[Any], position: int, label):
+        """
+        `Track.insert_device(name[, position])`, reported as (device_index,
+        count, None) or (None, None, message).
+
+        `device_index` is re-read from the chain rather than assumed, because
+        Live does not always append at the end (an instrument lands before
+        existing audio effects) — the same reasoning behind browser.py's
+        `_loaded_device`, and behind `delete_device`'s re-read `remaining`. It
+        is -1 when the returned object is not on the chain yet, which is what an
+        asynchronously instantiating plugin looks like.
+
+        Everything the LOM call can fail on — a name Live does not recognise, or
+        a Live older than 12.3, where `insert_device` does not exist at all —
+        arrives as the error envelope rather than as a raise, because this
+        address replies.
+        """
+        try:
+            name = str(params[position])
+        except (IndexError, TypeError, ValueError):
+            message = "insert_device requires a device name at argument %d" % position
+            self.logger.error("%s: %s" % (label, message))
+            return (None, None, message)
+
+        call_params = [name]
+        if len(params) > position + 1:
+            try:
+                call_params.append(int(params[position + 1]))
+            except (TypeError, ValueError):
+                message = "insert_device's position argument must be a number"
+                self.logger.error("%s: %s" % (label, message))
+                return (None, None, message)
+
+        try:
+            device = track.insert_device(*call_params)
+        except Exception as e:
+            message = "could not insert device '%s': %s" % (name, e)
+            self.logger.error("%s: %s" % (label, message))
+            return (None, None, message)
+
+        devices = list(track.devices)
+        try:
+            device_index = devices.index(device)
+        except ValueError:
+            device_index = -1
+
+        self.logger.info("%s: inserted device '%s' at index %d (chain now holds %d)"
+                         % (label, name, device_index, len(devices)))
+        return (device_index, len(devices), None)
+
+    #--------------------------------------------------------------------------------
     # Lookup
     #--------------------------------------------------------------------------------
     def _return_track(self, params: Tuple[Any], operation: str):
@@ -879,6 +1433,42 @@ class ReturnTrackHandler(AbletonOSCHandler):
             message = "Master track, device %d: %s" % (device_index, message)
 
         return (device_index, param_index, parameter, message)
+
+    def _return_send(self, params: Tuple[Any], operation: str):
+        """
+        Resolve params[0] to a return track and params[1] to one of its sends.
+
+        Returns (index, send_id, send, None) / (index, send_id, None, message).
+        Both indices are echoed verbatim on failure for the same correlation
+        reason as `_return_device` — including the send id when the return
+        lookup itself failed, which is parsed independently just for the echo.
+        """
+        index, track, error = self._return_track(params, operation)
+        if error is not None:
+            return (index, _echo_index(params, 1), None, error)
+
+        send_id, send, message = self._send_of(track, params, 1, operation)
+        if message is not None:
+            message = "Return track %d: %s" % (index, message)
+
+        return (index, send_id, send, message)
+
+    def _send_of(self, track, params: Tuple[Any], position: int, operation: str):
+        try:
+            send_id = int(params[position])
+        except (IndexError, TypeError, ValueError):
+            message = "%s requires a send index at argument %d" % (operation, position)
+            self.logger.error("Send lookup: %s" % message)
+            return (-1, None, message)
+
+        sends = track.mixer_device.sends
+        if send_id < 0 or send_id >= len(sends):
+            message = "there is no send %d — this track has %d send(s)" % (
+                send_id, len(sends))
+            self.logger.error("Send lookup: %s (%s)" % (message, operation))
+            return (send_id, None, message)
+
+        return (send_id, sends[send_id], None)
 
     def _device_of(self, track, params: Tuple[Any], position: int, operation: str):
         try:

@@ -630,6 +630,19 @@ so treat any merge that reverts one as a regression, not a preference.
   that drops the line is otherwise invisible — every other song address still
   answers, and swing sets fail the silent way all OSC fails.
 
+- **`track.py` — `insert_device` in the generic methods list.** One quoted
+  string in the list upstream already keeps `delete_device` and
+  `stop_all_clips` in, registering `/live/track/insert_device
+  [track_id, device_name[, position]]`. Added by A-3 alongside the return and
+  master forms in `return_track.py`, so `Track.insert_device` (a Live 12.3+
+  member) is reachable on all three track categories rather than on two of
+  them. The existing loop supplies dispatch, the `*` wildcard fan-out and the
+  structured `/live/error` on failure, so the regular-track form stays silent
+  on success like every other `/live/track/<method>`; only the return and
+  master forms reply, because those are the ones whose callers need the new
+  device's index. See § Merge hazards — it is the only fork-owned entry in
+  that list.
+
 - **`song.py` — `begin_undo_step` and `end_undo_step` in the generic methods
   list.** Two lines in the existing list, which the loop turns into
   `/live/song/begin_undo_step` and `/live/song/end_undo_step` (no arguments, no
@@ -1277,6 +1290,45 @@ comment explaining what it adds and why. They are registered at the end of
   the key, which forces every DeviceParameter listener to register under
   `"value"` — so the discriminator has to live in the params half, or
   subscribing a return's pan would silently evict its volume listener.
+
+  Roadmap item **A-3** brought the file up to `Track` parity, adding
+  fifty-eight addresses: colour and colour index, the four `has_*_input/output`
+  reads, the three output meters, output routing (both `available_*` lists and
+  both get/set pairs), the returns' own `mixer_device.sends`, and
+  `insert_device` — each in a return-indexed and a master form, except the
+  sends (the master has none). Four decisions are worth carrying:
+
+  - The scalar and routing surfaces are **table-driven**: `SCALAR_PROPERTIES`
+    and `ROUTING_PROPERTIES` at module scope, each row walked twice — once
+    index-keyed for returns, once index-less for the master — through shared
+    generic callbacks. Adding a property is adding a row; sixty hand-written
+    methods would have said the same thing sixty times.
+  - Every *new* master getter carries the **ok/error envelope**, though the
+    shipped master getters (`volume`, `panning`, `cue_volume`, `devices`) reply
+    with the bare value. Those read a fader and cannot fail; these read members
+    the Main track may refuse the way it refuses `mute`, and only an envelope
+    can say so. Every getter wraps the read and answers
+    `"error", "could not read <prop>: …"` rather than a bare `None`.
+  - **No listen pairs for the four `has_*` reads** (constants on a return and
+    on the master — the values cannot change; regular tracks have those pairs
+    only because upstream's loop registers pairs blindly) and **no input
+    routing** (neither has an input section in Live's UI). Both are recorded in
+    `API.md` rather than shipped as dead wire surface.
+  - The master's plain-property listeners go through
+    `_listen_to_track_property`, the mirror image of `_listen_to_mixer_param`:
+    there the *object* was wrong, here the *address* is — the base class
+    derives it from `class_identifier`, which is `return_track`, so the
+    master's pushes would go out on `/live/return_track/get/color`. It writes
+    the base class's own bookkeeping dicts, keyed `(prop, ("master",))`, so
+    `_stop_listen` and `_clear_listeners` work on it unchanged and need no
+    `lom_property` alias (the key's prop half *is* the LOM name).
+
+  `insert_device` **replies** for the same reason `delete_device` does, with
+  its `device_index` re-read from the chain (`-1` when the returned device is
+  not on it yet, the `load_item` convention). Its regular-track counterpart is
+  one string in `track.py`'s generic `methods` list — see the additions section
+  above — so `Track.insert_device` is reachable on all three track categories
+  rather than on two of them.
 - **`abletonosc/song_structure.py`** — `/live/song/{start,stop}_listen/tracks`
   and `.../return_tracks`. Upstream can only listen to *scalar* song properties,
   so nothing fires when tracks are added, deleted or reordered by hand.
@@ -1427,6 +1479,17 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   and undo quietly reverts whole conversations again. Seshat's
   `vendored_addresses_test` greps for all three names for exactly this reason.
 
+- **Anything touching `track.py`'s generic `methods` list.** One entry there is
+  ours — `insert_device`, added by A-3 so `Track.insert_device` is reachable on
+  regular tracks as well as on returns and the master — and it is the same
+  hazard shape as the `song.py` list above: a single quoted string inside a
+  list upstream also edits, dropped by a merge without a conflict. Losing it is
+  silent in the usual way (the address simply stops existing and queries time
+  out), and it is the only fork-owned line in that list, so it is easy to
+  overlook while resolving a conflict about `stop_all_clips`.
+  `tests_unit/test_return_track.py` dispatches `/live/track/insert_device` and
+  is the tripwire.
+
 - **Anything touching `AbletonOSCHandler.__init__`, a subclass's class-level
   `class_identifier`, or `init_state()`.** Upstream's constructor calls
   `init_api()` before the base invariants exist and assigns
@@ -1444,9 +1507,9 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   `AbletonOSCHandler.__init__` through a local `Probe` subclass, so a revert
   of the base constructor fails loudly. The subclass half is caught
   statically by `tests_unit/test_handler_subclass_contract.py`: the
-  behavioural layer constructs eight of the twelve production handlers today
-  (device, scene, clip_slot, track, clip, song, view, application) but not
-  `browser.py`, `midimap.py`, `return_track.py` or
+  behavioural layer constructs nine of the twelve production handlers today
+  (device, scene, clip_slot, track, return_track, clip, song, view,
+  application) but not `browser.py`, `midimap.py` or
   `song_structure.py`, which have no conftest loader — so that file parses
   `abletonosc/*.py` with `ast` instead, covering all twelve declarations
   regardless, and fails on a restored subclass
