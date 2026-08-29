@@ -360,6 +360,27 @@ ongoing cost — merging upstream releases — is close to zero.
   to the fixed response port regardless, so that change buys nothing here and
   touches reply correlation.
 
+- **`application.py` — the unsolicited startup datagram is gone.** Upstream's
+  `ApplicationHandler.init_api` ended with
+  `self.osc_server.send("/live/application/get/average_process_usage")` — a
+  bare send, no arguments, not a reply to anything, fired at every
+  initialisation and every `/live/api/reload`. On the wire it is
+  indistinguishable from a getter reply that lost its payload, so a client
+  correlating replies by address either mis-attributes it to a pending
+  request or has to special-case it; `API.md` carried a ⚠️ telling clients to
+  ignore it, which is documentation standing in for a fix. Removed
+  2026-08-29. Startup traffic is now `/live/startup` alone, and that
+  notification stays exactly where it was in `init_api`.
+
+  The address itself is untouched — `/live/application/get/average_process_usage`
+  still answers a query normally. Only the unrequested send is gone, so no
+  correct consumer can notice: there was nothing to correlate it against.
+
+  `tests_unit/test_application.py::test_construction_sends_only_startup`
+  pins it, and the merge hazard is the one recorded against `application.py`
+  in § "Additions to upstream's code" — taking upstream's file back restores
+  this send silently, along with dropping every address added there.
+
 ### Deliberate changes to upstream's behaviour
 
 Not bug fixes and not extensions: places where upstream works as intended and
@@ -472,6 +493,65 @@ so treat any merge that reverts one as a regression, not a preference.
   `logs/lom_dump.json`). `tools/lom_gaps.py` diffs the two sides into the
   generated inventory in `FORK_GAPS.md`. `manager.reload_imports` reloads
   `introspection` so the walker is hot-reloadable like the handlers.
+
+- **`application.py` — the application-level address table, and the
+  `get_application()` seam.** Upstream registers three addresses out of a
+  21-member `Live.Application.Application`: `get/version` (major and minor
+  only), `get/average_process_usage`, and — this fork — `dump_lom`. Added
+  here, all read-only except the last two:
+
+  - **Dialog state.** `get/open_dialog_count`, `get/current_dialog_message`,
+    `get/current_dialog_button_count`, plus a listen pair on the count. The
+    July 2026 audit recorded "dialog detection needs AX" as a Live
+    limitation; it was this fork gap. See `API.md` § "Detecting dialogs" for
+    the listen-the-count-then-read pattern, which exists because only
+    `open_dialog_count` is observable.
+  - **Exact version identity.** `get/version_string`, `get/bugfix_version`,
+    `get/build_id`, `get/variant` — upstream's `get/version` answers "12.4",
+    which does not say which bugfix release or which edition is running, and
+    the edition decides which LOM members exist at all.
+  - `get/has_option` (Options.txt, echoing the option so a burst can be
+    correlated), `get/peak_process_usage` (+ listen pair),
+    `get/number_of_push_apps_running`, `get/unavailable_features` and
+    `get/control_surfaces` — the last two flattened into a single reply with
+    no count prefix, exactly like
+    `/live/track/get/available_input_routing_types`. `control_surfaces`
+    returns **class names only**: the audit found the objects had no value to
+    Seshat, and an object-valued element could not be encoded at all.
+  - `show_message` and `show_on_the_fly_message`, each called with the text
+    and **nothing else**, so Live's `buttons` parameter keeps its
+    `OK_BUTTON` default. `press_current_dialog_button` is deliberately absent
+    from the wire (a dialog may guard unsaved work), so the bridge must never
+    raise one offering choices the remote cannot make. The two decisions are
+    one decision; widening the call reopens both.
+
+  **The seam.** All of the above bind the application object into their
+  callbacks at `init_api()` time, and it is resolved through a one-line
+  module-level `get_application()` rather than by calling
+  `Live.Application.get_application()` inline. That exists for testability:
+  `tests_unit/` substitutes the seam with a fake before constructing the
+  handler — the application-object image of conftest's `bind_song()` — which
+  is what keeps that suite's `Live` stub *empty*, with no pretend Live
+  behaviour in it. Resolving during construction is safe in production
+  because `manager.py` builds every handler inside
+  `ControlSurface.component_guard()`, with Live fully up, and ableton.v2's
+  own components call `Live.Application.get_application()` while
+  constructing.
+
+  Upstream's own `get_version` and `get_average_process_usage` callbacks are
+  left byte-identical and still reach Live inline, so they bypass the seam
+  and are not exercised by `tests_unit/` — a deliberate trade that keeps the
+  upstream block conflict-free.
+
+  **Merge hazard.** A merge that takes upstream's `application.py` wholesale
+  deletes every address above *and* the seam, and silently restores the stray
+  startup datagram (see § "Fixes to upstream's own code"). Nothing else in
+  the fork imports these addresses, so nothing would fail to load and no
+  existing test would notice their absence on its own. The tripwire is
+  `tests_unit/test_application.py`, which constructs the real handler and
+  asserts the registration table by *equality*
+  (`test_registration_table_is_exactly_this`), so a dropped address fails
+  there and an undocumented new one does too.
 
 - **`clip.py` — `quantize` in the generic methods list.** From upstream PR #198
   (that PR's warp-marker and extended-note work is not taken). Gives
@@ -1253,9 +1333,9 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   `AbletonOSCHandler.__init__` through a local `Probe` subclass, so a revert
   of the base constructor fails loudly. The subclass half is caught
   statically by `tests_unit/test_handler_subclass_contract.py`: the
-  behavioural layer constructs seven of the twelve production handlers today
-  (device, scene, clip_slot, track, clip, song, view) but not
-  `application.py`, `browser.py`, `midimap.py`, `return_track.py` or
+  behavioural layer constructs eight of the twelve production handlers today
+  (device, scene, clip_slot, track, clip, song, view, application) but not
+  `browser.py`, `midimap.py`, `return_track.py` or
   `song_structure.py`, which have no conftest loader — so that file parses
   `abletonosc/*.py` with `ast` instead, covering all twelve declarations
   regardless, and fails on a restored subclass

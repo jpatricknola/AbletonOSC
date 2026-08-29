@@ -185,15 +185,6 @@ or that a `†` Remote-Script-only member does what its name suggests.
 - **Consumers:** "generate audio, keep it editable" output shape
   (`docs/evaluating/generative features/live-native-options.md` §2.4).
 
-### `Application` dialog members
-
-- `open_dialog_count`, `current_dialog_message`,
-  `current_dialog_button_count`, `press_current_dialog_button`. Tier 2.
-  Recorded in Seshat's `docs/evaluating/ui-scripting-options.md`; the
-  July audit ranked it High (see [Dispositions](#dispositions-from-the-july-2026-audit)). Consumer: any
-  UI-only command driven over AX that can raise a dialog (Stem
-  Separation's mode chooser).
-
 ## Dispositions (from the July 2026 audit)
 
 _Impact and architectural fit, carried over from Seshat's
@@ -203,7 +194,7 @@ fork side has since landed are marked._
 
 | Priority | Missing bridge surface | Why it matters | Disposition |
 |---|---|---|---|
-| High | `Application.open_dialog_count`, `current_dialog_message`, `current_dialog_button_count` | Detect and describe a blocking Live dialog without AX or pixels | Small read-only extension. Keep `press_current_dialog_button` out of the tool surface unless a separately reviewed, non-file use case proves safe — a current dialog may guard unsaved work |
+| High | `Application.open_dialog_count`, `current_dialog_message`, `current_dialog_button_count` | Detect and describe a blocking Live dialog without AX or pixels | **Landed** — see [Closed](#application-dialogs-and-versions--closed-2026-08-29). `press_current_dialog_button` stays out, as this row required: still no address for it unless a separately reviewed, non-file use case proves safe — a current dialog may guard unsaved work |
 | High | Return/master mixer and device addressing | An empty return cannot become a usable reverb/delay path without human device loading | **Landed** (`/live/return_track/*`, `/live/master/*`) for top-level devices; the remaining subset is under [Addressing gaps](#addressing-gaps) |
 | High | `Application.View.is_view_visible`, `hide_view` | Closes `show_view`'s blind loop; makes view smoke tests self-verifying | **Landed.** `focused_document_view` (Session vs Arranger, exact) still open and belongs in the same handler |
 | Medium–high | `DeviceParameter.value_items`, `is_enabled`, `automation_state`, `default_value`, `original_name` | Tools expose raw min/max but cannot name enum choices, tell whether a parameter is disabled, or warn that automation owns it | **Landed** as one unit, ahead of any device-specific API — see [Closed](#device-parameters--numeric-only--closed-2026-08-29) |
@@ -247,7 +238,7 @@ not Python's._
 | Link enable | `is_ableton_link_enabled` get/set/listen | Tool/docs layer |
 | Scale root / name | `root_note`, `scale_name` get/set/listen | Tool choices; `scale_mode`, `scale_intervals`, `tuning_system` remain true fork gaps |
 | Cue points | `/live/song/get/cue_points`, `cue_point/jump`, `cue_point/add_or_delete`, `jump_to_next/prev_cue` | Tool layer, plus the listen/guard members in the curated entry |
-| Dialog detection needs AX | — | False: `Application.open_dialog_count` etc. are a fork gap, not a Live limit |
+| Dialog detection needs AX | `/live/application/get/open_dialog_count`, `current_dialog_message`, `current_dialog_button_count` (+ listen on the count) | False, and no longer a fork gap either: the addresses exist — see [Closed](#application-dialogs-and-versions--closed-2026-08-29) |
 | Drum Rack pad map unreadable | — | False: `DrumChain.in_note` is a fork gap (curated entry) |
 
 The audit also found eight registered addresses missing from Seshat's
@@ -406,6 +397,63 @@ item), and **listeners** on the three observable members `state`,
 `automation_state` and `display_value` — Live offers `add_<name>_listener` for
 each, and the pattern to follow is `device_get_parameter_value_listener`. The
 generated inventory below still lists the closed members as gaps: it is
+regenerated only from a `/live/application/dump_lom` taken against a Live
+running the *installed* copy, and no dump has been taken since this landed.
+
+### Application dialogs and versions — closed 2026-08-29
+
+Was a member gap on `Live.Application.Application`, which upstream exposed
+three addresses out of twenty-one members. Two things were missing. First,
+**dialog state**: a blocking Live dialog was invisible to a client, and the
+July 2026 audit had recorded "dialog detection needs AX" as a limitation of
+Live — it was a limitation of this bridge. Second, **version identity**:
+`get/version` answers `(12, 4)`, which does not say which bugfix release,
+which build, or which *edition* is running, and the edition decides which
+LOM members exist at all.
+
+Closed by roadmap item C-3, which adds eighteen addresses to
+`abletonosc/application.py`: the three dialog reads with a listen pair on
+`open_dialog_count` (the only observable one of the three), the four exact
+version reads, `get/has_option`, `get/peak_process_usage` (+ listen pair),
+`get/number_of_push_apps_running`, the flattened
+`get/unavailable_features` and `get/control_surfaces`, and the two
+`show_*` message methods. `API.md` § "Application API" and its "Detecting
+dialogs" note are the permanent record — including the ⚠️ markers on
+everything still unmeasured against a running Live.
+
+The same commit removed an unrelated defect in the same file: the
+unsolicited, argument-less `/live/application/get/average_process_usage`
+datagram upstream sent at every initialisation (see SESHAT.md § "Fixes to
+upstream's own code").
+
+Members this closed: `open_dialog_count`, `current_dialog_message`,
+`current_dialog_button_count`, `get_bugfix_version`, `get_build_id`,
+`get_variant`, `get_version_string`, `has_option`, `peak_process_usage`,
+`unavailable_features`, `number_of_push_apps_running`, `show_message`,
+`show_on_the_fly_message`, `control_surfaces` — fourteen of the sixteen the
+inventory row counts.
+
+Deliberately still open on this class:
+
+- **`press_current_dialog_button`** — kept off the wire unless a separately
+  reviewed, non-file use case proves it safe: a dialog on screen may be
+  guarding unsaved work, and pressing its buttons blind is not recoverable.
+  This is why the two `show_*` addresses raise **OK-only** dialogs, passing
+  Live the text and nothing else so `buttons` keeps its default. The two
+  are one decision.
+- **`get_document`** — needs no address; `self.song` *is* the document, and
+  `view` and `browser` are already in the "Reached under another address"
+  list above.
+- **Listen pairs for `unavailable_features` and `control_surfaces`** —
+  both are observable, but session-static in practice (edition and
+  preferences), and a push would need a custom flattening getter. Get-only
+  until a consumer appears; a five-line follow-up when one does.
+
+`Live.Application.Application.View` members (`focused_document_view`,
+`available_main_views`, …) were never part of this gap — they are their own
+row, and their own roadmap item.
+
+The generated inventory below still lists the closed members as gaps: it is
 regenerated only from a `/live/application/dump_lom` taken against a Live
 running the *installed* copy, and no dump has been taken since this landed.
 

@@ -13,25 +13,6 @@ Detailed implementation plans are intentionally out of scope and should be
 created separately for each issue. Any change that further diverges from
 upstream must also be reflected in [SESHAT.md](SESHAT.md).
 
-## Bugs — existing addresses misbehave
-
-### Remove the unsolicited average-process-usage startup datagram
-
-
-**Priority:** Medium-low — malformed unsolicited protocol traffic
-
-`ApplicationHandler.init_api` sends `/live/startup`, registers the average
-process usage getter, and then sends an empty
-`/live/application/get/average_process_usage` message. The latter is not tied to
-a request and contains no usage value, so clients can interpret it as a malformed
-getter response. It is also inconsistent with other getters, which respond only
-when queried or when a listener contract explicitly pushes state.
-
-Startup traffic must contain only documented startup notifications. Average
-process usage should follow a clearly documented query or listener contract.
-
-**Affected area:** `abletonosc/application.py`, startup and application tests.
-
 ## Robustness — code that works today but fails unsafely
 
 ### Make live code reload ordered and failure-safe

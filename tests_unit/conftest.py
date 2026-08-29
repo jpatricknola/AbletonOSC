@@ -26,15 +26,26 @@ that pretend to no Live *behaviour* whatsoever:
    deliberately: a `song` attribute (see the class docstring), because a
    handler may read `self.song` at *registration* time.
 2. _install_empty_live_stub() installs an *empty* module as
-   sys.modules["Live"] for the three loaders whose module does `import Live`
-   at module scope but only ever dereferences it inside a callback, at call
-   time: clip.py (Live.Clip.MidiNoteSpecification in clip_add_notes),
+   sys.modules["Live"] for the four loaders whose module does `import Live`
+   at module scope. Three of them dereference it only inside a callback, at
+   call time: clip.py (Live.Clip.MidiNoteSpecification in clip_add_notes),
    song.py (Live.Track.Track in get/track_data) and view.py
    (Live.Application.get_application() in show_view / get/is_view_visible /
    hide_view). An empty module satisfies the import, and any test that
    dispatched one of those addresses would fail loudly on the missing
    attribute rather than quietly exercising a fake Live. No test in this
    suite dispatches them.
+
+   application.py is the fourth, and the one exception to "only inside a
+   callback": it needs the application object at *registration* time, to
+   bind into the partial()s of its generic property loop. It reaches it
+   through the module-level seam `abletonosc.application.get_application()`,
+   which test_application.py monkeypatches with a fake before constructing
+   the handler — the application-object image of bind_song() below. So the
+   Live stub stays empty here too: the seam is what carries the fake, and
+   `Live.Application` is never dereferenced under test. A merge that
+   inlined `Live.Application.get_application()` back into init_api would
+   fail loudly on the empty stub rather than pass quietly.
 
 Nothing else stubs anything: osc_server.py and track_callback.py are
 imported exactly as they ship, and each stub is only installed when a test
@@ -43,11 +54,12 @@ and track.py import only typing/functools/.handler and the Live-free
 .track_callback / .track_identity, so load_device_module(),
 load_scene_module(), load_clip_slot_module() and load_track_module()
 construct the real handlers on top of the Component stub alone;
-load_clip_module(), load_song_module() and load_view_module() add the empty
-Live stub. Seven of the twelve production handlers are therefore driven end
-to end (device, scene, clip_slot, track, clip, song, view); application.py,
-browser.py, midimap.py, return_track.py and song_structure.py have no loader
-yet, because nothing has needed one.
+load_clip_module(), load_song_module(), load_view_module() and
+load_application_module() add the empty Live stub. Eight of the twelve
+production handlers are therefore driven end to end (device, scene,
+clip_slot, track, clip, song, view, application); browser.py, midimap.py,
+return_track.py and song_structure.py have no loader yet, because nothing
+has needed one.
 
 test_import.py smoke-tests the loader so it cannot fail only when the
 first real dispatcher test is collected.
@@ -276,6 +288,30 @@ def load_view_module():
     load_handler_module()
     _install_empty_live_stub()
     return load_module("abletonosc.view")
+
+
+def load_application_module():
+    """
+    Import the real `abletonosc.application` beneath the synthetic root, over
+    the empty `Live` stub.
+
+    application.py's module-scope needs are Live, os, functools, typing and
+    .handler — all satisfied — but unlike the other empty-stub loaders it
+    reaches the Live application object at *registration* time, not only from
+    a callback. It does so through the module-level `get_application()` seam,
+    so a test substitutes the fake there:
+
+        application = load_application_module()
+        monkeypatch.setattr(application, "get_application", lambda: fake)
+        handler = application.ApplicationHandler(manager)
+
+    which keeps the Live stub empty (see the module docstring). Constructing
+    the handler registers its whole address table on the server the manager
+    carries, and — like the production script — sends `/live/startup`.
+    """
+    load_handler_module()
+    _install_empty_live_stub()
+    return load_module("abletonosc.application")
 
 
 def bind_song(handler_class, song):
