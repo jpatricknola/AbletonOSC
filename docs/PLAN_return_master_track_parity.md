@@ -446,7 +446,13 @@ reply shape, or push changes. Seshat decodes nothing differently until it
 chooses to consume the new surface (likely first consumers: return colour in
 the mirror, master/return meters, `insert_device` behind a device-loading
 tool). `vendored_addresses_test` gains tripwires only when Seshat's `lib/`
-actually sends the new addresses — nothing to add on the bump itself.
+actually sends the new addresses — nothing to add on the bump itself. One
+caveat for a wildcard consumer specifically: `/live/return_track/get/*` now
+matches 24 endpoints (was 7), `/live/master/get/*` 20 (was 4), and
+`/live/track/*` also now matches `insert_device`; so any Seshat code that
+sends a `get/*` or `track/*` pattern and counts or exhaustively matches
+replies will see more datagrams after the bump even though no existing
+address's shape changed.
 
 ## Out of scope
 

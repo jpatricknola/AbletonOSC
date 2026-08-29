@@ -2074,15 +2074,19 @@ never as a bare `None`.
 | `/live/return_track/set/color_index` | `return_index, color_index` | | |
 | `/live/return_track/start_listen/color_index` | `return_index` | | Push `[return_index, color_index]` |
 | `/live/return_track/stop_listen/color_index` | `return_index` | | |
-| `/live/return_track/get/has_audio_input` | `return_index` | `return_index, "ok", 0\|1` | Constant on a return (always `1`). No setter, **no listen pair** |
-| `/live/return_track/get/has_audio_output` | `return_index` | `return_index, "ok", 0\|1` | Constant (always `1`) |
-| `/live/return_track/get/has_midi_input` | `return_index` | `return_index, "ok", 0\|1` | Constant (always `0`) |
-| `/live/return_track/get/has_midi_output` | `return_index` | `return_index, "ok", 0\|1` | Constant (always `0`) |
+| `/live/return_track/get/has_audio_input` | `return_index` | `return_index, "ok", 0\|1` | ⚠️ Constant on a return, expected always `1` — **unmeasured**. No setter, **no listen pair** |
+| `/live/return_track/get/has_audio_output` | `return_index` | `return_index, "ok", 0\|1` | ⚠️ Constant, expected always `1` — **unmeasured** |
+| `/live/return_track/get/has_midi_input` | `return_index` | `return_index, "ok", 0\|1` | ⚠️ Constant, expected always `0` — **unmeasured** |
+| `/live/return_track/get/has_midi_output` | `return_index` | `return_index, "ok", 0\|1` | ⚠️ Constant, expected always `0` — **unmeasured** |
 | `/live/return_track/get/output_meter_level` | `return_index` | `return_index, "ok", level` | Output meter, 0.0 to 1.0 |
 | `/live/return_track/start_listen/output_meter_level` | `return_index` | | Push `[return_index, level]` on every change — ⚠️ a *high-rate* subscription while audio plays |
 | `/live/return_track/stop_listen/output_meter_level` | `return_index` | | |
-| `/live/return_track/get/output_meter_left` | `return_index` | `return_index, "ok", level` | Left channel, with the same listen pair |
-| `/live/return_track/get/output_meter_right` | `return_index` | `return_index, "ok", level` | Right channel, with the same listen pair |
+| `/live/return_track/get/output_meter_left` | `return_index` | `return_index, "ok", level` | Left channel |
+| `/live/return_track/start_listen/output_meter_left` | `return_index` | | Push `[return_index, level]` on every change — ⚠️ high-rate |
+| `/live/return_track/stop_listen/output_meter_left` | `return_index` | | |
+| `/live/return_track/get/output_meter_right` | `return_index` | `return_index, "ok", level` | Right channel |
+| `/live/return_track/start_listen/output_meter_right` | `return_index` | | Push `[return_index, level]` on every change — ⚠️ high-rate |
+| `/live/return_track/stop_listen/output_meter_right` | `return_index` | | |
 | `/live/return_track/get/available_output_routing_types` | `return_index` | `return_index, "ok", count, name × count` | Output routing choices, `count` first |
 | | | `return_index, "error", message` | Index out of range, or the read was refused |
 | `/live/return_track/get/available_output_routing_channels` | `return_index` | `return_index, "ok", count, name × count` | |
@@ -2103,15 +2107,19 @@ never as a bare `None`.
 | `/live/master/set/color_index` | `color_index` | | |
 | `/live/master/start_listen/color_index` | | | Push `[color_index]` |
 | `/live/master/stop_listen/color_index` | | | |
-| `/live/master/get/has_audio_input` | | `"ok", 0\|1` / `"error", message` | Constant. No setter, no listen pair |
-| `/live/master/get/has_audio_output` | | `"ok", 0\|1` / `"error", message` | |
-| `/live/master/get/has_midi_input` | | `"ok", 0\|1` / `"error", message` | |
-| `/live/master/get/has_midi_output` | | `"ok", 0\|1` / `"error", message` | |
+| `/live/master/get/has_audio_input` | | `"ok", 0\|1` / `"error", message` | ⚠️ Constant, expected always `1` — **unmeasured**. No setter, no listen pair |
+| `/live/master/get/has_audio_output` | | `"ok", 0\|1` / `"error", message` | ⚠️ Constant, expected always `1` — **unmeasured** |
+| `/live/master/get/has_midi_input` | | `"ok", 0\|1` / `"error", message` | ⚠️ Constant, expected always `0` — **unmeasured** |
+| `/live/master/get/has_midi_output` | | `"ok", 0\|1` / `"error", message` | ⚠️ Constant, expected always `0` — **unmeasured** |
 | `/live/master/get/output_meter_level` | | `"ok", level` / `"error", message` | Master output meter |
 | `/live/master/start_listen/output_meter_level` | | | Push `[level]` — ⚠️ high-rate |
 | `/live/master/stop_listen/output_meter_level` | | | |
-| `/live/master/get/output_meter_left` | | `"ok", level` / `"error", message` | With the same listen pair |
-| `/live/master/get/output_meter_right` | | `"ok", level` / `"error", message` | With the same listen pair |
+| `/live/master/get/output_meter_left` | | `"ok", level` / `"error", message` | |
+| `/live/master/start_listen/output_meter_left` | | | Push `[level]` — ⚠️ high-rate |
+| `/live/master/stop_listen/output_meter_left` | | | |
+| `/live/master/get/output_meter_right` | | `"ok", level` / `"error", message` | |
+| `/live/master/start_listen/output_meter_right` | | | Push `[level]` — ⚠️ high-rate |
+| `/live/master/stop_listen/output_meter_right` | | | |
 | `/live/master/get/available_output_routing_types` | | `"ok", count, name × count` | |
 | `/live/master/get/available_output_routing_channels` | | `"ok", count, name × count` | |
 | `/live/master/get/output_routing_type` | | `"ok", display_name` / `"error", message` | Usually the hardware output |

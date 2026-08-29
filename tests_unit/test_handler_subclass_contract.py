@@ -17,7 +17,7 @@ test_device_listeners.py, test_listener_identity.py, test_object_reads.py,
 test_return_track.py, test_song_object_reads.py, test_view_object_reads.py
 and test_application.py), while browser.py, midimap.py and
 song_structure.py have no conftest loader yet. So a
-typo'd identifier in one of those four, or a merge that restores
+typo'd identifier in one of those three, or a merge that restores
 upstream's `self.class_identifier = ...` inside a subclass __init__ - which
 shadows the class attribute *after* init_api() ran - would pass the whole
 suite green and surface only as listener pushes on the wrong address, in
