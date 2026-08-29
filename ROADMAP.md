@@ -41,25 +41,7 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · C-1 · `Song` remainder
-
-**Goal:** the remaining scalar `Song` members through the generic property
-loop — count-in, automation state, scale mode/intervals, tempo follower, Link
-start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
-
-**Why:** cheap generic-loop batch; slot in whenever a quick win is wanted.
-
-**Planner notes:**
-- Source: `CLOSING_THE_GAPS.md`, row **C-1**.
-- Audited 2026-08-27: none of the row's members are registered yet, so the
-  row can be taken as written. Note that neighbouring members already exist
-  and are *not* this item — `root_note`, `scale_name`,
-  `is_ableton_link_enabled`, `clip_trigger_quantization`
-  (`song.py:63-78`) — so the scale and Link work here is `scale_mode`,
-  `scale_intervals` and `is_ableton_link_start_stop_sync_enabled` only.
-- No dependencies.
-
-## #2 · D-2 · Groove
+## #1 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -82,7 +64,7 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
 - No dependencies.
 
-## #3 · One `/live/song/undo` does not revert an OSC-created scene
+## #2 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -121,7 +103,7 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #4 · Make a failed live code reload safe and reported
+## #3 · Make a failed live code reload safe and reported
 
 **Goal:** a reload that raises does not activate a partially reloaded module
 graph — `/live/api/reload` either preserves a usable previous API or fails in a
@@ -151,10 +133,10 @@ is told nothing went wrong.
   listener dict — decide in this item whether to close it or record it as
   accepted, since the code comment currently points here for the answer.
 - Every gap PR uses reload during development; move this up if it bites
-  during #1–#2.
+  during #1.
 - No dependencies.
 
-## #5 · Stop masking Remote Script import failures
+## #4 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -173,7 +155,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #6 · Remove the process-global and shared-file risks from song structure export
+## #5 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -195,7 +177,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #7 · Add bounded log retention
+## #6 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -212,7 +194,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #8 · Document `song` in the handler constructor contract
+## #7 · Document `song` in the handler constructor contract
 
 **Goal:** `abletonosc/handler.py`'s `AbletonOSCHandler` "Constructor
 contract" docstring lists `song` alongside the other invariants (`logger`,
@@ -237,7 +219,7 @@ Comment-only; no behaviour changes.
   no non-comment line, same as the A-4 `track_identity.py` precedent.
 - No dependencies.
 
-## #9 · Verify wildcard fan-out against Seshat's `/live/device/` usage
+## #8 · Verify wildcard fan-out against Seshat's `/live/device/` usage
 
 **Goal:** confirm whether Seshat ever sends an OSC address *pattern* (not a
 literal address) under `/live/device/`, and if so, record what changes for

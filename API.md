@@ -612,12 +612,15 @@ Top-level Song object. Playback control, scene/track creation, cue points, globa
 | `/live/song/jump_by` | `time` | Jump song position by beats |
 | `/live/song/jump_to_next_cue` | | Jump to next cue marker |
 | `/live/song/jump_to_prev_cue` | | Jump to previous cue marker |
+| `/live/song/play_selection` | | ⚠️ **Seshat fork addition** — play the current Arrangement selection |
 | `/live/song/re_enable_automation` | | Re-enable automation that manual tweaks have overridden (Live's "Re-Enable Automation" button) |
 | `/live/song/redo` | | Redo last undone operation |
+| `/live/song/scrub_by` | `delta` | ⚠️ **Seshat fork addition** — scrub the playhead by a beat delta. The value is passed to Live unmodified, so send a float |
 | `/live/song/set_or_delete_cue` | | Toggle a cue point at the playhead — the same LOM method `/live/song/cue_point/add_or_delete` above calls; two addresses, one behaviour |
 | `/live/song/start_playing` | | Start session playback |
 | `/live/song/stop_playing` | | Stop session playback |
 | `/live/song/stop_all_clips` | | Stop all clips |
+| `/live/song/sync_parameter_changes` | | ⚠️ **Seshat fork addition** — `Song.sync_parameter_changes()`, exposed because the LOM has it. ⚠️ **What it does is unknown**: it is Remote-Script-only, absent from Max for Live's table, and Live's own docstring is the signature and nothing else. Registered as a plain fire-and-forget method; do not build behaviour on it until it has been measured |
 | `/live/song/tap_tempo` | | Tap tempo |
 | `/live/song/trigger_session_record` | | Trigger session record |
 | `/live/song/undo` | | Undo last operation |
@@ -672,13 +675,21 @@ Listen via `/live/song/start_listen/<property>`, stop via
 | `/live/song/get/appointed_device` | `category, track_index, device_index` | ⚠️ **Seshat extension** — the appointed ("blue hand") device, as a device triple: `category` is `"track"`, `"return_track"`, `"master"`, or `"none"` with both indices `-1` when nothing is appointed. A device nested in a rack chain answers `category, track_index, -1`. Its listen pair pushes the same triple. See **Object-valued reads** |
 | `/live/song/get/arrangement_overdub` | `arrangement_overdub` | Arrangement overdub state |
 | `/live/song/get/back_to_arranger` | `back_to_arranger` | "Back to arranger" lit state |
+| `/live/song/get/can_capture_midi` | `can_capture_midi` | ⚠️ **Seshat extension** — is there material to capture on any track? The read behind Live's Capture MIDI button. Observable |
 | `/live/song/get/can_redo` | `can_redo` | Redo available? Plain `bool` attribute — see the measured semantics below |
 | `/live/song/get/can_undo` | `can_undo` | Undo available? Plain `bool` attribute — see the measured semantics below |
 | `/live/song/get/clip_trigger_quantization` | `clip_trigger_quantization` | Clip trigger quantization level |
+| `/live/song/get/count_in_duration` | `count_in_duration` | ⚠️ **Seshat extension** — the count-in preference, as an **index** into Live's count-in table, not a bar count. Observable. ⚠️ The mapping is unmeasured — assumed `0` = None, `1` = 1 Bar, `2` = 2 Bars, `3` = 4 Bars (Max for Live's documentation; Live 12.4.3's own Push 2 script indexes a `COUNT_IN_DURATION_IN_BARS` table with this value) |
 | `/live/song/get/current_song_time` | `current_song_time` | Current song time (beats) |
+| `/live/song/get/exclusive_arm` | `exclusive_arm` | ⚠️ **Seshat extension** — the Exclusive Arm preference — arming one track disarms the others. Observable |
+| `/live/song/get/exclusive_solo` | `exclusive_solo` | ⚠️ **Seshat extension** — the Exclusive Solo preference. **Not** observable — no listen pair exists (see the note below the table) |
+| `/live/song/get/file_path` | `file_path` | ⚠️ **Seshat extension** — the open Live Set's path on disk. **Not** observable. ⚠️ What a never-saved set answers is unmeasured — assumed the empty string; if Live raises `RuntimeError` there, `_get_property` answers OSC nil instead |
 | `/live/song/get/groove_amount` | `groove_amount` | Groove Pool amount (0.0-1.3; 1.0 = the dial's 100%, 1.3 = its 130% maximum); scales how strongly each clip's *assigned* groove applies — no effect on clips without one |
 | `/live/song/get/is_ableton_link_enabled` | `is_ableton_link_enabled` | Ableton Link on? (1=on, 0=off) |
+| `/live/song/get/is_ableton_link_start_stop_sync_enabled` | `is_ableton_link_start_stop_sync_enabled` | ⚠️ **Seshat extension** — Link Start/Stop Sync. A separate switch from `is_ableton_link_enabled`, which is Link itself. Observable |
+| `/live/song/get/is_counting_in` | `is_counting_in` | ⚠️ **Seshat extension** — true while the count-in runs. Observable, so this is the honest "wait for recording to actually start" subscription |
 | `/live/song/get/is_playing` | `is_playing` | Song playing? |
+| `/live/song/get/last_event_time` | `last_event_time` | ⚠️ **Seshat extension** — beat time of the last event in the Set. **Not** observable |
 | `/live/song/get/loop` | `loop` | Looping? |
 | `/live/song/get/loop_length` | `loop_length` | Loop length |
 | `/live/song/get/loop_start` | `loop_start` | Loop start point |
@@ -686,18 +697,40 @@ Listen via `/live/song/start_listen/<property>`, stop via
 | `/live/song/get/midi_recording_quantization` | `midi_recording_quantization` | MIDI recording quantization |
 | `/live/song/get/nudge_down` | `nudge_down` | Nudge down |
 | `/live/song/get/nudge_up` | `nudge_up` | Nudge up |
+| `/live/song/get/num_visible_tracks` | `num_visible_tracks` | ⚠️ **Seshat extension** — how many regular tracks are visible — Live's own `len(visible_tracks)`, the `num_tracks` companion. No listen pair; subscribe to `visible_tracks` instead. Normally equal to the number of indices `get/visible_tracks` replies, and a disagreement means a track could not be matched to an index rather than a short answer |
+| `/live/song/get/overdub` | `overdub` | ⚠️ **Seshat extension** — Live 8's legacy overdub hook. Observable. ⚠️ Live's docstring is truncated ("Now hooks to…") — assumed to mirror session-record state, unmeasured; read `session_record` when you mean session record |
 | `/live/song/get/punch_in` | `punch_in` | Punch in |
 | `/live/song/get/punch_out` | `punch_out` | Punch out |
+| `/live/song/get/re_enable_automation_enabled` | `re_enable_automation_enabled` | ⚠️ **Seshat extension** — true when some automated parameter has been overridden — i.e. when Live's Re-Enable Automation button is lit and `/live/song/re_enable_automation` would do something. Observable |
 | `/live/song/get/record_mode` | `record_mode` | Record mode |
 | `/live/song/get/root_note` | `root_note` | Root note |
+| `/live/song/get/scale_intervals` | `interval, ...` | ⚠️ **Seshat extension** — the current scale's intervals in halfsteps from the root, flattened into one reply with **no count prefix** (Major → `0 2 4 5 7 9 11`), like `/live/application/get/unavailable_features`. Each element is coerced with `int()`. Observable — the listen pair pushes the same flattened tuple |
+| `/live/song/get/scale_mode` | `scale_mode` | ⚠️ **Seshat extension** — Live's Scale Mode setting (scale highlighting in the MIDI note editor, scale-degree editing in MIDI tools). Pairs with the existing `root_note` / `scale_name`. Observable |
 | `/live/song/get/scale_name` | `scale_name` | Scale name |
+| `/live/song/get/select_on_launch` | `select_on_launch` | ⚠️ **Seshat extension** — the "Select on Launch" preference — should firing a clip or scene select it? **Not** observable |
+| `/live/song/get/session_automation_record` | `session_automation_record` | ⚠️ **Seshat extension** — is automation recording armed (Live's Automation Arm button)? Observable |
 | `/live/song/get/session_record` | `session_record` | Session record enabled? |
 | `/live/song/get/session_record_status` | `session_record_status` | Session record status |
 | `/live/song/get/signature_denominator` | `denominator` | Time signature denominator |
 | `/live/song/get/signature_numerator` | `numerator` | Time signature numerator |
 | `/live/song/get/song_length` | `song_length` | Arrangement length (beats) |
+| `/live/song/get/start_time` | `start_time` | ⚠️ **Seshat extension** — the Set's start time in beats. Observable |
 | `/live/song/get/swing_amount` | `swing_amount` | Global swing amount (0.0-1.0); applied by MIDI record quantization and `/live/clip/quantize` |
 | `/live/song/get/tempo` | `tempo_bpm` | Song tempo |
+| `/live/song/get/tempo_follower_enabled` | `tempo_follower_enabled` | ⚠️ **Seshat extension** — is the Tempo Follower driving the tempo? Observable. Live's docstring notes the property has no effect unless the Tempo Follower toggle is made visible in preferences |
+| `/live/song/get/visible_tracks` | `track_index, ...` | ⚠️ **Seshat extension** — the **indices into `song.tracks`** of every visible regular track, in track order, flattened with no count prefix — the tracks not hidden inside a collapsed group. Same index space as `num_tracks`, `track_names` and every `/live/track/*` address. An empty reply means nothing is visible. Observable — the listen pair pushes the same index tuple, so a group folding or unfolding arrives as one push |
+
+**Four Song getters have no listen pair at all.** `exclusive_solo`,
+`file_path`, `last_event_time` and `select_on_launch` are read-only *and*
+non-observable: Live offers no `add_<name>_listener` for them, so
+`/live/song/start_listen/file_path` and its three siblings are **not
+registered**. A send to one is an unknown address — dropped with a log line,
+**no `/live/error` comes back**, so don't wait on a reply there. This is the
+same shape as `/live/application/get/current_dialog_message`, and the reason is
+the same: a registered listen address that can only answer `AttributeError`
+would be worse than no address. `num_visible_tracks` has no listen pair either,
+for a different reason — it is a count derived from `visible_tracks`, which is
+observable; subscribe to that.
 
 ### Song Setters
 
@@ -710,6 +743,7 @@ Listen via `/live/song/start_listen/<property>`, stop via
 | `/live/song/set/current_song_time` | `current_song_time` | Set song time (beats) |
 | `/live/song/set/groove_amount` | `groove_amount` | Set Groove Pool amount (0.0-1.3); 0 = assigned grooves off |
 | `/live/song/set/is_ableton_link_enabled` | `is_ableton_link_enabled` | Enable/disable Ableton Link (1=on, 0=off) |
+| `/live/song/set/is_ableton_link_start_stop_sync_enabled` | `enabled` | ⚠️ **Seshat extension** — enable/disable Link Start/Stop Sync (1=on, 0=off). Distinct from `is_ableton_link_enabled` |
 | `/live/song/set/loop` | `loop` | Set looping (1=on, 0=off) |
 | `/live/song/set/loop_length` | `loop_length` | Set loop length |
 | `/live/song/set/loop_start` | `loop_start` | Set loop start |
@@ -717,16 +751,75 @@ Listen via `/live/song/start_listen/<property>`, stop via
 | `/live/song/set/midi_recording_quantization` | `midi_recording_quantization` | Set MIDI recording quantization |
 | `/live/song/set/nudge_down` | `nudge_down` | Set nudge down |
 | `/live/song/set/nudge_up` | `nudge_up` | Set nudge up |
+| `/live/song/set/overdub` | `overdub` | ⚠️ **Seshat extension** — set the legacy overdub hook. ⚠️ Its relationship to `session_record` is unmeasured — see the getter row |
 | `/live/song/set/punch_in` | `punch_in` | Set punch in |
 | `/live/song/set/punch_out` | `punch_out` | Set punch out |
 | `/live/song/set/record_mode` | `record_mode` | Set record mode |
 | `/live/song/set/root_note` | `root_note` | Set the song's root note (int; pairs with the documented getter) |
+| `/live/song/set/scale_mode` | `scale_mode` | ⚠️ **Seshat extension** — turn Live's Scale Mode on/off (1=on, 0=off) |
 | `/live/song/set/scale_name` | `scale_name` | Set the song's scale by name (string; pairs with the documented getter) |
+| `/live/song/set/session_automation_record` | `session_automation_record` | ⚠️ **Seshat extension** — arm/disarm automation recording (1=on, 0=off) |
 | `/live/song/set/session_record` | `session_record` | Set session record (1=on, 0=off) |
 | `/live/song/set/signature_denominator` | `signature_denominator` | Set time sig denominator |
 | `/live/song/set/signature_numerator` | `signature_numerator` | Set time sig numerator |
+| `/live/song/set/start_time` | `start_time` | ⚠️ **Seshat extension** — set the Set's start time in beats. ⚠️ Live's docstring describes a quantization applied to the value on set and is truncated mid-sentence; the value is passed through unmodified, so read back after setting |
 | `/live/song/set/swing_amount` | `swing_amount` | Set global swing amount (0.0-1.0) |
 | `/live/song/set/tempo` | `tempo_bpm` | Set tempo |
+| `/live/song/set/tempo_follower_enabled` | `enabled` | ⚠️ **Seshat extension** — hand the tempo to the Tempo Follower (1=on, 0=off). No effect unless the Tempo Follower toggle is visible in Live's preferences |
+
+### Song: method queries (Seshat — not in upstream AbletonOSC)
+
+Five `Song` methods that **return a value**. The generic `/live/song/<method>`
+path discards return values, so each of these is a hand-written handler with a
+reply, and the address is the LOM method name **verbatim** — `get_beats_loop_start`,
+not `get/beats_loop_start`. None of them exists in stock AbletonOSC.
+
+| Address | Query Params | Response Params | Description |
+|---|---|---|---|
+| `/live/song/get_beats_loop_start` | | `bars, beats, sub_division, ticks` | The loop brace's start, as a `BeatTime` decoded into four ints |
+| `/live/song/get_beats_loop_length` | | `bars, beats, sub_division, ticks` | The loop brace's length, same shape |
+| `/live/song/get_current_smpte_song_time` | `format` | `format, hours, minutes, seconds, frames` | The playhead as SMPTE. `format` is a `Live.Song.TimeFormat` int handed to Live **unmodified** and echoed back first so a burst of requests can be correlated. Sending no argument is a structured `/live/error`, not a default |
+| `/live/song/move_device` | `device_category, device_track_index, device_index, target_category, target_track_index, position` | `target_category, target_track_index, result` | Move a device to `position` in another track's device chain |
+| `/live/song/find_device_position` | (same six) | `target_category, target_track_index, result` | Where the same move would land the device |
+
+**The two device-position methods take objects, so they take identities.** The
+device arrives as the `(category, track_index, device_index)` triple every
+object-valued read already replies, and the target as the
+`(category, index)` track identity — `category` is `"track"`,
+`"return_track"` or `"master"` (see **Object-valued reads**). The five identity
+arguments — both categories, both track indices and `device_index` — are
+*validated* rather than used as a subscript: `"none"` (reply-only), an unknown
+category, a negative or out-of-range index, or a master index other than `0`
+each answer on `/live/error` and call nothing. `-1` is an answer, never an
+argument, for any of the five. `position`, the sixth argument, is not
+validated — it is `int()`-coerced and passed straight to Live, so an
+out-of-range value is Live's behaviour to define, not this handler's.
+
+**Track-level targets only.** A device inside a rack chain has no address in
+this fork (roadmap A-1), so neither the device argument nor the target can name
+one — exactly as `/live/song/set/appointed_device` reaches top-level devices
+only. The reply echoes the target identity before Live's return value so
+several of these can be in flight at once.
+
+> **Not yet measured against a running Live (as of 2026-08-29).** The whole
+> `Song` remainder landed without a measurement pass — the checks need the
+> installed Remote Scripts copy replaced and Live restarted, which the session
+> that wrote them could not do. Six things are documented from Live's own
+> signatures, docstrings and shipped scripts rather than from observation, and
+> carry ⚠️ in their rows: the `count_in_duration` index mapping, the
+> `BeatTime`/`SmpteTime` attribute names (`bars`/`beats`/`sub_division` appear
+> as attribute names in Live 12.4.3's own shipped scripts; `ticks` and the four
+> SMPTE fields are Max-for-Live-derived), the `Live.Song.TimeFormat` int
+> mapping (M4L names the members `smpte_24`, `smpte_25`, `smpte_29`,
+> `smpte_30`, `smpte_30_drop`, `ms_time` — the ints behind them are
+> unmeasured), what `move_device` / `find_device_position` return and whether
+> `find` really is non-mutating, `overdub`'s relationship to `session_record`,
+> and what `sync_parameter_changes` does at all. Wrong struct attribute names
+> fail **loudly** — an `AttributeError` on `/live/error` naming the attribute,
+> never a plausible wrong number. The reply *shapes* are pinned by
+> `tests_unit/test_song_remainder.py` and depend on none of it. The measurement
+> procedure is § "Measuring the Live API without building the feature first"
+> above.
 
 ### Song: Track/Scene/Cue Queries
 
@@ -734,7 +827,7 @@ Listen via `/live/song/start_listen/<property>`, stop via
 |---|---|---|---|
 | `/live/song/get/cue_points` | | `name, time, ...` | List cue points |
 | `/live/song/get/num_scenes` | | `num_scenes` | Number of scenes |
-| `/live/song/get/num_tracks` | | `num_tracks` | Number of regular tracks (excludes return and master tracks) |
+| `/live/song/get/num_tracks` | | `num_tracks` | Number of regular tracks (excludes return and master tracks); see also `/live/song/get/num_visible_tracks` in § Song Getters |
 | `/live/song/get/scenes/name` | `[index_min, index_max]` | `[names...]` | All scene names in one reply, in index order (optional half-open range — see below) |
 | `/live/song/get/track_names` | `[index_min, index_max]` | `[names...]` | Regular track names, in index order (optional range) |
 | `/live/song/get/track_data` | `start_track, end_track, properties...` | `[values...]` | Bulk track/clip data query (regular tracks only) |
