@@ -14,14 +14,14 @@ later.
 This is the first file to construct the *real* AbletonOSCHandler outside
 Live. It is possible because handler.py's only Live-side dependency is a
 trivial base class, stubbed by conftest.load_handler_module(); the OSCServer
-and the dispatcher underneath these tests are the production ones. Eight of
+and the dispatcher underneath these tests are the production ones. Nine of
 the twelve production subclasses are loaded and driven end to end elsewhere
-in the suite (device, scene, clip_slot, track, clip, song, view, application
-— see test_device_listeners.py, test_listener_identity.py,
-test_object_reads.py, test_song_object_reads.py, test_view_object_reads.py
-and test_application.py); browser.py, midimap.py, return_track.py and
-song_structure.py have no conftest loader yet, so the probes below stand in
-for them.
+in the suite (device, scene, clip_slot, track, return_track, clip, song,
+view, application — see test_device_listeners.py, test_listener_identity.py,
+test_object_reads.py, test_return_track.py, test_song_object_reads.py,
+test_view_object_reads.py and test_application.py); browser.py, midimap.py
+and song_structure.py have no conftest loader yet, so the probes below stand
+in for them.
 
 What the probes cannot reach — the *declarations* of all twelve production
 subclasses: each one's class_identifier value, and the absence of a subclass
