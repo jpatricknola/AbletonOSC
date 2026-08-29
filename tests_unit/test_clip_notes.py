@@ -533,6 +533,32 @@ def test_apply_note_modifications_rejects_an_unknown_id_before_mutating(
     assert [note.fields() for note in clip.notes] == before
 
 
+def test_apply_note_modifications_duplicate_ids_the_later_group_wins(
+        handler, server, receiver, clip):
+    #--------------------------------------------------------------------------------
+    # API.md: "Two groups citing the same id is not an error: the later group
+    # wins." Both groups cite id 11; the second group's values must be what
+    # ends up on the note, and get_notes_by_id sees the id twice — documented,
+    # not incidentally correct.
+    #--------------------------------------------------------------------------------
+    address = "/live/clip/apply_note_modifications"
+    dispatch(server, address, 0, 0,
+             61.0, 1.0, 1.0, 50.0, 0.0, 0.1, 1.0, 10.0, 11.0,
+             62.0, 2.0, 1.0, 90.0, 1.0, 0.5, 4.0, 40.0, 11.0)
+
+    (ids_requested,) = clip.calls_named("get_notes_by_id")
+    assert ids_requested == (11, 11)
+
+    note = clip.notes[0]
+    assert note.note_id == 11
+    assert note.pitch == 62
+    assert note.start_time == pytest.approx(2.0)
+    assert note.velocity == pytest.approx(90.0)
+    assert note.mute is True
+    assert note.probability == pytest.approx(0.5)
+    assert receiver.drain() == []
+
+
 @pytest.mark.parametrize("extra", [
     (62.0, 2.0, 1.0, 90.0, 1.0, 0.5, 4.0, 40.0),   # 8 — the add form, one short
     (),                                             # none at all

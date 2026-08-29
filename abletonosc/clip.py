@@ -83,11 +83,20 @@ def make_note_specification(group: Tuple[Any]):
 def flatten_notes_extended(notes) -> list:
     """
     Nine fields per note — the canonical order, then the note id.
+
+    Coerced through EXTENDED_NOTE_COERCIONS (plus int() on the id) on the way
+    out, not just the way in: `probability`, `velocity_deviation`,
+    `release_velocity` and `note_id` are not proven by upstream the way the
+    first five fields are, and pythonosc's builder infers an OSC type from the
+    Python type — a value it can't type drops the whole reply, silently, with
+    only a log line (osc_server.send). Coercing here matches the int()
+    already applied to duplicate_notes_by_id's returned ids.
     """
     flat = []
     for note in notes:
-        flat += [getattr(note, field) for field in EXTENDED_NOTE_FIELDS]
-        flat.append(note.note_id)
+        flat += [coerce(getattr(note, field))
+                for field, coerce in zip(EXTENDED_NOTE_FIELDS, EXTENDED_NOTE_COERCIONS)]
+        flat.append(int(note.note_id))
     return flat
 
 
@@ -346,7 +355,7 @@ class ClipHandler(AbletonOSCHandler):
             elif len(params) == 0:
                 pitch_start, pitch_span, time_start, time_span = 0, 127, -8192, 16384
             else:
-                raise ValueError("Invalid number of arguments for /clip/get/notes_extended. Either 0 or 4 arguments must be passed.")
+                raise ValueError("Invalid number of arguments for /live/clip/get/notes_extended. Either 0 or 4 arguments must be passed.")
             notes = clip.get_notes_extended(pitch_start, pitch_span, time_start, time_span)
             return tuple(flatten_notes_extended(notes))
 
@@ -386,7 +395,13 @@ class ClipHandler(AbletonOSCHandler):
             groups = parse_note_groups(params, 9, "/live/clip/apply_note_modifications")
             note_ids = tuple(int(group[8]) for group in groups)
             notes = clip.get_notes_by_id(note_ids)
-            notes_by_id = dict((note.note_id, note) for note in notes)
+            #--------------------------------------------------------------------------------
+            # Keyed on int(note.note_id), not the raw attribute: lookups below are
+            # int(group[8]), and a MidiNote's own id type is unmeasured (Live calls
+            # it IntU64). If the two didn't compare equal, every request would raise
+            # the "No note with id" error below for a perfectly valid id.
+            #--------------------------------------------------------------------------------
+            notes_by_id = dict((int(note.note_id), note) for note in notes)
             for note_id in note_ids:
                 if note_id not in notes_by_id:
                     raise ValueError("No note with id %d in this clip "

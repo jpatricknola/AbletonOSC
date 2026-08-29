@@ -1499,6 +1499,12 @@ practice — this is documented rather than worked around.
 - ⚠️ Whether a fetched `MidiNote`'s attributes are writable from Remote Script
   Python — what `apply_note_modifications` depends on. Assumed yes: Push's own
   note editor fetches, mutates and applies.
+- ⚠️ Whether a `MidiNote` exposes `probability`, `velocity_deviation`,
+  `release_velocity` and `note_id` under those names at all — four of the
+  twelve addresses read them by attribute name (`abletonosc/clip.py`'s
+  `EXTENDED_NOTE_FIELDS`), and that assumption is separate from the two above:
+  even if the attributes are writable, a rename or absence here would drop or
+  misname a field rather than raise.
 - ⚠️ What `get_notes_by_id` does with an id the clip does not hold (raise, or a
   shorter vector), and whether its reply follows request order. The modify path
   is deterministic either way, because the handler checks the ids itself.
