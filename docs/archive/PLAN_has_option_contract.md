@@ -1,3 +1,13 @@
+> **Archived 2026-08-30 — shipped.** This is the plan as written *before*
+> implementation; the code as merged may differ. The change lives in
+> `abletonosc/application.py`'s `get_has_option` handler, documented in
+> `API.md`'s Application table and its "Partially measured against Live
+> 12.4.5" block, with the divergence recorded in `SESHAT.md`. Live
+> verification checks 1-7 did not run (Live's installed copy was not this
+> code); that result is recorded in this doc's own "Live verification"
+> section rather than a follow-up elsewhere — whoever next installs and
+> reloads can run them.
+
 # Plan: `/live/application/get/has_option` — the real contract
 
 Roadmap item: **#1 · `/live/application/get/has_option` documents a contract
