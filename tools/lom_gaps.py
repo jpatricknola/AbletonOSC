@@ -76,6 +76,16 @@ ALIASES = {
         "browser": "/live/browser/*",
         "get_major_version": "/live/application/get/version",
         "get_minor_version": "/live/application/get/version",
+        #--------------------------------------------------------------------------------
+        # These four *are* exposed, under an address whose last segment drops
+        # the "get_" prefix the Live method carries. Coverage is decided by
+        # segment equality, so without an alias the tool would keep counting
+        # them as gaps.
+        #--------------------------------------------------------------------------------
+        "get_bugfix_version": "/live/application/get/bugfix_version",
+        "get_build_id": "/live/application/get/build_id",
+        "get_variant": "/live/application/get/variant",
+        "get_version_string": "/live/application/get/version_string",
     },
     "Live.Track.Track": {
         "clip_slots": "/live/clip_slot/*",

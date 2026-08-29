@@ -37,6 +37,35 @@ def test_application_get_version(client):
     rv = client.query("/live/application/get/version")
     assert len(rv) == 2 and rv[0] in (11, 12)
 
+def test_application_get_version_string(client):
+    #--------------------------------------------------------------------------------
+    # The fork's exact-version read. Asserts the shape rather than a literal,
+    # so it does not re-stale on every Live point release: "12.4.3" and the
+    # major half agreeing with get/version is all that can be known here.
+    #--------------------------------------------------------------------------------
+    rv = client.query("/live/application/get/version_string")
+    assert len(rv) == 1
+    version_string = rv[0]
+    assert isinstance(version_string, str) and len(version_string) > 0
+
+    major, _minor = client.query("/live/application/get/version")
+    assert version_string.split(".")[0] == str(major)
+
+
+def test_application_get_open_dialog_count(client):
+    #--------------------------------------------------------------------------------
+    # Read-only, and deliberately not paired with a show_message test: this
+    # suite must never raise a dialog it cannot dismiss, and there is no
+    # press_current_dialog_button address by design.
+    #
+    # Zero is safe to assert rather than merely "an int": a modal Live dialog
+    # blocks the tick loop this client is talking to, so if one were open the
+    # query above would have timed out instead of reaching here.
+    #--------------------------------------------------------------------------------
+    rv = client.query("/live/application/get/open_dialog_count")
+    assert rv == (0,)
+
+
 def test_application_error(client, num_tracks, num_scenes):
     #--------------------------------------------------------------------------------
     # A deliberately out-of-range clip index, derived from the set rather than

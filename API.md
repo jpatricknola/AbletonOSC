@@ -351,12 +351,76 @@ Consequences, all of them load-bearing:
 |---|---|---|---|
 | `/live/test` | | `'ok'` | Confirmation message in Live + OSC reply |
 | `/live/application/get/version` | | `major_version, minor_version` | Live's version |
-| `/live/application/get/average_process_usage` | | `average_process_usage` | Live's average CPU load. ⚠️ `application.py` also *sends* one argument-less datagram on this address every time AbletonOSC initialises — a stray sibling of `/live/startup`, not a reply to anything; ignore it |
+| `/live/application/get/average_process_usage` | | `average_process_usage` | Live's average CPU load. (Until 2026-08-29 `application.py` also *sent* one argument-less datagram on this address at every initialisation, a stray sibling of `/live/startup` that this doc told clients to ignore. It is gone: startup traffic is `/live/startup` alone.) |
+| `/live/application/get/version_string` | | `version` | Seshat extension. Live's full version string, e.g. `12.4.3` — `get/version` gives only the major and minor halves |
+| `/live/application/get/bugfix_version` | | `bugfix` | Seshat extension. The third component, e.g. the `3` of `12.4.3` |
+| `/live/application/get/build_id` | | `build_id` | Seshat extension. The exact build |
+| `/live/application/get/variant` | | `variant` | Seshat extension. Live's edition (Suite, Standard, Intro, Lite), which decides whether a given LOM member exists at all — see `get/unavailable_features`. ⚠️ The exact strings Live returns are unmeasured |
+| `/live/application/get/has_option` | `option` | `option, present` | Seshat extension. Whether an Options.txt option is active. The option string is handed to Live **unmodified** and echoed back beside the answer, so a burst of requests can be correlated — there is no other discriminator on this address. Sending no argument is a structured `/live/error`, not a default. ⚠️ Live's matching semantics (whether the leading `-` belongs in the string) are unmeasured |
+| `/live/application/get/open_dialog_count` | | `count` | Seshat extension. Number of open Live dialogs; `0` when none. Observable — see **Detecting dialogs** below |
+| `/live/application/get/current_dialog_message` | | `message` | Seshat extension. Text of the last dialog that appeared; empty once all dialogs have gone. **Not** observable |
+| `/live/application/get/current_dialog_button_count` | | `count` | Seshat extension. Buttons on the current dialog. **Not** observable |
+| `/live/application/get/peak_process_usage` | | `usage` | Seshat extension. Live's peak CPU load — the companion to `average_process_usage`. Observable |
+| `/live/application/get/number_of_push_apps_running` | | `count` | Seshat extension. Connected Push apps |
+| `/live/application/get/unavailable_features` | | `feature, ...` | Seshat extension. Features unavailable in the running edition, flattened into one reply with no count prefix, like `/live/track/get/available_input_routing_types`. An empty list still replies — with zero arguments. ⚠️ Each element is coerced with `str()`; whether Live's elements are strings or enum objects is unmeasured |
+| `/live/application/get/control_surfaces` | | `name, ...` | Seshat extension. The **class name** of each control surface selected in preferences, in preferences-slot order, flattened like the row above. An unassigned slot goes out as the empty string so the remaining slots keep their positions. Names only, by design — the surface objects are deliberately not traversable from the wire. ⚠️ How Live represents an empty slot is unmeasured |
+| `/live/application/start_listen/open_dialog_count` | | pushes on `/live/application/get/open_dialog_count` | Seshat extension. Immediate initial push, then one per change |
+| `/live/application/stop_listen/open_dialog_count` | | | Seshat extension |
+| `/live/application/start_listen/peak_process_usage` | | pushes on `/live/application/get/peak_process_usage` | Seshat extension. Immediate initial push, then one per change |
+| `/live/application/stop_listen/peak_process_usage` | | | Seshat extension |
+| `/live/application/show_message` | `text` | `result` | Seshat extension. Raises a Live dialog carrying `text`. **OK-only**: every other Live parameter keeps its default, including `buttons` — see the note below. ⚠️ Whether the call blocks, and what the returned int means, are unmeasured; it is passed through opaquely |
+| `/live/application/show_on_the_fly_message` | `text` | `result` | Seshat extension. The transient variant, same shape and same OK-only rule. ⚠️ Where it appears with no Push connected is unmeasured |
 | `/live/application/dump_lom` | `[path]` | `path, num_classes, num_addresses` | Seshat extension. Walks the installed Live API (every class and member reachable from the `Live` module, plus the Max-for-Live device tables) and this server's registered addresses, and writes both to a JSON file — `path` if given, else `logs/lom_dump.json` next to the Remote Script. `tools/lom_gaps.py` diffs the two; `FORK_GAPS.md` is maintained from that diff. ⚠️ Takes an arbitrary path from the wire and writes it with Live's privileges — the opposite of `browser/export`'s policy; see `issues.md`, "Bound `/live/application/dump_lom`'s output path" |
 | `/live/api/reload` | | | Live reload of AbletonOSC server code (dev only — see the warning below) |
 | `/live/api/get/log_level` | | `log_level` | Current log level (default: `info`) |
 | `/live/api/set/log_level` | `log_level` | | Set log level: `debug`, `info`, `warning`, `error`, `critical` |
 | `/live/api/show_message` | `message` | | Show message in Live's status bar |
+
+(`/live/api/show_message` and `/live/application/show_message` are different
+addresses and different mechanisms: the first writes Live's status bar and
+replies nothing, the second raises an actual dialog and replies with Live's
+return value.)
+
+**Detecting dialogs.** A blocking Live dialog used to be invisible to a
+client without accessibility APIs or pixel scraping. It isn't: three
+`Application` members describe one exactly. Only `open_dialog_count` is
+observable, though, so the pattern is:
+
+1. `start_listen/open_dialog_count` once, at startup.
+2. On a push with a non-zero count, read `get/current_dialog_message` and
+   `get/current_dialog_button_count` to find out what appeared.
+3. A push back to `0` means the dialog has gone.
+
+`current_dialog_message` and `current_dialog_button_count` have **no**
+`start_listen`/`stop_listen` addresses, because Live offers no
+`add_<name>_listener` for them — there is nothing to subscribe to. They are
+not registered at all, so a `start_listen` sent to one is an *unknown
+address*: it is dropped with a log line and **no `/live/error` comes back**.
+Don't wait on a reply there.
+
+⚠️ **Dialogs raised over OSC are OK-only, on purpose.**
+`show_message` and `show_on_the_fly_message` pass Live the text and nothing
+else, so `buttons` keeps its `OK_BUTTON` default. There is deliberately no
+`press_current_dialog_button` address — a dialog on screen may be guarding
+unsaved work — so a dialog offering choices would be one the remote has no
+way to answer. The two constraints move together: exposing button choices
+requires exposing the press, and that is a separate, reviewed decision.
+
+> **Not yet measured against a running Live (as of 2026-08-29).** The
+> application addresses above landed without the usual measurement pass:
+> the checks need the installed Remote Scripts copy replaced and Live
+> restarted, which the session that wrote them could not do. Five things are
+> therefore documented from Live's own signatures and docstrings rather than
+> from observation, and carry ⚠️ in their rows — the exact `get/variant`
+> strings, whether `unavailable_features` elements are strings or enum
+> objects, how `control_surfaces` represents an unassigned slot, whether
+> `show_message` blocks the tick thread and what its returned int means, and
+> what form `has_option` expects. The reply *shapes* are pinned by
+> `tests_unit/test_application.py` and do not depend on any of that; the
+> handler coerces defensively (`str()` on every list element, `None` slots to
+> `""`) so a wrong guess degrades the reply's readability, not its
+> well-formedness. The measurement procedure is § "Measuring the Live API
+> without building the feature first" above.
 
 ⚠️ **Don't reach for `/live/api/reload`.** Two problems, both observed:
 
