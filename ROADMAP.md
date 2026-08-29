@@ -50,6 +50,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · The clip↔groove assignment contract is broken in both directions
 
+**Plan:** [docs/PLAN_clip_groove_assignment_contract.md](docs/PLAN_clip_groove_assignment_contract.md)
+
 **Goal:** `/live/clip/get/groove` distinguishes "no groove assigned" from
 "pool index 0", and `/live/clip/set/groove` either clears an assignment or
 stops claiming it can. API.md's "one sanctioned exception to `-1` is an
