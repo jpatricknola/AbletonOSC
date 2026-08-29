@@ -530,13 +530,28 @@ so treat any merge that reverts one as a regression, not a preference.
     `get/build_id`, `get/variant` — upstream's `get/version` answers "12.4",
     which does not say which bugfix release or which edition is running, and
     the edition decides which LOM members exist at all.
-  - ⚠️ `get/has_option` — shipped as an Options.txt query, echoing the option
-    so a burst can be correlated. It is **not** one: measured against Live
-    12.4.5 on 2026-08-29, `Application.has_option` takes exactly 64 hex
-    characters and rejects everything else, so no option name is expressible
-    and every documented use of the address errors. See ROADMAP,
-    "`/live/application/get/has_option` documents a contract Live does not
-    implement". Also `get/peak_process_usage` (+ listen pair),
+  - `get/has_option` — an **option-key lookup**, echoing the key verbatim so
+    a burst can be correlated. It shipped on 2026-08-29 documented as an
+    Options.txt query and is not one: measured against Live 12.4.5 the same
+    day, `Application.has_option` takes exactly 64 hexadecimal characters —
+    a digest of an internal option name, with no public name→key mapping —
+    and rejects everything else. The address was **kept rather than removed**
+    (a well-formed key does answer, and `FORK_GAPS.md`'s doctrine is that no
+    gap is out of scope for want of a consumer asking for it); what was wrong
+    was the documentation. Three fork divergences follow, none of them
+    upstream's: the key is validated **at the handler** — 64 chars,
+    `[0-9a-fA-F]`, no case-folding — so Live's unusable C++ rejections
+    (`basic_string`, `Key contains non-hex characters`) are unreachable
+    through this address; the rejection is a `ValueError` **on purpose**,
+    because that is in `OSCServer.WILDCARD_SKIP_EXCEPTIONS`, so a
+    `/live/application/get/*` sweep carrying a non-key string skips this
+    endpoint instead of emitting a `/live/error` nobody asked for; and the
+    ok path **logs its answer** at `info`, where every other custom
+    application getter logs nothing, because the reply port is not always
+    bindable and an unreadable address is how the wrong contract shipped
+    unnoticed (see `API.md` § "The no-probe variant", whose "custom handlers
+    log nothing" bullet now carries this exception). Also
+    `get/peak_process_usage` (+ listen pair),
     `get/number_of_push_apps_running`, `get/unavailable_features` and
     `get/control_surfaces` — the last two flattened into a single reply with
     no count prefix, exactly like
@@ -576,7 +591,11 @@ so treat any merge that reverts one as a regression, not a preference.
   `tests_unit/test_application.py`, which constructs the real handler and
   asserts the registration table by *equality*
   (`test_registration_table_is_exactly_this`), so a dropped address fails
-  there and an undocumented new one does too.
+  there and an undocumented new one does too. A narrower merge — one that
+  keeps `has_option` registered but reverts its handler body, silently
+  dropping the key validator and the ok-path log line — passes that
+  equality check unnoticed; `test_has_option_rejects_a_malformed_key` is
+  the tripwire for that case.
 
 - **`clip.py` — `quantize` in the generic methods list.** From upstream PR #198
   (that PR's warp-marker and extended-note work is not taken). Gives

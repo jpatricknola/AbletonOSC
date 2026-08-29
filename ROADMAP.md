@@ -48,41 +48,7 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · `/live/application/get/has_option` documents a contract Live does not implement
-
-**Goal:** `/live/application/get/has_option` either answers a question a caller
-can actually ask, or is removed. API.md stops describing it as an Options.txt
-query.
-
-**Why:** it was shipped as "whether an Options.txt option is active", with the
-option name handed to Live unmodified. Measured against Live 12.4.5 on
-2026-08-29, `Application.has_option` is not that function at all: it accepts
-**exactly 64 hexadecimal characters** and nothing else. A non-hex string raises
-`Key contains non-hex characters`; a hex string of any other length — 63, 40,
-32, 16, 8 — raises `basic_string`. Both reach the client as `/live/error`. No
-Options.txt name is expressible, so every documented use of this address fails,
-and a client following API.md gets an error for a correctly formed request.
-
-**Planner notes:**
-- A defect introduced by the Application dialogs and versions item (PR #18,
-  merged 2026-08-29). The plan flagged "what form `has_option` expects" as an
-  open question and shipped the guess as documentation.
-- Establish what the 64-hex key *is* before deciding the address's fate — the
-  shape (32 bytes, hex) and the "Key" wording in Live's own error suggest a
-  hash or licence/feature key rather than anything a Remote Script caller can
-  compose. If a caller cannot construct one, the address is not useful and
-  removing it beats documenting a trap.
-- If it stays, the argument needs validating at the handler rather than
-  passed through to a C++ exception: 64 hex characters or a structured
-  `/live/error` naming the requirement.
-- Whatever lands, the ⚠️ correction already in API.md's Application table must
-  be replaced by the real contract, and `tests_unit/test_application.py`'s
-  `has_option` cases pin only the echo shape today — they pass against a
-  function that can never succeed.
-- Source: the Live verification run of 2026-08-29, recorded in API.md's
-  Application section.
-
-## #2 · One `/live/song/undo` does not revert an OSC-created scene
+## #1 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -121,7 +87,7 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #3 · Make a failed live code reload safe and reported
+## #2 · Make a failed live code reload safe and reported
 
 **Goal:** a reload that raises does not activate a partially reloaded module
 graph — `/live/api/reload` either preserves a usable previous API or fails in a
@@ -156,7 +122,7 @@ is told nothing went wrong.
   still have open rows, but none is currently ranked in this file.
 - No dependencies.
 
-## #4 · Stop masking Remote Script import failures
+## #3 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -175,7 +141,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #5 · Remove the process-global and shared-file risks from song structure export
+## #4 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -197,7 +163,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #6 · Add bounded log retention
+## #5 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -214,7 +180,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #7 · Document `song` in the handler constructor contract
+## #6 · Document `song` in the handler constructor contract
 
 **Goal:** `abletonosc/handler.py`'s `AbletonOSCHandler` "Constructor
 contract" docstring lists `song` alongside the other invariants (`logger`,
@@ -239,7 +205,7 @@ Comment-only; no behaviour changes.
   no non-comment line, same as the A-4 `track_identity.py` precedent.
 - No dependencies.
 
-## #8 · Verify wildcard fan-out against Seshat's `/live/device/` usage
+## #7 · Verify wildcard fan-out against Seshat's `/live/device/` usage
 
 **Goal:** confirm whether Seshat ever sends an OSC address *pattern* (not a
 literal address) under `/live/device/`, and if so, record what changes for
@@ -281,7 +247,7 @@ could the nit-triage pass that declined fixing it inline.
 - No dependencies; verification-only, and may resolve to "no action" without
   ever becoming a Python change here.
 
-## #9 · `stop_listen` can leave a listener stranded when its collection shrinks
+## #8 · `stop_listen` can leave a listener stranded when its collection shrinks
 
 **Goal:** stopping a listen on an indexed family (`/live/groove/stop_listen/*`,
 `/live/scene/stop_listen/*`, and any future one built the same way) always

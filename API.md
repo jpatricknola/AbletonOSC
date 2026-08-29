@@ -441,6 +441,14 @@ says", no probe handler is needed (validated 2026-08-03, Live 12.4.3):
   `is_view_visible`) log **nothing**. Probe counts via deliberate bad-index
   requests instead — the error message embeds the count
   ("this set has N return track(s)").
+  - The one exception is `/live/application/get/has_option`, whose ok path
+    logs its answer at `info` (`has_option for application: <key> = <bool>`)
+    precisely so it is readable this way. It was added on 2026-08-29 because
+    the address had shipped with the wrong contract documented, unmeasurable
+    on a machine where 11001 is taken. An `info` record reaches
+    `logs/abletonosc.log` only — `manager.py`'s `LiveOSCErrorLogHandler`,
+    the one relay onto OSC, is set to `logging.ERROR` — so this is not new
+    wire traffic.
 - Wrap every mutation in `/live/song/begin_undo_step` / `end_undo_step` and
   restore what you changed.
 - Never `stop_listen` a property Seshat subscribes to — grep the log for
@@ -514,7 +522,7 @@ Consequences, all of them load-bearing:
 | `/live/application/get/bugfix_version` | | `bugfix` | Seshat extension. The third component, e.g. the `3` of `12.4.3` |
 | `/live/application/get/build_id` | | `build_id` | Seshat extension. The exact build |
 | `/live/application/get/variant` | | `variant` | Seshat extension. Live's edition (Suite, Standard, Intro, Lite), which decides whether a given LOM member exists at all — see `get/unavailable_features`. ⚠️ The exact strings Live returns are unmeasured |
-| `/live/application/get/has_option` | `key` | `key, present` | Seshat extension. ⚠️ **Broken as documented — do not use.** This was specified as an Options.txt query; measured against Live 12.4.5 on 2026-08-29, `Application.has_option` is nothing of the kind. It accepts **exactly 64 hexadecimal characters** and rejects everything else before reaching the answer: a non-hex string raises `Key contains non-hex characters`, and a hex string of any other length (63, 40, 32, 16, 8) raises `basic_string` — both arriving as `/live/error`. No option name is callable through it. The argument is still handed to Live unmodified and echoed back beside the answer. See ROADMAP, "`/live/application/get/has_option` documents a contract Live does not implement" |
+| `/live/application/get/has_option` | `key` | `key, present` | Seshat extension. Looks up a key in Live's internal option table. **Not an Options.txt query** — it shipped documented as one and is not: `key` must be **exactly 64 hexadecimal characters** (`[0-9a-fA-F]`, case-insensitive to Live), which is a digest of an internal Live option name. Ableton publishes no name→key mapping and the digest is not a plain SHA-256 of the name it guards, so a caller can only use a key it already holds. The one key readable anywhere is in Live's own shipped Python: `abl/live/licensing/__init__.pyc` calls `has_option("fbb8b6e2603b931b8fc884f09e56c4d9391d78105cbf2c711c9a22e0fb7152fd")` to guard a `skip_unlock_file` property. The key is echoed back verbatim — not case-folded — as the only discriminator for a client firing a burst. A malformed key is rejected by the handler with a structured `/live/error` naming the requirement, and **Live is never called**; under a wildcard such as `/live/application/get/*` it is a silent skip instead (`ValueError` is in `WILDCARD_SKIP_EXCEPTIONS`). The answer is also written to `logs/abletonosc.log`, so the address is readable without a free reply port |
 | `/live/application/get/open_dialog_count` | | `count` | Seshat extension. Number of open Live dialogs; `0` when none. Observable — see **Detecting dialogs** below |
 | `/live/application/get/current_dialog_message` | | `message` | Seshat extension. Text of the last dialog that appeared; empty once all dialogs have gone. **Not** observable |
 | `/live/application/get/current_dialog_button_count` | | `count` | Seshat extension. Buttons on the current dialog. **Not** observable |
@@ -582,8 +590,25 @@ unrelated reason noted in its own row above.
 > shipped without a measurement pass and one has since run. What it settled:
 >
 > - **`has_option` does not do what this document said.** It is not an
->   Options.txt query — it takes a 64-hex-character key. See its row above;
->   the correction is a roadmap defect, not a documentation tidy-up.
+>   Options.txt query — it takes a 64-hex-character key. See its row above.
+>   A second run the same day settled the rest of the contract, by the
+>   no-probe variant below, with an
+>   `/live/application/get/open_dialog_count` read interleaved between cases
+>   as a marker so each log line correlates to one send:
+>
+>   | Argument | Result |
+>   |---|---|
+>   | 64 hex chars (`"0" * 64`) | **Accepted** — no error, no log output (as measured, before this change added the ok-path log line); Live answered |
+>   | the `abl.live.licensing` key, lower case | **Accepted** |
+>   | the same key, **upper** case | **Accepted** — the hex is case-insensitive |
+>   | 63 hex chars | `IndexError: basic_string` → `/live/error` |
+>   | empty string | `IndexError: basic_string` → `/live/error` |
+>   | 64 non-hex chars (`"z" * 64`) | `RuntimeError: Key contains non-hex characters` → `/live/error` |
+>   | `-_EnableExtendedFileFormat` (26 chars, non-hex) | `RuntimeError: Key contains non-hex characters` — the hex check fires **before** the length check |
+>
+>   So a well-formed key does answer: the address is a working lookup with an
+>   argument nobody had documented, not a dead end. The handler now validates
+>   the key itself and logs the answer — see its row above and `SESHAT.md`.
 > - **The registration table is exactly 21 addresses**, matching
 >   `tests_unit/test_application.py::test_registration_table_is_exactly_this`,
 >   read back from the live server through `/live/application/dump_lom`.
@@ -599,7 +624,14 @@ unrelated reason noted in its own row above.
 > `(sender_host, 11001)`, that port belongs to another consumer, and no
 > loopback alias is bindable (`Errno 49`), so verification reads the
 > handler's own log lines — which these custom getters do not write. They
-> need either a free reply port or a temporary logging patch. The reply
+> need either a free reply port or a temporary logging patch.
+>
+> `has_option`'s **returned boolean** was in that list and no longer is: the
+> handler logs it, so it is readable from `logs/abletonosc.log` by the
+> no-probe variant. No value has been recorded yet — the log line ships in
+> the same change and needs a Live running the new code to produce one — so
+> what any particular key answers on a given installation is still an open
+> reading, not an unreachable one. The reply
 > *shapes* are pinned by `tests_unit/test_application.py` and do not depend
 > on any of it; the handler coerces defensively (`str()` on every list
 > element, `None` slots to `""`) so a wrong guess degrades the reply's

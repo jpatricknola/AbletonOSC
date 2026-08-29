@@ -1,5 +1,6 @@
 import Live
 import os
+import string
 from functools import partial
 from typing import Any, Tuple
 from .handler import AbletonOSCHandler
@@ -23,6 +24,14 @@ from .handler import AbletonOSCHandler
 #--------------------------------------------------------------------------------
 def get_application():
     return Live.Application.get_application()
+
+
+#--------------------------------------------------------------------------------
+# Seshat extension — the length Live requires of an option key. See the
+# comment above get_has_option in init_api(); measured against Live 12.4.5 on
+# 2026-08-29.
+#--------------------------------------------------------------------------------
+HAS_OPTION_KEY_LENGTH = 64
 
 
 class ApplicationHandler(AbletonOSCHandler):
@@ -120,18 +129,59 @@ class ApplicationHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/application/get/version_string", get_version_string)
 
         #--------------------------------------------------------------------------------
-        # Options.txt queries. The option string is handed to Live unmodified
-        # and echoed back beside the answer, so a client firing a burst of
-        # has_option requests can correlate the replies — there is no other
-        # discriminator on this address.
+        # The option-key lookup. NOT an Options.txt query — it shipped
+        # documented as one on 2026-08-29 and was measured not to be one the
+        # same day; see API.md's "Partially measured against Live 12.4.5"
+        # note for the accept/reject table this validator encodes.
+        #
+        # Live's Application.has_option takes a *key*: exactly 64 hexadecimal
+        # characters, case-insensitive, which is a digest of an internal Live
+        # option name. Ableton publishes no name-to-key mapping, and the
+        # digest is not a plain SHA-256 of the identifier it guards. The one
+        # real key readable anywhere is in Live's own shipped Python —
+        # abl/live/licensing/__init__.pyc calls
+        # has_option("fbb8b6e2...52fd") to guard a `skip_unlock_file`
+        # property (API.md's row carries the key in full). A caller can only
+        # use a key it obtained that way.
+        #
+        # The key is validated here rather than passed through to Live because
+        # Live's rejections are C++ exceptions with no usable text: a non-hex
+        # argument raises RuntimeError("Key contains non-hex characters") and
+        # a hex argument of the wrong length raises IndexError("basic_string").
+        # Neither names the requirement, and the second is indistinguishable
+        # from the no-argument case.
+        #
+        # ValueError specifically, because it is in
+        # OSCServer.WILDCARD_SKIP_EXCEPTIONS: under /live/application/get/*
+        # a malformed key genuinely means "this endpoint does not apply to
+        # this request", so the sweep skips this address instead of emitting
+        # a /live/error that no sender asked for. Live's own RuntimeError is
+        # not a skip, which is what made the pass-through behaviour
+        # incoherent under a wildcard.
+        #
+        # The answer is logged because the reply port is not always bindable
+        # on a development machine — see API.md § "The no-probe variant".
+        # Without a log line this address is unverifiable, which is precisely
+        # why the wrong contract shipped in the first place.
+        #
+        # The key is echoed back verbatim, neither case-folded nor otherwise
+        # rewritten, so a client firing a burst of has_option requests can
+        # correlate the replies — there is no other discriminator on this
+        # address.
         #
         # No-args is deliberately an error rather than a silent default:
-        # params[0] raises IndexError, and OSCServer._dispatch turns that into
-        # the structured /live/error ("request", address, detail, argc) reply.
+        # params[0] raises IndexError *before* validation, and
+        # OSCServer._dispatch turns that into the structured /live/error
+        # ("request", address, detail, argc) reply.
         #--------------------------------------------------------------------------------
         def get_has_option(params: Tuple[Any] = ()) -> Tuple:
-            option = str(params[0])
-            return option, application.has_option(option)
+            key = str(params[0])
+            if len(key) != HAS_OPTION_KEY_LENGTH or not all(c in string.hexdigits for c in key):
+                raise ValueError("has_option expects a %d-character hexadecimal option key, "
+                                 "not an Options.txt option name" % HAS_OPTION_KEY_LENGTH)
+            present = application.has_option(key)
+            self.logger.info("has_option for %s: %s = %s" % (self.class_identifier, key, present))
+            return key, present
         self.osc_server.add_handler("/live/application/get/has_option", get_has_option)
 
         #--------------------------------------------------------------------------------
