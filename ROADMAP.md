@@ -41,35 +41,7 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · C-3 · Application dialogs and versions
-
-**Plan:** [docs/PLAN_application_dialogs_and_versions.md](docs/PLAN_application_dialogs_and_versions.md)
-
-**Goal:** read-only dialog state (`open_dialog_count`,
-`current_dialog_message`, `current_dialog_button_count`, listen where
-observable) plus `get_bugfix_version`, `get_build_id`, `get_variant`,
-`get_version_string`, `has_option`, `peak_process_usage`,
-`unavailable_features`, `number_of_push_apps_running`, `show_message`,
-`show_on_the_fly_message`, `control_surfaces` (names only).
-
-**Why:** the audit's top High, and tiny. `press_current_dialog_button` stays
-out unless a separately reviewed, non-file use case proves it safe — a
-dialog may guard unsaved work.
-
-**Planner notes:**
-- Source: `CLOSING_THE_GAPS.md`, row **C-3**.
-- Fold in `issues.md`, "Remove the unsolicited average-process-usage startup
-  datagram" (Medium-low): `ApplicationHandler.init_api` sends an empty
-  `/live/application/get/average_process_usage` at startup that nothing
-  requested (`application.py:39`). Same file, same PR; remove that entry at
-  ship time too.
-- `application.py` is a 40-line module registering three addresses today
-  (`version`, `average_process_usage`, `dump_lom`) — this item roughly
-  triples it, so it also decides whether `Application` gets the generic
-  property loop the other handlers use or stays hand-rolled.
-- No dependencies.
-
-## #2 · B-1 · Notes extended
+## #1 · B-1 · Notes extended
 
 **Goal:** `/live/clip/get/notes_extended` and `/live/clip/add/notes_extended`
 carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`,
@@ -92,7 +64,7 @@ old five-field addresses unchanged; then the ID-keyed members
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #3 · A-3 · Return / master `Track` parity
+## #2 · A-3 · Return / master `Track` parity
 
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
@@ -116,7 +88,7 @@ over the difference.
 - Prefer a shared track resolver over three copies of the handler table.
 - No dependencies.
 
-## #4 · C-1 · `Song` remainder
+## #3 · C-1 · `Song` remainder
 
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
@@ -134,7 +106,7 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
   `scale_intervals` and `is_ableton_link_start_stop_sync_enabled` only.
 - No dependencies.
 
-## #5 · D-2 · Groove
+## #4 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -157,7 +129,7 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
 - No dependencies.
 
-## #6 · One `/live/song/undo` does not revert an OSC-created scene
+## #5 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -196,7 +168,7 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #7 · Make a failed live code reload safe and reported
+## #6 · Make a failed live code reload safe and reported
 
 **Goal:** a reload that raises does not activate a partially reloaded module
 graph — `/live/api/reload` either preserves a usable previous API or fails in a
@@ -226,10 +198,10 @@ is told nothing went wrong.
   listener dict — decide in this item whether to close it or record it as
   accepted, since the code comment currently points here for the answer.
 - Every gap PR uses reload during development; move this up if it bites
-  during #1–#5.
+  during #1–#4.
 - No dependencies.
 
-## #8 · Stop masking Remote Script import failures
+## #7 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -248,7 +220,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #9 · Remove the process-global and shared-file risks from song structure export
+## #8 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -270,7 +242,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #10 · Add bounded log retention
+## #9 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -287,7 +259,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #11 · Document `song` in the handler constructor contract
+## #10 · Document `song` in the handler constructor contract
 
 **Goal:** `abletonosc/handler.py`'s `AbletonOSCHandler` "Constructor
 contract" docstring lists `song` alongside the other invariants (`logger`,
@@ -312,7 +284,7 @@ Comment-only; no behaviour changes.
   no non-comment line, same as the A-4 `track_identity.py` precedent.
 - No dependencies.
 
-## #12 · Verify wildcard fan-out against Seshat's `/live/device/` usage
+## #11 · Verify wildcard fan-out against Seshat's `/live/device/` usage
 
 **Goal:** confirm whether Seshat ever sends an OSC address *pattern* (not a
 literal address) under `/live/device/`, and if so, record what changes for

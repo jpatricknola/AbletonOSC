@@ -1,3 +1,15 @@
+**Archived 2026-08-29 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in
+`abletonosc/application.py` (eighteen new addresses) and `API.md` §
+"Application API" and its "Detecting dialogs" note. Live verification did
+not run — the installed Remote Scripts copy was not this checkout, so all
+nine checks are recorded as skipped by environment (see the dated results
+block below); the five Open questions this plan raised (`variant` exact
+string, `unavailable_features` element type, `control_surfaces` empty-slot
+form, `show_message` blocking/return semantics, `has_option` string form)
+stay open, each with its ⚠️ marker in `API.md` and its assumption in code,
+until a real Live measurement pass runs.
+
 # Plan: Application dialogs and versions (C-3)
 
 Roadmap item: **#1 · C-3 · Application dialogs and versions** — from
@@ -330,6 +342,42 @@ Remains uncovered even after these: `number_of_push_apps_running` beyond
 the zero case (no Push hardware/app assumed available), and
 `peak_process_usage`'s push cadence under load (listen registered and
 initial push verified; long-run cadence is observational only).
+
+### Results — checks 1-9 **skipped by environment** (pr-review, 2026-08-29)
+
+Recorded by the review of branch `application-dialogs-and-versions`. No
+check was run, and no result below is approximated or inferred.
+
+The section's own precondition fails. Live 12 Suite *is* running (PID
+78577), but the installed Remote Scripts copy is not this checkout:
+
+    diff -rq --exclude=__pycache__ abletonosc \
+        "$HOME/Music/Ableton/User Library/Remote Scripts/AbletonOSC/abletonosc"
+    Files .../abletonosc/application.py ... differ
+    Files .../abletonosc/device.py ... differ
+    Files .../abletonosc/track_identity.py ... differ
+
+`application.py` differing is decisive on its own: none of the eighteen new
+addresses exist in the copy Live loaded, so every check would report an
+unknown address and prove nothing about this branch. Closing the gap needs
+the copy replaced *and* Live restarted, and this lifecycle may do neither.
+
+| Check | Status | Reason |
+|---|---|---|
+| 1 version identity reads | skipped by environment | installed copy is not this checkout |
+| 2 dialog reads with no dialog open | skipped by environment | as above |
+| 3 listen on `open_dialog_count` across a real dialog | skipped by environment | as above; also needs a human to raise and dismiss the dialog |
+| 4 `get/unavailable_features` | skipped by environment | as above — Open question 1 stays open |
+| 5 `get/control_surfaces` | skipped by environment | as above — Open question 2 stays open |
+| 6 `get/has_option` | skipped by environment | as above — Open question 5 stays open |
+| 7 `show_message` blocking / return int | skipped by environment | as above; also "human present required" — Open question 3 stays open |
+| 8 `show_on_the_fly_message` display surface | skipped by environment | as above — Open question 4 stays open |
+| 9 restart with a capture client on 11001 | skipped by environment | requires restarting Live and binding the reply port, both prohibited |
+
+All five Open questions therefore remain open, each carrying its assumption
+in the code and a matching ⚠️ in its `API.md` row. `API.md`'s dated
+"Not yet measured against a running Live (as of 2026-08-29)" block is the
+accurate published state and must stay until these checks actually run.
 
 ## Downstream
 
