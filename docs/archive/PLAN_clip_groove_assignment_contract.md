@@ -1,7 +1,22 @@
+**Archived 2026-08-29 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The read gate lives in
+`abletonosc/groove.py` (`clip_groove_index`, called by both
+`clip_get_groove` and `clip_groove_listener_value` in `abletonosc/clip.py`)
+and the withdrawn clear in `clip_set_groove`'s `NO_INDEX` branch; the wire
+contract is [API.md](../../API.md) § "Groove API" ("Assignment is one-way",
+"The clip↔groove readings") and the divergences are in
+[SESHAT.md](../../SESHAT.md). The one follow-up still open — confirming
+`Clip.has_groove` answers `False` for a UI-ungrooved clip, which needs a
+human at Live's UI — stays tracked in [FORK_GAPS.md](../../FORK_GAPS.md)
+§ *`Clip.groove` — the "no groove" read is gated, but the gate is
+unverified*; it is not a roadmap item.
+
+---
+
 # Plan: The clip↔groove assignment contract
 
 Roadmap item: **"The clip↔groove assignment contract is broken in both
-directions"** (topmost entry in [ROADMAP.md](../ROADMAP.md)). Closes the
+directions"** (topmost entry in [ROADMAP.md](../../ROADMAP.md)). Closes the
 `FORK_GAPS.md` shape gap *"`Clip.groove` — "no groove" is indistinguishable
 from pool index 0"* and the `CLOSING_THE_GAPS.md` "Not a bucket" note that
 points at it.
@@ -433,6 +448,25 @@ unverified while *claiming* it was measured is not.
   also settles whether the setter lands at all, which this plan's run could not
   (no push arrived when the assigned groove was already the clip's). Finish
   with `/live/clip/stop_listen/groove <t> <c>`.
+
+### Results — 2026-08-29 (PR review)
+
+**LV1, LV2, LV3, LV4, LV5 — all skipped by environment.** No check was run and
+no result is recorded for any of them.
+
+What is missing, checked at review time: Live 12 Suite *is* running
+(pid 99572), but the installed copy is **not** this checkout —
+`diff -rq --exclude=__pycache__ abletonosc "$HOME/Music/Ableton/User Library/Remote Scripts/AbletonOSC/abletonosc"`
+reports `abletonosc/clip.py` and `abletonosc/groove.py` differ, i.e. the
+installed bridge still carries the pre-fix `groove_index(self.song, clip.groove)`
+read and the `clip.groove = None` clear. Installing the checkout and restarting
+Live are both forbidden to this lifecycle run, so the precondition every check
+shares cannot be met; LV1 and LV2 additionally need a human at Live's UI to
+build a two-groove pool and a UI-confirmed ungrooved clip.
+
+Consequently Part 3's **branch 3** is the correct and confirmed branch: the
+`FORK_GAPS.md` entry stays open, and every `API.md` / `SESHAT.md` claim about
+the read remains marked unverified.
 
 **Remains uncovered.** Whether Live has any private, undocumented spelling for
 "no groove" reachable from Remote Script Python — nothing in the LOM,
