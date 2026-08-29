@@ -165,12 +165,17 @@ Remote-Script-only member does what its name suggests.
 ### `SimplerDevice` slicing — slice a loaded sample from the bridge
 
 - **LOM:** `SimplerDevice.playback_mode` (2 = Slicing),
-  `slicing_playback_mode`, `slices` (list of times), `insert_slice`,
-  `remove_slice`, `clear_slices`, `reset_slices`, `move_slice`,
-  `selected_slice`, `sample`, `replace_sample`. **Tier 1 for the slice
-  members** — present in 12.4.3 `LomTypes.pyc`; the apiref page lists only
-  `playback_mode`, `slicing_playback_mode` and `sample`. Verify each
-  member's owner and signature in Live's shipped Python before building.
+  `slicing_playback_mode`, `sample`, `replace_sample`; and on the `Sample`
+  the last of those returns, `slices` (list of times), `insert_slice`,
+  `remove_slice`, `clear_slices`, `reset_slices`, `move_slice`.
+  `selected_slice` is a `SimplerDevice.View` member. **The ownership
+  question this entry used to raise is answered by the generated inventory
+  below: the slice API belongs to `Sample`, not `SimplerDevice`** — which
+  is why they are separate buckets in CLOSING_THE_GAPS.md and why `Sample`
+  must ship first. **Tier 1 for the slice members** — present in 12.4.3
+  `LomTypes.pyc`; the apiref page lists only `playback_mode`,
+  `slicing_playback_mode` and `sample`. Signatures still want checking
+  against Live's shipped Python before building.
 - **Fork today:** no Simpler-specific addresses.
 - **Shape to build:** `replace_sample`, `playback_mode` setter, `slices`
   getter; Seshat would write the trigger clip itself from the slice times
@@ -190,12 +195,12 @@ address docs are the record._
 
 | Priority | Missing bridge surface | Why it matters | Disposition |
 |---|---|---|---|
-| High | `Application.View.focused_document_view` | `/live/view` can show, hide and test a view but cannot say which document view has focus — Session vs Arranger, exact | Belongs in the same handler as the existing view addresses — the view bucket in [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md) |
-| Medium | `Song.View.draw_mode`, `follow_song` | Readable absolute state instead of focus-routed toggle shortcuts | Members of the *View classes* bucket, which is where they land — the per-object view resolver is the real work and these ride it. Little use as isolated knobs, so don't split them out into a PR of their own |
+| High | `Application.View.focused_document_view` | `/live/view` can show, hide and test a view but cannot say which document view has focus — Session vs Arranger, exact | Belongs in the same handler as the existing view addresses — the *Object view classes* bucket in [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md) |
+| Medium | `Song.View.draw_mode`, `follow_song` | Readable absolute state instead of focus-routed toggle shortcuts | Members of the *Object view classes* bucket, which is where they land — the per-object view resolver is the real work and these ride it. Little use as isolated knobs, so don't split them out into a PR of their own |
 | Declined | `Application.press_current_dialog_button` | Would let a client dismiss a blocking Live dialog rather than only describe it | Stays out unless a separately reviewed, non-file use case proves it safe: a dialog on screen may be guarding unsaved work, and pressing its buttons blind is not recoverable. The same decision is why the two `show_*` addresses raise **OK-only** dialogs, passing Live the text and nothing else so `buttons` keeps its default |
-| High | Rack chains, Drum Pads, macros, variations | Racks are how real sets are built — a Drum Rack is the standard way to hold a kit — and nothing inside one is addressable today. `ChainMixerDevice` is what keeps rack chains silent even once their devices are reachable | The largest bucket in the plan (87 gaps) and the one the device path resolver exists to unlock; the resolver lands first and alone. The pad-map read is a curated entry above |
+| High | Rack chains, Drum Pads, macros, variations | Racks are how real sets are built — a Drum Rack is the standard way to hold a kit — and nothing inside one is addressable today. `ChainMixerDevice` is what keeps rack chains silent even once their devices are reachable | The largest surface in the plan (87 gaps) and the one the device path resolver exists to unlock; the resolver lands first and alone. Too large for one PR, so it is three buckets in CLOSING_THE_GAPS.md — *Rack chains and chain mixer*, *Drum racks* and *Rack macros and variations*. The pad-map read is a curated entry above |
 | High | Arrangement clips and take lanes | The Arrangement is where a project is finished, and none of the 86 `Clip` members reach a clip there — only three read-only `arrangement_clips/*` fields do | The cheapest high-leverage change here: one resolver keyed `(track, arrangement_index)` reaches every `Clip` member at two further locations. Sequenced behind the device path resolver, which unblocks more |
-| Low | Device-specific APIs (Simpler, Wavetable, Looper, Drift, Roar, …) | Large surface, uneven value; generic parameters already cover much | Tail work — one PR per class, after the shared buckets, which close the 15 inherited `Device` members once for all of them. *Simpler and Sample* sets the pattern |
+| Low | Device-specific APIs (Simpler, Wavetable, Looper, Drift, Roar, …) | Large surface, uneven value; generic parameters already cover much | Tail work, after the shared buckets, which close the 15 inherited `Device` members once for all of them. Not one PR per class: the seven classes with four members or fewer batch into one, per the tail table in CLOSING_THE_GAPS.md |
 
 Cautions the audit attached to individual members, kept because the
 inventory's one-line docstrings do not carry them:
