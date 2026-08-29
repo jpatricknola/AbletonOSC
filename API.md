@@ -137,7 +137,17 @@ every later object-valued read follows:
 3. **`-1` means "none, or not representable at top level"**: no group track,
    an empty clip slot, or a device nested inside a rack chain, which has no
    index in `track.devices` and no address that reaches it until a path
-   resolver exists.
+   resolver exists. ⚠️ **"None" is not always a `None`.** `Track.group_track`
+   *is* `None` when there is none (measured against Live 12.4.5 on 2026-08-29:
+   `/live/track/get/group_track 0` answered `-1` for an ungrouped track),
+   whereas ⚠️ `Clip.groove` is taken to *always* hold an object — Live's
+   discriminator is the companion flag `Clip.has_groove`, and an `is None`
+   guard there can never fire. Note the tier change: the `group_track`
+   reading is measured, the `Clip.groove` one is **inferred from
+   `has_groove`'s existence, not measured** — this fork has never seen
+   `has_groove` answer `False` (see the **Groove API**, "The clip↔groove
+   readings"). Before assuming `is None` answers "none" for a new
+   object-valued read, look for a `has_<member>` flag beside it.
 4. When the member itself is `None`, the category slot carries the
    **reply-only category `"none"`** and every index is `-1`. `"none"` never
    appears anywhere but a reply, and no setter accepts it — the same half of
@@ -168,6 +178,14 @@ exercised against a running Live from this fork, and neither has cross-class
 levels) and fails loudly, so a wrong assumption surfaces as a structured
 `/live/error` naming the object rather than a wrong index or a hung UI thread.
 
+What *is* measured is that an `==` scan over LOM proxies resolves correctly
+for at least one class: with Live's selection moved to scene 2,
+`/live/view/get/selected_clip` answered `(0, 2)` (Live 12.4.5, 2026-08-29).
+That getter composes a track index with a scene index, and the scene half is
+the scan — `list(song.scenes).index(song.view.selected_scene)`. So
+"proxies compare equal to anything" is refuted for `Scene`; whether `Groove`
+behaves the same is still unmeasured (see the **Groove API**).
+
 The setter side is deliberately narrow. `/live/song/set/appointed_device` takes
 the same triple its getter replies and *validates* every argument — an unknown
 category (`"none"` included), a negative or out-of-range index, and a master
@@ -175,31 +193,15 @@ index other than `0` are each a `ValueError` arriving as a structured
 `/live/error`, never a Python negative-index wrap-around. It reaches top-level
 devices only, and cannot un-appoint.
 
-⚠️ **`/live/clip/set/groove` was specified as the one sanctioned exception to
-"`-1` is an answer, never an argument". Measured against Live 12.4.5 on
-2026-08-29, the exception does not work and the round trip it justified does
-not exist.** Both halves fail, and a client must treat the clip↔groove
-assignment as write-only until they are fixed:
-
-- **`set/groove -1` cannot clear.** `clip.groove = None` raises
-  `Boost.Python.ArgumentError` — Live's setter is
-  `None(TPyHandle<AClip>, TPyHandle<AAbstractGroove>)` and refuses `NoneType`.
-  The clear arrives as `/live/error` and the clip keeps whatever groove it
-  had. No spelling of "no groove" is known to this fork.
-- **`get/groove` cannot report "no groove".** A clip with no groove assigned
-  reads `0`, the same value as a clip explicitly assigned to pool index `0`,
-  so the `-1` this document promises is unreachable and the two states are
-  indistinguishable on the wire. Measured on two freshly created clips, both
-  before and after an explicit `set/groove 0`.
-
-Consequently `get/groove` → `set/groove` is **not** a safe round trip: replaying
-a read of an ungrooved clip assigns it pool groove `0`. The reasoning below is
-kept because it still describes the intent and the guard that does hold — the
-setter never uses its argument as a subscript, so `-2` and below and anything
-past the end of the pool are a `ValueError` on `/live/error` and only a
-validated `>= 0` reaches the collection. What is not true is that `-1` maps to
-a working clear. See ROADMAP, "The clip↔groove assignment contract is broken
-in both directions".
+`/live/clip/set/groove` is the same shape. It has no category slot for rule 4
+to govern — rule 2's table gives it a bare `groove_index` — and it **takes no
+exception to rule 4's closing clause**, "`-1` is an answer, never an
+argument". It was once specified to accept exactly `-1` as "clear the
+assignment" — the one sanctioned place where `-1` was an argument. That is
+withdrawn: Live's setter refuses `NoneType` and no other spelling for "no
+groove" is documented, so assignment is one-way and `-1` is now a rejected
+request. `-1` is an answer, never an argument, everywhere in this fork with no
+exceptions. See the **Groove API**, "Assignment is one-way".
 
 ⚠️ **Seshat extension.** Every object-valued read is added by this fork; none
 exists in stock AbletonOSC — `track/get/group_track`, `clip_slot/get/clip`, the
@@ -1496,10 +1498,10 @@ ignored**. Sending fewer than two is a malformed request and answers on
 | `/live/clip/set/ram_mode` | `track_id, clip_id, ram_mode` | | Set RAM mode |
 | `/live/clip/get/warp_mode` | `track_id, clip_id` | `track_id, clip_id, warp_mode` | Warp mode (0=Beats, 1=Tones, 2=Texture, 3=Re-Pitch, 4=Complex, 6=Pro) |
 | `/live/clip/set/warp_mode` | `track_id, clip_id, warp_mode` | | Set warp mode |
-| `/live/clip/get/has_groove` | `track_id, clip_id` | `track_id, clip_id, has_groove` | Has groove? |
-| `/live/clip/get/groove` | `track_id, clip_id` | `track_id, clip_id, groove_index` | ⚠️ **Seshat extension** — which Groove Pool groove is assigned to this clip, as its **index into `/live/song/get/groove_pool`**, ⚠️ **the `-1` documented here is unreachable** — measured against Live 12.4.5 on 2026-08-29, a clip with no groove reads `0`, indistinguishable from a clip assigned to pool index `0`. Treat this read as "which groove, if the clip has one" and do not feed it back to `set/groove`. See **Object-valued reads** and the **Groove API** |
-| `/live/clip/set/groove` | `track_id, clip_id, groove_index` | | ⚠️ **Seshat extension** — assign the groove at `groove_index` in the pool, ⚠️ **`-1` does not clear** — `clip.groove = None` raises `Boost.Python.ArgumentError` in Live 12.4.5 (measured 2026-08-29) and answers `/live/error`, leaving the assignment untouched; there is no known way to un-assign a groove over this bridge. Assignment to a valid pool index works. `-2` and below, and an index past the end of the pool, answer on `/live/error` naming the pool's real size and change nothing. See **Object-valued reads** |
-| `/live/clip/start_listen/groove` | `track_id, clip_id` | | ⚠️ **Seshat extension** — `Clip.groove` is observable; pushes arrive on `/live/clip/get/groove` as `track_id, clip_id, groove_index`. ⚠️ Whether a push fires when the *pool* renumbers (a groove removed above the assigned one changes the index but not the object) is unmeasured — `get/groove` stays correct either way, so treat the getter, not the push, as the source of truth. Unlike every other clip listener, the push value is re-resolved from `(track_id, clip_id)` at push time rather than from the originally-subscribed clip: if *track or clip* indices renumber between subscribe and push, the push reports the groove of whatever clip now sits at that identity, not the clip that was subscribed |
+| `/live/clip/get/has_groove` | `track_id, clip_id` | `track_id, clip_id, has_groove` | Has groove? (0=False, 1=True). This is the flag `/live/clip/get/groove` is gated on — a clip whose `has_groove` is `0` reads `-1` there |
+| `/live/clip/get/groove` | `track_id, clip_id` | `track_id, clip_id, groove_index` | ⚠️ **Seshat extension** — which Groove Pool groove is assigned to this clip, as its **index into `/live/song/get/groove_pool`**. Answers **`-1` when `Clip.has_groove` is false**, without consulting `Clip.groove` at all — that member always holds an object even for an ungrooved clip, so an `==` scan alone could not tell "no groove" from "pool index `0`". `-1` also if the groove is somehow not a pool member. ⚠️ **Unverified**: that `has_groove` is false for a clip Live's UI shows as ungrooved is Live's documented contract ("Returns true if a groove is associated with this clip", LOM, since Live 11.0), assumed rather than measured by this fork — see the **Groove API** and `FORK_GAPS.md`. See also **Object-valued reads** |
+| `/live/clip/set/groove` | `track_id, clip_id, groove_index` | | ⚠️ **Seshat extension** — assign the groove at `groove_index` in the pool. **`groove_index` must be `>= 0`.** ⚠️ **`-1` is rejected, not a clear**: it answers a structured `/live/error` whose detail carries `cannot be cleared`, and the clip is untouched. **Assignment is one-way** — Live's setter is typed `None(TPyHandle<AClip>, TPyHandle<AAbstractGroove>)` and refuses `NoneType` (measured against Live 12.4.5 on 2026-08-29), and no other spelling for "no groove" is documented in the LOM, so a groove can only be un-assigned in Live's own Clip Groove chooser. `-2` and below, and an index past the end of the pool, answer on `/live/error` naming the pool's real size (`out of range`) and change nothing. See **Object-valued reads** and the **Groove API** |
+| `/live/clip/start_listen/groove` | `track_id, clip_id` | | ⚠️ **Seshat extension** — `Clip.groove` is observable; pushes arrive on `/live/clip/get/groove` as `track_id, clip_id, groove_index`, produced by the same `has_groove` gate as the getter, so a push and a read of the same clip can never disagree (`-1` included). ⚠️ Whether a push fires when the *pool* renumbers (a groove removed above the assigned one changes the index but not the object) is unmeasured — `get/groove` stays correct either way, so treat the getter, not the push, as the source of truth. Unlike every other clip listener, the push value is re-resolved from `(track_id, clip_id)` at push time rather than from the originally-subscribed clip: if *track or clip* indices renumber between subscribe and push, the push reports the groove of whatever clip now sits at that identity, not the clip that was subscribed |
 | `/live/clip/stop_listen/groove` | `track_id, clip_id` | | ⚠️ **Seshat extension** — stop listening |
 | `/live/clip/get/legato` | `track_id, clip_id` | `track_id, clip_id, legato` | Legato (0=False, 1=True) |
 | `/live/clip/set/legato` | `track_id, clip_id, legato` | | Set legato |
@@ -1909,13 +1911,72 @@ Live offers no `add_<name>_listener` for, so `/live/groove/start_listen/base` is
 line, **no `/live/error` comes back**. This is the same shape as the four
 `/live/song/get/*` reads with no listen pair, for the same reason.
 
-⚠️ **Nothing in this section has been exercised against a running Live.** The
-handlers are covered Live-free by `tests_unit/test_groove.py`, which proves the
-registrations, the reply shapes, the validation and the listener bookkeeping —
-not what a real `Live.Groove.Groove` does. Whether `.agr` groove files can be
+⚠️ **Almost nothing in this section has been exercised against a running
+Live.** The handlers are covered Live-free by `tests_unit/test_groove.py`,
+which proves the registrations, the reply shapes, the validation and the
+listener bookkeeping — not what a real `Live.Groove.Groove` does. The
+exceptions are the readings recorded below and in the rows above (`base`,
+`timing_amount`, `quantization_amount`). Whether `.agr` groove files can be
 loaded into the pool through `/live/browser/load_item` at all is a separate
 open question: the LOM has no groove browser root and `packs` is not an exposed
 category, so a groove may still have to be dragged in by hand.
+
+### Assignment is one-way
+
+`/live/clip/set/groove` can assign a pool groove to a clip. **It cannot
+un-assign one, and no address in this fork can.**
+
+Two separate claims, at two different evidence tiers, hold that up:
+
+- **Measured** (Live 12.4.5, 2026-08-29): `clip.groove = None` raises
+  `Boost.Python.ArgumentError`. Live's setter is typed
+  `None(TPyHandle<AClip>, TPyHandle<AAbstractGroove>)` and refuses `NoneType`.
+- **Searched, not measured**: no spelling for "no groove" exists in any public
+  source. Checked against the Cycling '74 LOM reference (`Clip`, `Groove`,
+  `GroovePool`), the NSUSpray `Live_API_Doc` generated XML, the Ableton Live 12
+  manual and the M4L forum threads on groove assignment. `GroovePool` has
+  exactly one member, `grooves` — no add, no remove. `Clip` has no
+  `remove_groove`, `clear_groove` or `commit`. `Groove` has `base`, `name` and
+  the four amounts and nothing else. The only documented route to Groove = None
+  is the UI's **Commit** button, which has no LOM equivalent.
+
+So `/live/clip/set/groove <t> <c> -1` is a **rejected request**, answering
+`/live/error` with `cannot be cleared` in the detail, and `-1` is an answer,
+never an argument, everywhere in this fork with no exceptions. A client that
+reads `-1` from `/live/clip/get/groove` must treat it as "no groove" and must
+never replay it.
+
+**This reopens only if a future Live adds a member.** The candidate probe, if
+anyone wants to settle it beyond public sources, is the null-handle round trip
+— `dst.groove = <an ungrooved clip's groove object>` — through a temporary
+handler in the *installed* copy (see **Measuring the Live API without building
+the feature first**). If that ever succeeds, the `-1` argument comes back.
+
+### The clip↔groove readings
+
+Measured against Live 12.4.5 on 2026-08-29, on a set with one MIDI track and a
+pool holding a single stock groove ("Swing 16ths 66", `timing_amount = 100.0`,
+`base` `gb_sixteen`):
+
+| Request | Log line |
+|---|---|
+| `/live/clip/get/has_groove 0 0` | `Getting property for clip: has_groove = True` |
+| `/live/clip/get/groove 0 0` | `Getting property for clip: groove = 0` |
+| `/live/clip/start_listen/groove 0 0` | the immediate current-value push, `Property groove changed of clip (0, 0): (0,)` |
+| `/live/clip/set/groove 0 0 0` | `Resolving groove pool index 0 of 1`, `Setting property for clip: groove = 0` — **and no subsequent push**, although the listener was still bound |
+
+⚠️ **Read that carefully: it does not confirm the gate.** The clip had been
+created one second earlier by `/live/clip_slot/create_clip`, and all three
+signals are consistent with it genuinely holding pool groove `0` — under which
+reading `has_groove` is honest and the fork's read is now correct. They are
+equally consistent with `has_groove` being true for every clip. Separating the
+two needs a pool holding **two** grooves and a clip whose Groove chooser reads
+None in Live's UI; grooves cannot be added to the pool over this bridge (there
+is no `Browser.grooves` root and `GroovePool` has no add), so that measurement
+needs a human at Live's UI and has not been made. Until it is, treat
+`/live/clip/get/groove`'s `-1` as **assumed reachable, not measured** — the
+gate is Live's own documented flag, and is a strict improvement over the `==`
+scan under either reading, but this fork has not seen it answer `False`.
 
 ---
 

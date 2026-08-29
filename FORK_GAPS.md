@@ -8,6 +8,15 @@ submodule pin bump in Seshat, `mix abletonosc.install`, Live restart),
 documented in `API.md` and tripwired by
 Seshat's `vendored_addresses_test`._
 
+**The goal of this repository is full Live Object Model coverage** — the
+aim upstream's README states, carried on here. Every row in this file is
+work to be done, and the only surface deliberately left unaddressed is what
+a **safety** argument keeps out (rule 5 in
+[CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md), and the path-safety rule for
+handlers taking a filesystem path). No gap is out of scope for want of a
+consumer asking for it; a gap not yet worth doing is a gap ranked low, and
+it says so here.
+
 ## Three layers, and how to classify a "can't"
 
 Seshat has three capability layers that are easy to collapse into one:
@@ -57,10 +66,12 @@ shapes, and each has its own section below:
   `python3 tools/lom_gaps.py <dump> --write`. It rewrites only the block
   between the `lom-gaps` markers. Never edit that block by hand.
 - **Add a curated entry** whenever research, a plan, or a review picks a
-  gap up — Seshat's `/evaluate` skill (§2.3) produces these. Say what would
-  consume it and what shape the address should take, so a plan can find
-  the prerequisite. Verify the member in the generated inventory (owner
-  class, rw/ro, observable) before writing prose about it.
+  gap up — Seshat's `/evaluate` skill (§2.3) produces these. Say what shape
+  the address should take and what a caller would do with it, so a plan can
+  find the prerequisite; a curated entry is a design note, not a
+  justification, and a gap needs no named consumer to be worth writing up.
+  Verify the member in the generated inventory (owner class, rw/ro,
+  observable) before writing prose about it.
 - **Add an addressing or shape entry** when you find one; the tool cannot.
   Both sections are hand-maintained.
 - **Before implementing any gap**, reconcile its address rows with the Python
@@ -69,11 +80,13 @@ shapes, and each has its own section below:
 - **Remove an entry** when the fork gains the address, in the same commit.
   Don't leave it marked done — the address docs are the record of what
   exists. The inventory drops it on the next regeneration.
-- **Nothing here is prioritised.** A gap enters Seshat's `docs/ROADMAP.md`
-  only when a feature needs it; until then it is inventory.
-  Sequencing into PR-sized buckets lives in
+- **Nothing here is prioritised.** This file is the inventory: every gap
+  in it is in scope, and none of it carries an order. Sequencing into
+  PR-sized buckets lives in
   [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md); what is scheduled, and in
-  what order, is [ROADMAP.md](ROADMAP.md).
+  what order, is [ROADMAP.md](ROADMAP.md). A gap enters `ROADMAP.md` when
+  its bucket comes up the queue, ranked by impact-per-effort — not when a
+  downstream feature asks for it.
 - **Object-valued members** (`Song.cue_points`, `slices`, `Device.view`)
   are the usual reason a member was skipped: the generic `properties_r/rw`
   machinery serialises scalars only. Closing such a gap means a
@@ -169,18 +182,20 @@ Remote-Script-only member does what its name suggests.
 ## Dispositions (from the July 2026 audit)
 
 _Impact and architectural fit, carried over from Seshat's
-`lom-to-fork-gap-audit.md` (2026-07-31) so that file can go. Not a roadmap;
-a gap enters `docs/ROADMAP.md` only when a feature needs it. Rows whose fork
-side has landed are deleted, not marked — the address docs are the record._
+`lom-to-fork-gap-audit.md` (2026-07-31) so that file can go. Not a roadmap
+and not a gate: these are impact judgements that inform where a bucket
+sits in [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md), and every row below is
+in scope. Rows whose fork side has landed are deleted, not marked — the
+address docs are the record._
 
 | Priority | Missing bridge surface | Why it matters | Disposition |
 |---|---|---|---|
 | High | `Application.View.focused_document_view` | `/live/view` can show, hide and test a view but cannot say which document view has focus — Session vs Arranger, exact | Belongs in the same handler as the existing view addresses — the view bucket in [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md) |
-| Medium | `Song.View.draw_mode`, `follow_song` | Readable absolute state instead of focus-routed toggle shortcuts | Fold into a concrete view/automation workflow; no value as isolated knobs |
+| Medium | `Song.View.draw_mode`, `follow_song` | Readable absolute state instead of focus-routed toggle shortcuts | Members of the *View classes* bucket, which is where they land — the per-object view resolver is the real work and these ride it. Little use as isolated knobs, so don't split them out into a PR of their own |
 | Declined | `Application.press_current_dialog_button` | Would let a client dismiss a blocking Live dialog rather than only describe it | Stays out unless a separately reviewed, non-file use case proves it safe: a dialog on screen may be guarding unsaved work, and pressing its buttons blind is not recoverable. The same decision is why the two `show_*` addresses raise **OK-only** dialogs, passing Live the text and nothing else so `buttons` keeps its default |
-| Conditional | Arrangement clips and take lanes | LOM support is substantial; Seshat is deliberately Session-first | Declined until an Arrangement/comping workflow is chosen |
-| Conditional | Rack chains, Drum Pads, macros, variations | Deep sound design, but needs recursive addressing and a much larger tool contract | Declined until a named workflow needs inside-the-Rack control; the pad-map read is a curated entry above |
-| Conditional | Device-specific APIs (Simpler, Wavetable, Looper, Drift, Roar, …) | Large surface, uneven value; generic parameters already cover much | Only from a concrete feature, never as blanket parity work |
+| High | Rack chains, Drum Pads, macros, variations | Racks are how real sets are built — a Drum Rack is the standard way to hold a kit — and nothing inside one is addressable today. `ChainMixerDevice` is what keeps rack chains silent even once their devices are reachable | The largest bucket in the plan (87 gaps) and the one the device path resolver exists to unlock; the resolver lands first and alone. The pad-map read is a curated entry above |
+| High | Arrangement clips and take lanes | The Arrangement is where a project is finished, and none of the 86 `Clip` members reach a clip there — only three read-only `arrangement_clips/*` fields do | The cheapest high-leverage change here: one resolver keyed `(track, arrangement_index)` reaches every `Clip` member at two further locations. Sequenced behind the device path resolver, which unblocks more |
+| Low | Device-specific APIs (Simpler, Wavetable, Looper, Drift, Roar, …) | Large surface, uneven value; generic parameters already cover much | Tail work — one PR per class, after the shared buckets, which close the 15 inherited `Device` members once for all of them. *Simpler and Sample* sets the pattern |
 
 Cautions the audit attached to individual members, kept because the
 inventory's one-line docstrings do not carry them:
@@ -189,14 +204,18 @@ inventory's one-line docstrings do not carry them:
   `SimplerDevice.replace_sample` take absolute file paths. Any handler
   must follow the fork's path-safety rule: the model must not hand
   arbitrary paths to code running with Live's privileges.
-- `Application.View.focus_view` overlaps `show_view`; `toggle_browse` is
-  inferior to absolute show/hide; `scroll_view`/`zoom_view` need a user
-  story before they earn tool surface.
+- `Application.View.focus_view` overlaps `show_view` and `toggle_browse` is
+  a relative toggle where absolute show/hide already exists. Both are still
+  coverage; document the overlap on the row so a caller reaching for one is
+  pointed at the absolute address instead. `scroll_view`/`zoom_view` have no
+  such overlap — measure their arguments before writing the handler, since
+  the apiref carries only the signature.
 - `Song.appointed_device`, `groove_pool`, `tuning_system`, `tracks`,
   `scenes`, `cue_points` are objects or collections — never put them in
   the generic property loop.
-- `Application.control_surfaces` is an object list with little value to
-  Seshat today.
+- `Application.control_surfaces` is an object list, so it needs a
+  hand-written flattening getter rather than the generic property loop —
+  which is the whole cost of the row, since the value is session-static.
 
 ## Addressing gaps
 
@@ -242,15 +261,22 @@ the master, reached instead through `/live/return_track/*` and
 `/live/master/*` — 109 / 60 / 49 addresses respectively, measured 2026-08-29
 against the live server's own registration table.
 
-Still missing on returns/master, and deliberately so unless a feature asks:
-the clip family (`clip_slots`, `arrangement_clips`, `stop_all_clips`,
-`delete_clip`, `fired_slot_index`, `playing_slot_index` — returns have no
-clips), input routing (neither has an input section in Live's UI), listen
-pairs for the four `has_*` reads (constants there), `arm` and the master's
-`mute`/`solo` (absent on those objects, measured 2026-07-31), and the
-regular-track-shaped members `is_visible`, `is_grouped`, `is_foldable`,
-`fold_state`, `can_be_armed`, `current_monitoring_state`, `group_track` and
-the split `devices/*` getters.
+Still missing on returns/master. Most are not gaps at all — the member is
+absent or meaningless on those objects, which is a Live limit to record
+rather than surface to add: the clip family (`clip_slots`,
+`arrangement_clips`, `stop_all_clips`, `delete_clip`, `fired_slot_index`,
+`playing_slot_index` — returns have no clips), input routing (neither has
+an input section in Live's UI), listen pairs for the four `has_*` reads
+(constants there), and `arm` plus the master's `mute`/`solo` (absent on
+those objects, measured 2026-07-31).
+
+The regular-track-shaped remainder — `is_visible`, `is_grouped`,
+`is_foldable`, `fold_state`, `can_be_armed`, `current_monitoring_state`,
+`group_track` and the split `devices/*` getters — is unmeasured on returns
+and master. Probe each before writing a handler: a member that exists there
+is a gap to close, one that raises is a Live limit to record here. The
+`devices/*` getters ride with the device path resolver, which gives those
+two prefixes full device parity anyway.
 
 ### `MixerDevice` — four of eleven members, and only via `Track`
 
@@ -301,18 +327,36 @@ have taken the whole pool read down with it. Measured against Live 12.4.5 on
 is now conservatism rather than protection, and it stays only because moving a
 field into the dump is a wire-contract change. Folding it in is the shape fix.
 
-### `Clip.groove` — "no groove" is indistinguishable from pool index 0
+### `Clip.groove` — the "no groove" read is gated, but the gate is unverified
 
-A clip with no groove assigned reads `0` from `/live/clip/get/groove`, the same
-value as a clip explicitly assigned to pool index `0`, so the `-1` sentinel the
-object-read pattern promises is unreachable; and `/live/clip/set/groove -1`
-cannot clear, because `clip.groove = None` raises `Boost.Python.ArgumentError`.
-Both measured against Live 12.4.5 on 2026-08-29.
+`/live/clip/get/groove` answers `-1` when `Clip.has_groove` is false, without
+consulting `Clip.groove` at all (`clip_groove_index` in
+`abletonosc/groove.py`). That replaced an `==` scan over the pool, which could
+only ever answer an index — so "no groove" and "pool index `0`" were the same
+value on the wire, and replaying a read of an ungrooved clip *assigned* it pool
+groove 0. Live never hands back `None` for `Clip.groove`; the companion flag is
+the discriminator, which is why the flag exists at all.
 
-Recorded here as the shape gap it is, but **owned by the roadmap defect "The
-clip↔groove assignment contract is broken in both directions"** — that entry
-carries the diagnosis, the consumer harm and the two separable fixes. Don't
-plan against this paragraph.
+⚠️ **Evidence tier: assumed, not measured.** That `has_groove` is false for a
+clip Live's UI shows as ungrooved is Live's own documented contract ("Returns
+true if a groove is associated with this clip", LOM, since Live 11.0), but this
+fork has never seen it answer `False`. The one reading taken (Live 12.4.5,
+2026-08-29) was on a freshly created clip, which reported `has_groove = True`
+in a pool holding one groove — consistent with the clip genuinely holding pool
+groove 0, and equally consistent with the flag being true for every clip.
+Separating the two needs a pool holding **two** grooves and a UI-confirmed
+ungrooved clip; grooves cannot be added to the pool over this bridge (no
+`Browser.grooves` root, and `GroovePool` has no add — see § "Loading an `.agr`
+groove file into the pool"), so it needs a human at Live's UI. Until that runs,
+the gap stays open: the code is right under either reading, and the *claim* is
+not yet evidence. `API.md` § "Groove API" carries the same ⚠️.
+
+**The setter half is not a gap here.** `/live/clip/set/groove` can assign but
+never un-assign, because Live's setter refuses `NoneType` (measured) and the
+LOM documents no other spelling for "no groove" (searched). That is a layer-1
+Live limit, not a fork shape gap; it lives in `API.md` § "Groove API",
+"Assignment is one-way", and in `SESHAT.md`. The `-1` argument that once
+claimed to clear has been withdrawn.
 
 ## Residual member gaps
 

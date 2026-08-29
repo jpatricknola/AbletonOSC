@@ -1286,7 +1286,7 @@ so treat any merge that reverts one as a regression, not a preference.
 
   | File | What it gains |
   |---|---|
-  | `abletonosc/groove.py` (**new**) | `GrooveHandler` (`class_identifier = "groove"`) — get/set for `name`, `base` and the four amounts, listen pairs for the five observable ones — plus the Live-free pool helpers `GROOVE_FIELDS`, `GROOVE_FIELD_COERCIONS`, `NO_INDEX`, `resolve_groove`, `groove_index`, `groove_pool_dump` |
+  | `abletonosc/groove.py` (**new**) | `GrooveHandler` (`class_identifier = "groove"`) — get/set for `name`, `base` and the four amounts, listen pairs for the five observable ones — plus the Live-free pool helpers `GROOVE_FIELDS`, `GROOVE_FIELD_COERCIONS`, `NO_INDEX`, `resolve_groove`, `groove_index`, `clip_groove_index`, `groove_pool_dump` |
   | `abletonosc/song.py` | `/live/song/get/groove_pool` and its listen pair, hand-written beside the `appointed_device` block |
   | `abletonosc/clip.py` | `/live/clip/get|set/groove` and its listen pair, hand-written after the extended-notes block; the `##"groove"` TODO line replaced by a pointer to it |
   | `abletonosc/__init__.py`, `manager.py` | the export, the handler-list entry, and a `reload_imports` entry ordered *before* `clip` and `song` |
@@ -1308,23 +1308,37 @@ so treat any merge that reverts one as a regression, not a preference.
     functions. `groove_index` deliberately does **not** import
     `track_identity._index_of`: that helper is private to that module's
     contract, and the `==` scan is three lines.
-  - ⚠️ **`-1` was an argument on exactly one address, and it does not work.**
-    `/live/clip/set/groove -1` was specified to clear the assignment, as a
-    documented exception to "`-1` is an answer, never an argument" rather than
-    a relaxation of it. Measured against Live 12.4.5 on 2026-08-29, both halves
-    of that claim fail: `clip.groove = None` raises `Boost.Python.ArgumentError`
-    (Live's setter is `None(TPyHandle<AClip>, TPyHandle<AAbstractGroove>)` and
-    refuses `NoneType`), and `groove_index`'s `==` scan answers `0` rather than
-    `-1` for a clip with no groove, so the read the round trip depended on is
-    also wrong. The `get → set` round trip is therefore *harmful*, not correct:
-    replaying a read of an ungrooved clip assigns it pool groove 0.
-
-    What still holds is the guard: the setter never uses the value as a
-    subscript, `-2` and below and anything past the end of the pool are a
-    `ValueError` on `/live/error` naming the pool's real size, and only a
-    validated `>= 0` reaches the collection. See ROADMAP, "The clip↔groove
-    assignment contract is broken in both directions"; `API.md`
-    § "Object-valued reads" carries the corrected reasoning.
+  - **`-1` is an answer, never an argument — with no exceptions.**
+    `/live/clip/set/groove -1` was once specified to clear the assignment, as
+    a documented exception to that rule rather than a relaxation of it. **That
+    exception has been withdrawn.** Measured against Live 12.4.5 on
+    2026-08-29, `clip.groove = None` raises `Boost.Python.ArgumentError` —
+    Live's setter is `None(TPyHandle<AClip>, TPyHandle<AAbstractGroove>)` and
+    refuses `NoneType` — and no other spelling for "no groove" is documented
+    in the LOM (searched, not measured: `GroovePool` has only `grooves`,
+    `Clip` has no `remove_groove`/`clear_groove`/`commit`, and the manual's
+    **Commit** button has no LOM equivalent). Assignment is therefore one-way,
+    and exactly `-1` is now rejected by this fork with a `ValueError` whose
+    detail carries `cannot be cleared`, instead of being forwarded to Live for
+    a Boost signature traceback. `-2` and below and anything past the end of
+    the pool keep `resolve_groove`'s out-of-range `ValueError`, and only a
+    validated `>= 0` reaches the collection. This fork now has **no** address
+    where `-1` is an argument.
+  - **The read is gated on `Clip.has_groove`, not on `clip.groove`'s value.**
+    `clip_groove_index(song, clip)` — not `groove_index(song, clip.groove)` —
+    is what `/live/clip/get/groove` and its listener push both call, so a read
+    and a push of the same clip can never disagree. Live never hands back
+    `None` for `Clip.groove`; the flag exists precisely because the member
+    always holds an object, so the `is None` guard that works for
+    `Track.group_track` (measured: `/live/track/get/group_track 0` answers
+    `-1` for an ungrouped track) can never fire for a groove, and an `==` scan
+    alone answers a pool index for an ungrooved clip — `0`, indistinguishable
+    from a real assignment, which made replaying a read *assign* a groove.
+    Identity (`is`) is not a candidate either: Boost.Python hands back a fresh
+    proxy on every attribute access, so an `is` scan would collapse every read
+    to `-1`. ⚠️ **The gate itself is assumed, not measured** — see the
+    measured paragraph below and `FORK_GAPS.md` § `Clip.groove`. `API.md`
+    § "Groove API", "Assignment is one-way", carries the wire contract.
   - **`/live/groove/stop_listen/*` resolves nothing.** Every other address in
     the family goes through `resolve_groove`, which validates the index against
     the current pool. Stop deliberately does not: the base `_stop_listen`
@@ -1361,18 +1375,26 @@ so treat any merge that reverts one as a regression, not a preference.
     drops a whole reply it cannot type.
 
   **Measured against Live 12.4.5 on 2026-08-29.** `clip.groove = None` is
-  **rejected** by Live and `get/groove` cannot answer "none" — both recorded
-  as a roadmap defect, see the bullet above. `Groove.base` encodes fine: it is
-  a plain string (`gb_sixteen` on a stock "Swing 16ths 66"), so the fear that
-  drove its exclusion from the pool dump was unfounded, though the exclusion
-  stays because moving a field into the dump is a wire-contract change. The
-  amounts are on a **0–100** scale, not the assumed 0.0–1.0 (`timing_amount`
-  read `100.0`).
+  **rejected** by Live — the reason the `-1` argument was withdrawn, see the
+  bullet above. `Groove.base` encodes fine: it is a plain string (`gb_sixteen`
+  on a stock "Swing 16ths 66"), so the fear that drove its exclusion from the
+  pool dump was unfounded, though the exclusion stays because moving a field
+  into the dump is a wire-contract change. The amounts are on a **0–100**
+  scale, not the assumed 0.0–1.0 (`timing_amount` read `100.0`). An `==` scan
+  over LOM proxies does resolve correctly for at least one class:
+  `/live/view/get/selected_clip` answered `(0, 2)` with the selection on scene
+  2, and the scene half of that getter — it composes a track index with a
+  scene index — is `list(song.scenes).index(...)`.
 
-  ⚠️ **Still unmeasured:** how `base`'s values map to the 1/4…1/32 grids,
-  `velocity_amount`'s sign at its extremes, whether an `.agr` file is reachable
-  through `/live/browser/*` at all, and whether the `Clip.groove` observer
-  fires when the pool *renumbers* around an unchanged assignment.
+  ⚠️ **Still unmeasured:** whether `Clip.has_groove` is false for a clip Live's
+  UI shows as ungrooved — the premise of the read gate, and never seen to
+  answer `False` from this fork; whether `Groove.__eq__` compares the
+  underlying object or matches the first pool member (both need a pool holding
+  two grooves, which cannot be built over this bridge); how `base`'s values map
+  to the 1/4…1/32 grids, `velocity_amount`'s sign at its extremes, whether an
+  `.agr` file is reachable through `/live/browser/*` at all, and whether the
+  `Clip.groove` observer fires when the pool *renumbers* around an unchanged
+  assignment.
   `API.md` § "Groove API" carries the same ⚠️ markers and the Live verification
   checks are in the archived plan. The Live-free tripwire is
   `tests_unit/test_groove.py`.

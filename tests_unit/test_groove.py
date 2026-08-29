@@ -11,20 +11,27 @@ OSCServer as datagrams:
     subscribe `grooves` on the pool object while pushing under its own name;
   - `/live/clip/get|set/groove` and its listen pair — the assignment in
     `ClipHandler`, answered as an index into the pool with `-1` for "none",
-    and the one address in this fork that accepts `-1` as an *argument*
-    (exactly `-1` clears; `-2` and below are a `ValueError`).
+    which is decided by `Clip.has_groove` and not by an `==` scan.
+    **Assignment is one-way**: `-1` is not an argument here, nor anywhere
+    else in this fork. Exactly `-1` is a `ValueError` saying the groove
+    cannot be cleared; `-2` and below are `resolve_groove`'s out-of-range
+    `ValueError`.
 
 The module-level resolvers (`resolve_groove`, `groove_index`,
-`groove_pool_dump`) are also driven directly as plain functions, the
+`clip_groove_index`, `groove_pool_dump`) are also driven directly as plain
+functions, the
 `track_identity.py` pattern: parameterised on `song`, they are the real
 shipped code with no handler in the way.
 
 What a green run does **not** prove: anything about real LOM objects. Whether
-`clip.groove = None` actually clears the assignment, what `Groove.base`
-encodes to on the wire, what the amount ranges are, and whether the
-`GroovePool.grooves` observer fires on membership changes only are all
-unmeasured — they need the Live verification checks in the plan, and API.md
-marks each with a ⚠️ until those run.
+`Clip.has_groove` is false for a clip Live's UI shows as ungrooved (the whole
+premise of the gate below), whether `Groove.__eq__` compares the underlying
+object or matches the first pool member, what `Groove.base` encodes to on the
+wire, what the amount ranges are, and whether the `GroovePool.grooves`
+observer fires on membership changes only are all unmeasured — they need the
+Live verification checks in the plan, and API.md marks each with a ⚠️ until
+those run. The fakes here are what made the previous, broken read look green;
+modelling `has_groove` honestly is the point of that change.
 """
 
 import pytest
@@ -118,9 +125,30 @@ class FakeGroovePool:
 
 
 class FakeClip:
+    """
+    `Live.Clip.Clip`'s groove surface, modelled the way Live behaves rather
+    than the way convenience suggests: `has_groove` is a **separate flag**,
+    and assigning a groove raises it. Live never hands back None for `groove`
+    once a clip has one, which is precisely why the flag exists.
+
+    Because the setter raises the flag, the pathological combination the fix
+    exists for — a real pool groove object with `has_groove` false — must be
+    built in that order: assign `groove`, *then* force `has_groove = False`.
+    """
+
     def __init__(self, groove=None):
-        self.groove = groove
+        self._groove = groove
+        self.has_groove = groove is not None
         self.groove_listeners = []
+
+    @property
+    def groove(self):
+        return self._groove
+
+    @groove.setter
+    def groove(self, groove):
+        self._groove = groove
+        self.has_groove = True
 
     def add_groove_listener(self, callback):
         self.groove_listeners.append(callback)
@@ -297,6 +325,40 @@ def test_groove_index_of_none_is_minus_one(groove_module, song):
 def test_groove_index_of_an_object_outside_the_pool_is_minus_one(groove_module, song):
     """Absence is an answer here, not a resolution failure."""
     assert groove_module.groove_index(song, FakeGroove("elsewhere")) == -1
+
+
+def test_clip_groove_index_answers_minus_one_without_reading_groove(groove_module,
+                                                                    song):
+    """
+    The gate is `has_groove`, and it short-circuits: a false flag must not
+    reach `.groove` at all, so this fake raises if it does.
+    """
+    class ExplodingGroove:
+        def __get__(self, instance, owner):
+            raise AssertionError(".groove must not be read when has_groove is False")
+
+    class UngroovedClip:
+        has_groove = False
+        groove = ExplodingGroove()
+
+    assert groove_module.clip_groove_index(song, UngroovedClip()) == \
+        groove_module.NO_INDEX
+
+
+def test_clip_groove_index_scans_the_pool_when_the_flag_is_true(groove_module, song):
+    clip = FakeClip()
+    clip.groove = song.groove_pool.grooves[1]
+    assert groove_module.clip_groove_index(song, clip) == 1
+
+
+def test_clip_groove_index_of_an_orphan_groove_is_minus_one(groove_module, song):
+    """
+    `has_groove` true but the object is in no pool: absence is still an
+    answer, the same half of the convention as a false flag.
+    """
+    clip = FakeClip()
+    clip.groove = FakeGroove("elsewhere")
+    assert groove_module.clip_groove_index(song, clip) == groove_module.NO_INDEX
 
 
 def test_groove_pool_dump_is_stride_five_in_field_order(groove_module, song):
@@ -672,8 +734,27 @@ def test_all_four_clip_groove_addresses_are_registered(clip_handler, server):
         assert address in server._callbacks
 
 
-def test_clip_get_reports_minus_one_when_no_groove_is_assigned(clip_handler,
+def test_clip_get_reports_minus_one_when_no_groove_is_assigned(clip_handler, song,
                                                                server, receiver):
+    assert song.tracks[0].clip_slots[0].clip.has_groove is False
+    dispatch(server, CLIP_GET, 0, 0)
+    assert one_message(receiver) == (CLIP_GET, (0, 0, -1))
+
+
+def test_clip_get_reports_minus_one_for_an_ungrooved_clip_holding_a_pool_object(
+        clip_handler, song, server, receiver):
+    """
+    **The defect this item exists for.** Live never hands back None for
+    `Clip.groove`, so an ungrooved clip still carries an object that an `==`
+    scan resolves to a pool index — `0` here, indistinguishable from a clip
+    genuinely assigned to pool index 0, and replaying that read *assigns* the
+    groove. `Clip.has_groove` is the discriminator, and this is the one test
+    that fails against the pre-fix code.
+    """
+    clip = song.tracks[0].clip_slots[0].clip
+    clip.groove = song.groove_pool.grooves[0]
+    clip.has_groove = False
+
     dispatch(server, CLIP_GET, 0, 0)
     assert one_message(receiver) == (CLIP_GET, (0, 0, -1))
 
@@ -688,7 +769,7 @@ def test_clip_get_reports_minus_one_for_a_groove_outside_the_pool(clip_handler, 
                                                                   server, receiver):
     """
     Absence is an answer, not an error — the same half of the convention as a
-    `None` groove.
+    false flag.
     """
     song.tracks[0].clip_slots[0].clip.groove = FakeGroove("orphan")
     dispatch(server, CLIP_GET, 0, 0)
@@ -709,36 +790,61 @@ def test_clip_set_assigns_the_pool_object(clip_handler, song, server, receiver):
     assert receiver.drain() == []
 
 
-def test_clip_set_minus_one_clears_the_assignment(clip_handler, song, server, receiver):
+def test_clip_set_minus_one_is_a_structured_error(clip_handler, song, server, receiver):
     """
-    ⚠️ Live-side behaviour unmeasured: whether Live accepts `clip.groove = None`
-    is Live verification check 2. What is pinned here is that the handler makes
-    exactly that assignment for exactly -1.
+    The withdrawn exception. -1 was once "clear the assignment"; Live's setter
+    refuses NoneType (measured against Live 12.4.5, 2026-08-29) and no other
+    spelling for "no groove" is documented, so this fork rejects -1 itself
+    rather than forwarding it for a Boost.Python.ArgumentError. The clip must
+    be untouched — not cleared, not reassigned.
     """
-    song.tracks[0].clip_slots[0].clip.groove = song.groove_pool.grooves[0]
+    clip = song.tracks[0].clip_slots[0].clip
+    clip.groove = song.groove_pool.grooves[0]
+
     dispatch(server, CLIP_SET, 0, 0, -1)
-    assert song.tracks[0].clip_slots[0].clip.groove is None
-    assert receiver.drain() == []
+    detail = assert_structured_error(receiver, CLIP_SET)
+    #--------------------------------------------------------------------------------
+    # Both this message and resolve_groove's end "... groove(s)", so the pool
+    # size alone cannot tell them apart. "cannot be cleared" is the literal
+    # that separates them, and the -2 case below asserts the converse.
+    #--------------------------------------------------------------------------------
+    assert "cannot be cleared" in detail
+    assert "out of range" not in detail
+    assert "2 groove(s)" in detail
+    assert clip.groove is song.groove_pool.grooves[0]
+    assert clip.has_groove is True
 
 
-def test_clip_set_round_trips_a_read(clip_handler, song, server, receiver):
+def test_a_read_of_minus_one_cannot_be_replayed(clip_handler, song, server, receiver):
     """
-    The reason -1 is a sanctioned argument here: `get → -1 → set -1` restores
-    "no groove", which is what the read said. On the appointed-device setter
-    the same value would have been a wrap-around.
+    Deliberately **not** a round trip. `get/groove` answers -1 for an ungrooved
+    clip, and sending that back is a rejected request: assignment is one-way,
+    because Live offers no way to un-assign over this bridge. The read stays
+    safe to replay only for values >= 0.
     """
     dispatch(server, CLIP_GET, 0, 0)
     index = one_message(receiver)[1][2]
+    assert index == -1
+
     dispatch(server, CLIP_SET, 0, 0, index)
+    detail = assert_structured_error(receiver, CLIP_SET)
+    assert "cannot be cleared" in detail
     assert song.tracks[0].clip_slots[0].clip.groove is None
+    assert song.tracks[0].clip_slots[0].clip.has_groove is False
 
 
 @pytest.mark.parametrize("index", [-2, -100, 2, 42])
-def test_clip_set_rejects_everything_but_minus_one_and_a_real_index(clip_handler, song,
-                                                                    server, receiver, index):
+def test_clip_set_rejects_an_index_outside_the_pool(clip_handler, song,
+                                                    server, receiver, index):
+    """
+    The range check is unchanged by the -1 withdrawal: these still answer
+    `resolve_groove`'s out-of-range message, not the "cannot be cleared" one.
+    """
     song.tracks[0].clip_slots[0].clip.groove = song.groove_pool.grooves[0]
     dispatch(server, CLIP_SET, 0, 0, index)
     detail = assert_structured_error(receiver, CLIP_SET)
+    assert "out of range" in detail
+    assert "cannot be cleared" not in detail
     assert "2 groove(s)" in detail
     #--------------------------------------------------------------------------------
     # -2 must not wrap around to grooves[-2], which is grooves[0] here and
@@ -771,6 +877,24 @@ def test_clip_listener_pushes_the_index_with_the_clip_identity(clip_handler, son
     clip.groove = song.groove_pool.grooves[0]
     clip.notify_groove()
     assert one_message(receiver) == (CLIP_GET, (0, 0, 0))
+
+
+def test_clip_listener_pushes_minus_one_for_an_ungrooved_clip_holding_a_pool_object(
+        clip_handler, song, server, receiver):
+    """
+    The push goes through the same `clip_groove_index` gate as the getter, so
+    a read and a push of the same clip can never disagree — including on the
+    pathological clip of the defect test above.
+    """
+    clip = song.tracks[0].clip_slots[0].clip
+    clip.groove = song.groove_pool.grooves[0]
+    clip.has_groove = False
+
+    dispatch(server, CLIP_START, 0, 0)
+    assert one_message(receiver) == (CLIP_GET, (0, 0, -1))
+
+    clip.notify_groove()
+    assert one_message(receiver) == (CLIP_GET, (0, 0, -1))
 
 
 def test_clip_listener_identity_is_normalised(clip_handler, song, server, receiver):

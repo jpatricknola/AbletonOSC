@@ -65,15 +65,23 @@ GROOVE_FIELD_COERCIONS = (str, float, float, float, float)
 
 #--------------------------------------------------------------------------------
 # The "no groove assigned" sentinel, the same value and the same meaning as
-# track_identity.NO_INDEX. Reply-only everywhere in this fork except
-# /live/clip/set/groove, which accepts exactly -1 as "clear the assignment" —
-# the one sanctioned exception to "-1 is an answer, never an argument",
-# specified by the roadmap goal and documented in API.md § "Object-valued
-# reads". -2 and below stay a ValueError.
+# track_identity.NO_INDEX. Reply-only **everywhere** in this fork: no address
+# accepts -1 as an argument, so "-1 is an answer, never an argument" (API.md
+# § "Object-valued reads") holds with no exceptions.
 #
-# ⚠️ Neither end of that exception reaches a client today: the clear raises in
-# Live, and `groove_index` below cannot produce this value for an ungrooved
-# clip. See its docstring and clip.py's /live/clip/*/groove block.
+# /live/clip/set/groove was once specified to accept exactly -1 as "clear the
+# assignment", the one sanctioned exception. That exception is withdrawn:
+# `clip.groove = None` raises Boost.Python.ArgumentError (measured against
+# Live 12.4.5 on 2026-08-29), and no other spelling for "no groove" is
+# documented in the LOM — GroovePool has only `grooves`, Clip has no
+# remove_groove/clear_groove/commit, and the manual's Commit button has no LOM
+# equivalent. Assignment is one-way. The setter rejects exactly -1 with its
+# own ValueError naming that limit; -2 and below stay resolve_groove's
+# out-of-range ValueError. See API.md § "Groove API", "Assignment is one-way".
+#
+# On the read side this value is produced by `clip_groove_index` below, which
+# asks Live's own `Clip.has_groove` rather than inferring absence from an ==
+# scan that cannot express it.
 #--------------------------------------------------------------------------------
 NO_INDEX = -1
 
@@ -114,21 +122,44 @@ def groove_index(song: Any, groove: Any) -> int:
     not import it: that helper is private to that module's contract, and the
     scan is three lines.
 
-    ⚠️ The NO_INDEX half of that contract does not hold in practice. Measured
-    against Live 12.4.5 on 2026-08-29, an ungrooved clip's `groove` compares
-    equal to `grooves[0]`, so this returns 0 rather than NO_INDEX and "no
-    groove" is indistinguishable from "pool index 0" on the wire. The `==`
-    scan is the mechanism. Establishing what Live actually hands back for an
-    ungrooved clip — None, a shared sentinel equal to any pool member, or a
-    distinct "empty groove" object — is the first step of the roadmap defect
-    "The clip↔groove assignment contract is broken in both directions", which
-    owns the fix. Callers must not treat a 0 from here as "the first groove".
+    This helper answers exactly one question: **which pool member is this
+    object**. "Has this clip a groove at all" is a different question with a
+    different answer path — `clip_groove_index` below — because Live never
+    hands back None for `Clip.groove`, so the `is None` guard here can never
+    fire for one. **Callers must not ask this one about a clip.**
     """
     if groove is not None:
         for index, candidate in enumerate(song.groove_pool.grooves):
             if groove == candidate:
                 return index
     return NO_INDEX
+
+
+def clip_groove_index(song: Any, clip: Any) -> int:
+    """
+    The pool index of `clip`'s groove, or NO_INDEX when it has none.
+
+    `Clip.has_groove` is the discriminator, not `clip.groove`'s value. Live
+    never hands back None here — the flag exists precisely because the member
+    always holds an object — so the `is None` guard that works for
+    `Track.group_track` (measured: `/live/track/get/group_track` answers -1 for
+    an ungrouped track, Live 12.4.5, 2026-08-29) can never fire for a groove,
+    and an `==` scan alone cannot tell "no groove" from "pool index 0".
+
+    ⚠️ **Assumed, not measured.** That `Clip.has_groove` is false for a clip
+    Live's UI shows as ungrooved is Live's own documented contract ("Returns
+    true if a groove is associated with this clip", LOM, since Live 11.0) but
+    has not been exercised from this fork: separating it from "the flag is
+    always true" needs a pool holding two grooves and a UI-confirmed ungrooved
+    clip, and the Groove Pool cannot be written over this bridge. See API.md
+    § "Groove API" and FORK_GAPS.md § `Clip.groove`.
+
+    Both the getter and the listener push go through here, so a read and a
+    push of the same clip can never disagree.
+    """
+    if not clip.has_groove:
+        return NO_INDEX
+    return groove_index(song, clip.groove)
 
 
 def groove_pool_dump(song: Any) -> Tuple:
