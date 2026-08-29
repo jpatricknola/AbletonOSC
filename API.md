@@ -139,11 +139,15 @@ every later object-valued read follows:
    index in `track.devices` and no address that reaches it until a path
    resolver exists. ⚠️ **"None" is not always a `None`.** `Track.group_track`
    *is* `None` when there is none (measured against Live 12.4.5 on 2026-08-29:
-   `/live/track/get/group_track 0` answered `-1` for an ungrouped track), but
-   `Clip.groove` always holds an object — Live's discriminator is the
-   companion flag `Clip.has_groove`, and an `is None` guard there can never
-   fire. Before assuming `is None` answers "none" for a new object-valued
-   read, look for a `has_<member>` flag beside it.
+   `/live/track/get/group_track 0` answered `-1` for an ungrouped track),
+   whereas ⚠️ `Clip.groove` is taken to *always* hold an object — Live's
+   discriminator is the companion flag `Clip.has_groove`, and an `is None`
+   guard there can never fire. Note the tier change: the `group_track`
+   reading is measured, the `Clip.groove` one is **inferred from
+   `has_groove`'s existence, not measured** — this fork has never seen
+   `has_groove` answer `False` (see the **Groove API**, "The clip↔groove
+   readings"). Before assuming `is None` answers "none" for a new
+   object-valued read, look for a `has_<member>` flag beside it.
 4. When the member itself is `None`, the category slot carries the
    **reply-only category `"none"`** and every index is `-1`. `"none"` never
    appears anywhere but a reply, and no setter accepts it — the same half of
@@ -176,8 +180,9 @@ levels) and fails loudly, so a wrong assumption surfaces as a structured
 
 What *is* measured is that an `==` scan over LOM proxies resolves correctly
 for at least one class: with Live's selection moved to scene 2,
-`/live/view/get/selected_clip` answered `(0, 2)` (Live 12.4.5, 2026-08-29),
-and that getter is `list(song.scenes).index(song.view.selected_scene)`. So
+`/live/view/get/selected_clip` answered `(0, 2)` (Live 12.4.5, 2026-08-29).
+That getter composes a track index with a scene index, and the scene half is
+the scan — `list(song.scenes).index(song.view.selected_scene)`. So
 "proxies compare equal to anything" is refuted for `Scene`; whether `Groove`
 behaves the same is still unmeasured (see the **Groove API**).
 
@@ -188,13 +193,15 @@ index other than `0` are each a `ValueError` arriving as a structured
 `/live/error`, never a Python negative-index wrap-around. It reaches top-level
 devices only, and cannot un-appoint.
 
-`/live/clip/set/groove` is the same shape and **has no exception to rule 4**.
-It was once specified to accept exactly `-1` as "clear the assignment" — the
-one sanctioned place where `-1` was an argument. That is withdrawn: Live's
-setter refuses `NoneType` and no other spelling for "no groove" is documented,
-so assignment is one-way and `-1` is now a rejected request. `-1` is an
-answer, never an argument, everywhere in this fork with no exceptions. See the
-**Groove API**, "Assignment is one-way".
+`/live/clip/set/groove` is the same shape. It has no category slot for rule 4
+to govern — rule 2's table gives it a bare `groove_index` — and it **takes no
+exception to rule 4's closing clause**, "`-1` is an answer, never an
+argument". It was once specified to accept exactly `-1` as "clear the
+assignment" — the one sanctioned place where `-1` was an argument. That is
+withdrawn: Live's setter refuses `NoneType` and no other spelling for "no
+groove" is documented, so assignment is one-way and `-1` is now a rejected
+request. `-1` is an answer, never an argument, everywhere in this fork with no
+exceptions. See the **Groove API**, "Assignment is one-way".
 
 ⚠️ **Seshat extension.** Every object-valued read is added by this fork; none
 exists in stock AbletonOSC — `track/get/group_track`, `clip_slot/get/clip`, the

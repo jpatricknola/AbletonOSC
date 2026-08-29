@@ -769,7 +769,7 @@ def test_clip_get_reports_minus_one_for_a_groove_outside_the_pool(clip_handler, 
                                                                   server, receiver):
     """
     Absence is an answer, not an error — the same half of the convention as a
-    `None` groove.
+    false flag.
     """
     song.tracks[0].clip_slots[0].clip.groove = FakeGroove("orphan")
     dispatch(server, CLIP_GET, 0, 0)

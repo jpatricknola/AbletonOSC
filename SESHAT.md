@@ -1383,7 +1383,8 @@ so treat any merge that reverts one as a regression, not a preference.
   scale, not the assumed 0.0–1.0 (`timing_amount` read `100.0`). An `==` scan
   over LOM proxies does resolve correctly for at least one class:
   `/live/view/get/selected_clip` answered `(0, 2)` with the selection on scene
-  2, and that getter is `list(song.scenes).index(...)`.
+  2, and the scene half of that getter — it composes a track index with a
+  scene index — is `list(song.scenes).index(...)`.
 
   ⚠️ **Still unmeasured:** whether `Clip.has_groove` is false for a clip Live's
   UI shows as ungrooved — the premise of the read gate, and never seen to
