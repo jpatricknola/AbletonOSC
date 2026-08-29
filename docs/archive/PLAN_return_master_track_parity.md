@@ -1,3 +1,21 @@
+**Archived 2026-08-29 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in
+`abletonosc/return_track.py` (the module-scope `SCALAR_PROPERTIES` and
+`ROUTING_PROPERTIES` tables, `_listen_to_track_property`, `_return_send`/
+`_send_of`, `_insert_device_into` — fifty-eight new addresses) and one entry
+added to `abletonosc/track.py`'s generic `methods` list for
+`/live/track/insert_device`; `API.md` § "Return Track & Master: `Track`
+parity" is the permanent record. Live verification's eight checks did not
+run — the installed Remote Scripts copy was not this checkout (see the
+dated Result under Live verification below) — so every ⚠️ marker in `API.md`
+stands and all six Open questions below stay open for whoever verifies
+against a running Live next. What remains of the return/master gap —
+devices inside racks, input routing, listen pairs for the `has_*`
+constants, send listen pairs, and the regular-track-shaped members that
+don't apply — stays open in `FORK_GAPS.md`'s `Track` and `MixerDevice`
+addressing-gap sections; no new roadmap item was needed since those
+sections already carry it.
+
 # Plan: Return / master `Track` parity (A-3)
 
 **Status:** draft for review — no code written.
@@ -434,6 +452,24 @@ do not rely on undo (roadmap item on the undo step count).
    `/live/track/insert_device 0 "Reverb"` (evidence: `_call_method` log
    line, device in UI, then `delete_device`). Record which name forms Live
    accepts in API.md.
+
+### Result, 2026-08-29 (PR review)
+
+**All eight checks above: skipped by environment.** The precondition fails —
+the installed Remote Scripts copy is *not* this checkout:
+
+    diff -rq --exclude=__pycache__ abletonosc \
+      "$HOME/Music/Ableton/User Library/Remote Scripts/AbletonOSC/abletonosc"
+
+reports `application.py`, `clip.py`, `device.py`, `return_track.py`,
+`track.py` and `track_identity.py` as differing. Live is running (pid 78577),
+but it is running a build that predates this branch *and* the two branches it
+stacks on, so every address under test is absent from it: a query would time
+out for the trivial reason, and a log line would prove nothing about this
+code. Installing the copy and restarting Live are both out of bounds for the
+review, so no check was approximated and no result is recorded for any of
+them. Every ⚠️ this item carries into `API.md` therefore stands unmeasured,
+and checks 1-8 remain owed against an installed, restarted Live.
 
 Remains uncovered even after these: listener pushes as *datagrams* (11001 is
 unobservable from this side — log lines are the evidence), and
