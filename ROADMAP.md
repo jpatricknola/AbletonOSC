@@ -48,95 +48,7 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · Create an audio clip from a file, and settle the path-safety shape for reads
-
-**Plan:** [docs/PLAN_audio_clip_from_file.md](docs/PLAN_audio_clip_from_file.md)
-
-**Goal:** `Track.create_audio_clip`, `ClipSlot.create_audio_clip` and
-`SimplerDevice.replace_sample` are reachable over OSC, and the fork has one
-reviewed answer — documented in API.md and enforced identically by all three
-handlers — for an address whose argument is a caller-chosen filesystem path to
-**read**.
-
-**Why:** creating a clip from an audio file on disk is unreachable today, and it
-is the next piece of work. These three members are also the only surface in
-`CLOSING_THE_GAPS.md` whose handler shape rule 4 explicitly defers rather than
-decides, so the first of them to ship sets the precedent for the other two.
-Deciding it once, across all three, is why they were grouped.
-
-**Planner notes:**
-- **Scope is the three path-taking handlers and nothing else.** The Simpler and
-  sample surface they were grouped with is now three separate unranked buckets
-  in CLOSING_THE_GAPS.md — *`Sample`* (30), *`SimplerDevice`* (20) and the
-  `SimplerDevice.View` share of *Device view classes*. Do not pull any of them
-  in behind this item.
-- `replace_sample` is included even though the other `SimplerDevice` members are
-  not, because it is the third instance of the path rule and the whole point is
-  to decide that rule once. It needs a top-level Simpler on a track to test — no
-  device path resolver required, since the resolver is only for devices inside
-  racks.
-- Live's signatures, from the 2026-08-29 inventory:
-  `create_audio_clip((Track)self, (object)path, (float)position) -> Clip` and
-  `create_audio_clip((ClipSlot)self, (object)path) -> Clip`. `path` is an
-  absolute filesystem path. There is no URI-taking overload — unlike
-  `Browser.load_item`, which is why that address could take a `uri` and these
-  cannot.
-- **`/live/browser/export` is not the model here, and rule 4 says so.** Export
-  answers the hazard by naming the destination itself, which works only because
-  no caller cared what the file was called. In these three the path *is* the
-  request. They are also reads, not writes, so traversal and clobber — the
-  concerns removing the argument eliminated — do not apply in the same form.
-- Presumed shape, to be confirmed or replaced in the plan: a **rooted
-  allowlist** — `realpath` the argument (resolve symlinks *before* the root
-  check, so a symlink cannot escape), require the result under a declared root
-  set, otherwise reject with `browser/export`'s existing error reply and
-  error-level log and open nothing. Optionally accept a `BrowserItem.uri` as a
-  second form, but never as the only one: a URI reaches only what is already in
-  Live's browser tree, which excludes any audio the consumer renders itself.
-  Measure whether a `BrowserItem` exposes a filesystem path at all before
-  promising that form.
-- **The root set needs a stated consumer use case and there is none on record**
-  — neither `SESHAT.md` nor this file describes what audio Seshat would place.
-  Settle it with the consumer before writing the check, or the allowlist will be
-  guessed. Candidates: Live's user library, the current set's project folder, a
-  Seshat-owned directory alongside `~/.seshat/browser-exports`.
-- Context for the safety argument, so the plan does not re-derive it: the command
-  socket is loopback-only since PR d863361, so a caller reaching these addresses
-  is already local code running as the user, and could read the file without
-  Live. That lowers the marginal exposure of a read but does not remove the case
-  for a bounded root — it is why the answer can be an allowlist rather than
-  export's no-argument form.
-- Not this item: `/live/application/dump_lom` still takes an arbitrary wire path
-  and **writes** it with Live's privileges (`issues.md`, Low). That is the
-  genuine write-side inconsistency and it should adopt export's pattern, not
-  this one. Do not fold it in; do not let it argue for a stricter read rule.
-- Measure before designing the reply: whether `ClipSlot.create_audio_clip`
-  refuses a non-empty slot or a MIDI track, what it raises on an unreadable or
-  non-audio file, and whether Live's failure surfaces as an exception the
-  handler can catch or reaches the client as `/live/error`.
-- `Track.create_audio_clip` places the clip in the **Arrangement** at
-  `position`, so the returned clip is not addressable by any existing
-  `/live/clip` address — that needs the Arrangement and take-lane clip
-  resolver, which is unranked. Decide what the reply carries in the meantime
-  (the arrangement position back, at least) rather than returning a handle
-  nothing can use.
-- Rule 6 applies in the same commit: add the addresses, document them in
-  `API.md`, delete the three `FORK_GAPS.md` entries, regenerate the inventory.
-  The API.md rows must carry the root-set rule, since a caller cannot discover
-  it from an error alone.
-- Live-free coverage in `tests_unit/` for the path check specifically — an
-  accepted in-root path, a rejected out-of-root path, and a symlink pointing
-  out of the root — plus the usual `tests/` cases needing a Live session.
-- Seshat submodule pin bump and a `vendored_addresses_test` tripwire for the new
-  rule, matching the one that guards `browser/export`'s `dest_path` rejection.
-- Source: [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md) rule 4 and the *Simpler and
-  Sample* bucket; the per-member rows in [FORK_GAPS.md](FORK_GAPS.md) for
-  `Track`, `ClipSlot` and `SimplerDevice`; the path-safety precedent in
-  `abletonosc/browser.py:60-70` and `:118-130`.
-- Depends on nothing ranked. The Arrangement clip resolver would make the
-  `Track` variant's result readable, but is not a blocker for creating the clip.
-
-## #2 · `/live/application/get/has_option` documents a contract Live does not implement
+## #1 · `/live/application/get/has_option` documents a contract Live does not implement
 
 **Goal:** `/live/application/get/has_option` either answers a question a caller
 can actually ask, or is removed. API.md stops describing it as an Options.txt
@@ -170,7 +82,7 @@ and a client following API.md gets an error for a correctly formed request.
 - Source: the Live verification run of 2026-08-29, recorded in API.md's
   Application section.
 
-## #3 · One `/live/song/undo` does not revert an OSC-created scene
+## #2 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -209,7 +121,7 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #4 · Make a failed live code reload safe and reported
+## #3 · Make a failed live code reload safe and reported
 
 **Goal:** a reload that raises does not activate a partially reloaded module
 graph — `/live/api/reload` either preserves a usable previous API or fails in a
@@ -244,7 +156,7 @@ is told nothing went wrong.
   still have open rows, but none is currently ranked in this file.
 - No dependencies.
 
-## #5 · Stop masking Remote Script import failures
+## #4 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -263,7 +175,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #6 · Remove the process-global and shared-file risks from song structure export
+## #5 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -285,7 +197,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #7 · Add bounded log retention
+## #6 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -302,7 +214,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #8 · Document `song` in the handler constructor contract
+## #7 · Document `song` in the handler constructor contract
 
 **Goal:** `abletonosc/handler.py`'s `AbletonOSCHandler` "Constructor
 contract" docstring lists `song` alongside the other invariants (`logger`,
@@ -327,7 +239,7 @@ Comment-only; no behaviour changes.
   no non-comment line, same as the A-4 `track_identity.py` precedent.
 - No dependencies.
 
-## #9 · Verify wildcard fan-out against Seshat's `/live/device/` usage
+## #8 · Verify wildcard fan-out against Seshat's `/live/device/` usage
 
 **Goal:** confirm whether Seshat ever sends an OSC address *pattern* (not a
 literal address) under `/live/device/`, and if so, record what changes for
@@ -359,10 +271,17 @@ could the nit-triage pass that declined fixing it inline.
   `set/parameter/*`'s effective family, or extend `_is_wildcard_skip` to
   recognise the Boost `ArgumentError` case) or in how Seshat builds the
   address.
+- The device family gained one more pattern match since this item was
+  written: `/live/device/replace_sample` is the only address a bare
+  `/live/device/* <track> <device>` pattern matches, and on a non-Simpler it
+  is a silent `_is_wildcard_skip` by design (the handler binds the Simpler
+  method before it resolves the file name — `API.md` § "Handlers that name a
+  file to read"). Include it in the audit rather than assuming the family is
+  still only the parameter addresses.
 - No dependencies; verification-only, and may resolve to "no action" without
   ever becoming a Python change here.
 
-## #10 · `stop_listen` can leave a listener stranded when its collection shrinks
+## #9 · `stop_listen` can leave a listener stranded when its collection shrinks
 
 **Goal:** stopping a listen on an indexed family (`/live/groove/stop_listen/*`,
 `/live/scene/stop_listen/*`, and any future one built the same way) always

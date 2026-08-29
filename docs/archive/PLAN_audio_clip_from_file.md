@@ -1,3 +1,27 @@
+**Archived 2026-08-29 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in a new
+`abletonosc/path_safety.py` (`IMPORT_ROOT`, `ImportPathError`,
+`resolve_import_path` — the whole read-side path rule) and three
+hand-written registrations in otherwise-upstream files:
+`/live/clip_slot/create_audio_clip` in `abletonosc/clip_slot.py`,
+`/live/track/create_audio_clip` in `abletonosc/track.py` and
+`/live/device/replace_sample` in `abletonosc/device.py`, with
+`path_safety` added to `manager.py`'s reload list ahead of all three.
+`API.md` § "Handlers that name a file to read" plus the rows in the Track
+Methods, Clip Slot and Device tables are the permanent record; `SESHAT.md`
+carries the divergence and the merge hazard. Live verification's six
+checks did **not** run — the installed Remote Scripts copy is older than
+this branch and does not contain `path_safety.py` at all (see the dated
+review block under Live verification below) — so every ⚠️ marker in
+`API.md` stands and all five Open questions stay open for whoever
+verifies against a running Live next. `FORK_GAPS.md`'s generated
+inventory is likewise **not** regenerated (it needs a
+`/live/application/dump_lom` from a Live running this code); its three
+generated rows still count these members as gaps, and the curated caution
+bullet says so. The one review nit declined — no test pinning the
+`/live/track/*` and `/live/clip_slot/*` malformed-argument replies — was
+answered with an `API.md` paragraph instead, not deferred to the roadmap.
+
 # Plan: Create an audio clip from a file, and settle the path-safety shape for reads
 
 Roadmap item: **#1 · Create an audio clip from a file, and settle the
@@ -563,6 +587,30 @@ of Live's importer on formats other than WAV.
 Also at verification time: send `/live/application/dump_lom` and run
 `tools/lom_gaps.py logs/lom_dump.json --write` to regenerate the inventory
 (open question 5).
+
+### Review run, 2026-08-29 — **all six checks skipped by environment**
+
+Recorded by the PR review of branch `create-audio`. Nothing below was run;
+no result is claimed for any check, and every ⚠️ in `API.md` stands.
+
+The shared precondition fails on both halves:
+
+- **The installed copy is not this checkout.** `diff -rq --exclude=__pycache__
+  abletonosc "$HOME/Music/Ableton/User Library/Remote Scripts/AbletonOSC/abletonosc"`
+  reports `Only in .../abletonosc: path_safety.py` — the import rule is absent
+  from the installed bridge, so none of the three addresses exists there at
+  all — plus pre-existing divergences in `clip.py`, `groove.py` (the installed
+  copy predates PR #24) and, from this branch, `clip_slot.py`, `device.py`,
+  `track.py`.
+- **No restart can be established**, and this run may not install or restart
+  Live in any case. Live 12.4.5 is running (pid 99572).
+
+Consequently checks 1–6 are **skipped, not failed**: a request to any of the
+three addresses would draw no log line from the installed bridge, and that
+absence would be evidence of a stale install, not of a defect in this branch.
+The `dump_lom` regeneration of `FORK_GAPS.md`'s generated inventory (open
+question 5) is skipped for the same reason; the three generated rows still
+count these members as gaps, and the curated bullet in `FORK_GAPS.md` says so.
 
 ## Downstream
 
