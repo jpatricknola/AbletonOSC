@@ -591,7 +591,11 @@ so treat any merge that reverts one as a regression, not a preference.
   `tests_unit/test_application.py`, which constructs the real handler and
   asserts the registration table by *equality*
   (`test_registration_table_is_exactly_this`), so a dropped address fails
-  there and an undocumented new one does too.
+  there and an undocumented new one does too. A narrower merge — one that
+  keeps `has_option` registered but reverts its handler body, silently
+  dropping the key validator and the ok-path log line — passes that
+  equality check unnoticed; `test_has_option_rejects_a_malformed_key` is
+  the tripwire for that case.
 
 - **`clip.py` — `quantize` in the generic methods list.** From upstream PR #198
   (that PR's warp-marker and extended-note work is not taken). Gives

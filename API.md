@@ -598,7 +598,7 @@ unrelated reason noted in its own row above.
 >
 >   | Argument | Result |
 >   |---|---|
->   | 64 hex chars (`"0" * 64`) | **Accepted** — no error, no log output; Live answered |
+>   | 64 hex chars (`"0" * 64`) | **Accepted** — no error, no log output (as measured, before this change added the ok-path log line); Live answered |
 >   | the `abl.live.licensing` key, lower case | **Accepted** |
 >   | the same key, **upper** case | **Accepted** — the hex is case-insensitive |
 >   | 63 hex chars | `IndexError: basic_string` → `/live/error` |
