@@ -43,6 +43,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · C-1 · `Song` remainder
 
+**Plan:** [docs/PLAN_song_remainder.md](docs/PLAN_song_remainder.md)
+
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
 start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
