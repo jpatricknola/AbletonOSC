@@ -43,6 +43,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · C-3 · Application dialogs and versions
 
+**Plan:** [docs/PLAN_application_dialogs_and_versions.md](docs/PLAN_application_dialogs_and_versions.md)
+
 **Goal:** read-only dialog state (`open_dialog_count`,
 `current_dialog_message`, `current_dialog_button_count`, listen where
 observable) plus `get_bugfix_version`, `get_build_id`, `get_variant`,
@@ -90,7 +92,72 @@ old five-field addresses unchanged; then the ID-keyed members
 - Shape PR: the wire form is the review subject.
 - No dependencies.
 
-## #3 · One `/live/song/undo` does not revert an OSC-created scene
+## #3 · A-3 · Return / master `Track` parity
+
+**Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
+address set — colour, routing, meters, `has_*_input/output`, every
+`start_listen`, `insert_device`, `mixer_device.sends` on returns.
+
+**Why:** returns and master have the mixer surface (volume, panning, mute,
+solo, name, cue volume) and a device subset, and almost nothing else — no
+colour, no routing, no meters, no `has_*_input/output`, no `insert_device`, no
+`mixer_device.sends` on returns. Every return/master feature downstream trips
+over the difference.
+
+**Planner notes:**
+- Source: `CLOSING_THE_GAPS.md`, row **A-3**; closes the FORK_GAPS Track
+  addressing gap and the `MixerDevice` gap on returns/master.
+- **The "107 / 20 / 15" address counts in the FORK_GAPS heading and the A-3
+  row predate the fork's return/master work and are no longer accurate** —
+  `return_track.py` alone now registers about thirty addresses, including the
+  `name`/`volume`/`panning`/`mute`/`solo` listen pairs that FORK_GAPS still
+  describes as missing. Recount from the code before sizing the PR, and
+  regenerate or correct those figures as part of it.
+- Prefer a shared track resolver over three copies of the handler table.
+- No dependencies.
+
+## #4 · C-1 · `Song` remainder
+
+**Goal:** the remaining scalar `Song` members through the generic property
+loop — count-in, automation state, scale mode/intervals, tempo follower, Link
+start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
+
+**Why:** cheap generic-loop batch; slot in whenever a quick win is wanted.
+
+**Planner notes:**
+- Source: `CLOSING_THE_GAPS.md`, row **C-1**.
+- Audited 2026-08-27: none of the row's members are registered yet, so the
+  row can be taken as written. Note that neighbouring members already exist
+  and are *not* this item — `root_note`, `scale_name`,
+  `is_ableton_link_enabled`, `clip_trigger_quantization`
+  (`song.py:63-78`) — so the scale and Link work here is `scale_mode`,
+  `scale_intervals` and `is_ableton_link_start_stop_sync_enabled` only.
+- No dependencies.
+
+## #5 · D-2 · Groove
+
+**Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
+amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
+
+**Why:** named consumer — Seshat's generation work — and the curated
+`Clip.groove` entry in FORK_GAPS is the one gap that keeps
+`groove_amount` from having an effect on plain MIDI.
+
+**Planner notes:**
+- Source: `CLOSING_THE_GAPS.md`, row **D-2**.
+- `Clip.groove` is already known to be unreachable through the generic
+  property loop and is commented out in place with the reason
+  (`clip.py:123`: "Infered arg_value type is not supported") — that
+  commented line is the concrete thing this item replaces. The object-read
+  pattern it needs (index-or-`-1`, resolvers in `track_identity.py`) has
+  shipped and is available to use directly — see `API.md` § "Object-valued
+  reads".
+  `song.groove_amount` (`song.py:65`) and `clip.has_groove`
+  (`clip.py:110`) already work and stay as they are.
+- Measure whether `browser.load_item` can load an `.agr` into the pool.
+- No dependencies.
+
+## #6 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -129,7 +196,7 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #4 · Make a failed live code reload safe and reported
+## #7 · Make a failed live code reload safe and reported
 
 **Goal:** a reload that raises does not activate a partially reloaded module
 graph — `/live/api/reload` either preserves a usable previous API or fails in a
@@ -159,10 +226,10 @@ is told nothing went wrong.
   listener dict — decide in this item whether to close it or record it as
   accepted, since the code comment currently points here for the answer.
 - Every gap PR uses reload during development; move this up if it bites
-  during #1–#2.
+  during #1–#5.
 - No dependencies.
 
-## #5 · Stop masking Remote Script import failures
+## #8 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -181,7 +248,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #6 · Remove the process-global and shared-file risks from song structure export
+## #9 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -203,7 +270,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #7 · Add bounded log retention
+## #10 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -218,71 +285,6 @@ without limit (≈855 KB at the time of the audit, still growing).
 - `manager.py` only, but `logs/abletonosc.log` is also the evidence channel
   for `API.md` § "The no-probe variant" — rotation must not lose the tail a
   reviewer is reading; name the rotated filenames in `API.md`.
-- No dependencies.
-
-## #8 · A-3 · Return / master `Track` parity
-
-**Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
-address set — colour, routing, meters, `has_*_input/output`, every
-`start_listen`, `insert_device`, `mixer_device.sends` on returns.
-
-**Why:** returns and master have the mixer surface (volume, panning, mute,
-solo, name, cue volume) and a device subset, and almost nothing else — no
-colour, no routing, no meters, no `has_*_input/output`, no `insert_device`, no
-`mixer_device.sends` on returns. Every return/master feature downstream trips
-over the difference.
-
-**Planner notes:**
-- Source: `CLOSING_THE_GAPS.md`, row **A-3**; closes the FORK_GAPS Track
-  addressing gap and the `MixerDevice` gap on returns/master.
-- **The "107 / 20 / 15" address counts in the FORK_GAPS heading and the A-3
-  row predate the fork's return/master work and are no longer accurate** —
-  `return_track.py` alone now registers about thirty addresses, including the
-  `name`/`volume`/`panning`/`mute`/`solo` listen pairs that FORK_GAPS still
-  describes as missing. Recount from the code before sizing the PR, and
-  regenerate or correct those figures as part of it.
-- Prefer a shared track resolver over three copies of the handler table.
-- No dependencies.
-
-## #9 · C-1 · `Song` remainder
-
-**Goal:** the remaining scalar `Song` members through the generic property
-loop — count-in, automation state, scale mode/intervals, tempo follower, Link
-start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
-
-**Why:** cheap generic-loop batch; slot in whenever a quick win is wanted.
-
-**Planner notes:**
-- Source: `CLOSING_THE_GAPS.md`, row **C-1**.
-- Audited 2026-08-27: none of the row's members are registered yet, so the
-  row can be taken as written. Note that neighbouring members already exist
-  and are *not* this item — `root_note`, `scale_name`,
-  `is_ableton_link_enabled`, `clip_trigger_quantization`
-  (`song.py:63-78`) — so the scale and Link work here is `scale_mode`,
-  `scale_intervals` and `is_ableton_link_start_stop_sync_enabled` only.
-- No dependencies.
-
-## #10 · D-2 · Groove
-
-**Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
-amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
-
-**Why:** named consumer — Seshat's generation work — and the curated
-`Clip.groove` entry in FORK_GAPS is the one gap that keeps
-`groove_amount` from having an effect on plain MIDI.
-
-**Planner notes:**
-- Source: `CLOSING_THE_GAPS.md`, row **D-2**.
-- `Clip.groove` is already known to be unreachable through the generic
-  property loop and is commented out in place with the reason
-  (`clip.py:123`: "Infered arg_value type is not supported") — that
-  commented line is the concrete thing this item replaces. The object-read
-  pattern it needs (index-or-`-1`, resolvers in `track_identity.py`) has
-  shipped and is available to use directly — see `API.md` § "Object-valued
-  reads".
-  `song.groove_amount` (`song.py:65`) and `clip.has_groove`
-  (`clip.py:110`) already work and stay as they are.
-- Measure whether `browser.load_item` can load an `.agr` into the pool.
 - No dependencies.
 
 ## #11 · Document `song` in the handler constructor contract
