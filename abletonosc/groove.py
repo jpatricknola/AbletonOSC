@@ -36,11 +36,18 @@ logger = logging.getLogger("abletonosc")
 # flattened dump and by the per-groove addresses. It is Live's own Groove Pool
 # column order.
 #
-# `base` is deliberately NOT in this tuple. Its wire type is unverified, and
-# pythonosc drops an entire reply it cannot encode (osc_server.send logs and
-# gives up), so an encoding surprise in `base` would take the whole pool dump
-# down with it; reachable through its own address instead, it breaks one
-# address at worst.
+# `base` is deliberately NOT in this tuple. The reason was protective: its wire
+# type was unverified, and pythonosc drops an entire reply it cannot encode
+# (osc_server.send logs and gives up), so an encoding surprise in `base` would
+# have taken the whole pool dump down with it; reachable through its own
+# address instead, it breaks one address at worst.
+#
+# That surprise did not materialise. Measured against Live 12.4.5 on
+# 2026-08-29, `base` reads as a plain string (a stock "Swing 16ths 66" groove
+# answers `gb_sixteen`) and encodes with no BuildError. The exclusion is
+# therefore conservatism now rather than protection, and it stays only because
+# folding a field into the dump is a wire-contract change — see API.md
+# § "Groove API", which carries the same reading.
 #
 # Nothing here may be reordered without changing the wire contract documented
 # in API.md § "Groove API".
@@ -63,6 +70,10 @@ GROOVE_FIELD_COERCIONS = (str, float, float, float, float)
 # the one sanctioned exception to "-1 is an answer, never an argument",
 # specified by the roadmap goal and documented in API.md § "Object-valued
 # reads". -2 and below stay a ValueError.
+#
+# ⚠️ Neither end of that exception reaches a client today: the clear raises in
+# Live, and `groove_index` below cannot produce this value for an ungrooved
+# clip. See its docstring and clip.py's /live/clip/*/groove block.
 #--------------------------------------------------------------------------------
 NO_INDEX = -1
 
@@ -102,6 +113,16 @@ def groove_index(song: Any, groove: Any) -> int:
     Mirrors `track_identity._index_of`'s `==` semantics on purpose, and does
     not import it: that helper is private to that module's contract, and the
     scan is three lines.
+
+    ⚠️ The NO_INDEX half of that contract does not hold in practice. Measured
+    against Live 12.4.5 on 2026-08-29, an ungrooved clip's `groove` compares
+    equal to `grooves[0]`, so this returns 0 rather than NO_INDEX and "no
+    groove" is indistinguishable from "pool index 0" on the wire. The `==`
+    scan is the mechanism. Establishing what Live actually hands back for an
+    ungrooved clip — None, a shared sentinel equal to any pool member, or a
+    distinct "empty groove" object — is the first step of the roadmap defect
+    "The clip↔groove assignment contract is broken in both directions", which
+    owns the fix. Callers must not treat a 0 from here as "the first groove".
     """
     if groove is not None:
         for index, candidate in enumerate(song.groove_pool.grooves):

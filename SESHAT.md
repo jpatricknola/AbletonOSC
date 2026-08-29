@@ -530,8 +530,13 @@ so treat any merge that reverts one as a regression, not a preference.
     `get/build_id`, `get/variant` — upstream's `get/version` answers "12.4",
     which does not say which bugfix release or which edition is running, and
     the edition decides which LOM members exist at all.
-  - `get/has_option` (Options.txt, echoing the option so a burst can be
-    correlated), `get/peak_process_usage` (+ listen pair),
+  - ⚠️ `get/has_option` — shipped as an Options.txt query, echoing the option
+    so a burst can be correlated. It is **not** one: measured against Live
+    12.4.5 on 2026-08-29, `Application.has_option` takes exactly 64 hex
+    characters and rejects everything else, so no option name is expressible
+    and every documented use of the address errors. See ROADMAP,
+    "`/live/application/get/has_option` documents a contract Live does not
+    implement". Also `get/peak_process_usage` (+ listen pair),
     `get/number_of_push_apps_running`, `get/unavailable_features` and
     `get/control_surfaces` — the last two flattened into a single reply with
     no count prefix, exactly like
@@ -1303,15 +1308,23 @@ so treat any merge that reverts one as a regression, not a preference.
     functions. `groove_index` deliberately does **not** import
     `track_identity._index_of`: that helper is private to that module's
     contract, and the `==` scan is three lines.
-  - **`-1` is an argument on exactly one address.** `/live/clip/set/groove -1`
-    clears the assignment. That is a documented exception to "`-1` is an answer,
-    never an argument", not a relaxation of it: the setter never uses the value
-    as a subscript, `-1` is intercepted first and maps to `clip.groove = None`,
-    `-2` and below and anything past the end of the pool are a `ValueError` on
-    `/live/error` naming the pool's real size, and only a validated `>= 0`
-    reaches the collection — so the `get → set` round trip is *correct* rather
-    than merely tolerated. `API.md` § "Object-valued reads" carries the reasoning
-    and is the permanent record.
+  - ⚠️ **`-1` was an argument on exactly one address, and it does not work.**
+    `/live/clip/set/groove -1` was specified to clear the assignment, as a
+    documented exception to "`-1` is an answer, never an argument" rather than
+    a relaxation of it. Measured against Live 12.4.5 on 2026-08-29, both halves
+    of that claim fail: `clip.groove = None` raises `Boost.Python.ArgumentError`
+    (Live's setter is `None(TPyHandle<AClip>, TPyHandle<AAbstractGroove>)` and
+    refuses `NoneType`), and `groove_index`'s `==` scan answers `0` rather than
+    `-1` for a clip with no groove, so the read the round trip depended on is
+    also wrong. The `get → set` round trip is therefore *harmful*, not correct:
+    replaying a read of an ungrooved clip assigns it pool groove 0.
+
+    What still holds is the guard: the setter never uses the value as a
+    subscript, `-2` and below and anything past the end of the pool are a
+    `ValueError` on `/live/error` naming the pool's real size, and only a
+    validated `>= 0` reaches the collection. See ROADMAP, "The clip↔groove
+    assignment contract is broken in both directions"; `API.md`
+    § "Object-valued reads" carries the corrected reasoning.
   - **`/live/groove/stop_listen/*` resolves nothing.** Every other address in
     the family goes through `resolve_groove`, which validates the index against
     the current pool. Stop deliberately does not: the base `_stop_listen`
@@ -1347,13 +1360,19 @@ so treat any merge that reverts one as a regression, not a preference.
     applies: pythonosc infers an OSC type from the Python type and silently
     drops a whole reply it cannot type.
 
-  ⚠️ **Unmeasured**, because this environment denied both the installed-copy
-  writes and the UDP sends a measurement needs (Live 12.4.3 *was* running):
-  whether `clip.groove = None` is accepted as a clear, what `Groove.base`
-  encodes to and how its values map to the 1/4…1/32 grids, the four amount
-  ranges (especially `velocity_amount`'s sign), whether an `.agr` file is
-  reachable through `/live/browser/*` at all, and whether the `Clip.groove`
-  observer fires when the pool *renumbers* around an unchanged assignment.
+  **Measured against Live 12.4.5 on 2026-08-29.** `clip.groove = None` is
+  **rejected** by Live and `get/groove` cannot answer "none" — both recorded
+  as a roadmap defect, see the bullet above. `Groove.base` encodes fine: it is
+  a plain string (`gb_sixteen` on a stock "Swing 16ths 66"), so the fear that
+  drove its exclusion from the pool dump was unfounded, though the exclusion
+  stays because moving a field into the dump is a wire-contract change. The
+  amounts are on a **0–100** scale, not the assumed 0.0–1.0 (`timing_amount`
+  read `100.0`).
+
+  ⚠️ **Still unmeasured:** how `base`'s values map to the 1/4…1/32 grids,
+  `velocity_amount`'s sign at its extremes, whether an `.agr` file is reachable
+  through `/live/browser/*` at all, and whether the `Clip.groove` observer
+  fires when the pool *renumbers* around an unchanged assignment.
   `API.md` § "Groove API" carries the same ⚠️ markers and the Live verification
   checks are in the archived plan. The Live-free tripwire is
   `tests_unit/test_groove.py`.
