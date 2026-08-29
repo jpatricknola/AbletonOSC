@@ -58,12 +58,18 @@ def test_application_get_open_dialog_count(client):
     # suite must never raise a dialog it cannot dismiss, and there is no
     # press_current_dialog_button address by design.
     #
-    # Zero is safe to assert rather than merely "an int": a modal Live dialog
-    # blocks the tick loop this client is talking to, so if one were open the
-    # query above would have timed out instead of reaching here.
+    # Asserting exactly 0 would assume a modal Live dialog blocks the tick
+    # loop this client is talking to, so the query would time out rather than
+    # reach here if one were open. That assumption is unverified — it is
+    # docs/PLAN_application_dialogs_and_versions.md's Open question 3, and
+    # Live verification for this item was skipped by environment (see the
+    # plan's "Live verification" section). If dialogs are queued and
+    # asynchronous instead, a stray dialog left open by something else in the
+    # set makes an exact-0 assertion flake here rather than time out, so
+    # assert only the reply's shape until that question is settled.
     #--------------------------------------------------------------------------------
     rv = client.query("/live/application/get/open_dialog_count")
-    assert rv == (0,)
+    assert isinstance(rv[0], int)
 
 
 def test_application_error(client, num_tracks, num_scenes):

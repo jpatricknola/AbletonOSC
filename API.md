@@ -406,6 +406,16 @@ unsaved work — so a dialog offering choices would be one the remote has no
 way to answer. The two constraints move together: exposing button choices
 requires exposing the press, and that is a separate, reviewed decision.
 
+Both `show_*` addresses also sit inside `/live/application/*`'s wildcard
+blast radius: `*` matches one or more non-`/` characters within a single
+address segment (see the intro's "Wildcard patterns supported" note and
+`osc_server.py`'s `process_message`), so a broadcast like
+`/live/application/* "x"` reaches them along with every getter and calls
+`show_message("x")` as a side effect — raising exactly this undismissable
+dialog even though the sender may only have meant the getters. `dump_lom`
+sits in the same blast radius already, for the unrelated reason noted in
+its own row above.
+
 > **Not yet measured against a running Live (as of 2026-08-29).** The
 > application addresses above landed without the usual measurement pass:
 > the checks need the installed Remote Scripts copy replaced and Live

@@ -208,6 +208,23 @@ def test_class_identifier_is_application(handler):
     assert handler.class_identifier == "application"
 
 
+def test_upstream_addresses_stay_registered(server, handler):
+    #--------------------------------------------------------------------------------
+    # get/version and get/average_process_usage keep upstream's own callback,
+    # byte-identical, reaching Live.Application.get_application() inline
+    # rather than through the get_application() seam (see the parametrize
+    # block above); dump_lom is the fork's pre-existing address. None of the
+    # three is dispatched anywhere else in this file, so without this check a
+    # merge or edit that dropped one of their add_handler() calls would pass
+    # silently — SESHAT.md's merge-hazard note claims this file "asserts the
+    # whole table", which is only true with this registration check included.
+    #--------------------------------------------------------------------------------
+    for address in ("/live/application/get/version",
+                    "/live/application/get/average_process_usage",
+                    "/live/application/dump_lom"):
+        assert address in server._callbacks
+
+
 #--------------------------------------------------------------------------------
 # Generic-loop scalar reads
 #--------------------------------------------------------------------------------
