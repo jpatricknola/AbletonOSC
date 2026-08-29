@@ -2,7 +2,7 @@ import re
 from functools import partial
 from typing import Tuple, Callable, Any, Optional
 from .handler import AbletonOSCHandler
-from .groove import groove_index, resolve_groove, NO_INDEX
+from .groove import clip_groove_index, resolve_groove, NO_INDEX
 import Live
 
 def note_name_to_midi(name):
@@ -473,33 +473,35 @@ class ClipHandler(AbletonOSCHandler):
         # `song.groove_pool.grooves`** — the same index space /live/groove/* and
         # /live/song/get/groove_pool use.
         #
-        # The setter takes that same index, and was specified as the one address
-        # in this fork where -1 is an *argument*: exactly -1 to clear the
-        # assignment, making the get/set round trip semantically correct rather
-        # than a wrap-around. -2 and below, and any index past the end of the
-        # pool, are a ValueError → /live/error naming the pool's real size,
-        # never a Python negative-index wrap-around.
+        # **The read is gated on `Clip.has_groove`, not on `clip.groove`'s
+        # value.** Live never hands back None for that member — the flag exists
+        # precisely because the member always holds an object — so an == scan
+        # over the pool cannot express "no groove" and would answer 0,
+        # indistinguishable from a clip assigned to pool index 0. Both the
+        # getter and the listener push go through `clip_groove_index`, so they
+        # can never disagree. ⚠️ That `has_groove` is false for a clip Live's UI
+        # shows as ungrooved is Live's documented contract, not something this
+        # fork has measured — see clip_groove_index's docstring.
         #
-        # ⚠️ NEITHER HALF OF THAT ROUND TRIP WORKS. Measured against Live 12.4.5
-        # on 2026-08-29:
+        # **Assignment is one-way.** The setter takes a pool index >= 0. It was
+        # once specified to accept exactly -1 as "clear the assignment", the one
+        # address in this fork where -1 was an *argument*; that exception is
+        # withdrawn. `clip.groove = None` raises Boost.Python.ArgumentError —
+        # Live's setter is typed (TPyHandle<AClip>, TPyHandle<AAbstractGroove>)
+        # and refuses NoneType (measured against Live 12.4.5 on 2026-08-29) —
+        # and no other spelling for "no groove" is documented in the LOM, so -1
+        # is now rejected by this fork with a truthful message instead of being
+        # forwarded to Live for a Boost ArgumentError. -2 and below, and any
+        # index past the end of the pool, keep resolve_groove's out-of-range
+        # ValueError → /live/error naming the pool's real size, never a Python
+        # negative-index wrap-around.
         #
-        #   * `clip.groove = None` raises Boost.Python.ArgumentError — Live's
-        #     setter is typed (TPyHandle<AClip>, TPyHandle<AAbstractGroove>) and
-        #     refuses NoneType — so the -1 branch below answers /live/error and
-        #     the clip keeps its groove. No spelling of "un-assign" is known.
-        #   * `clip_get_groove` never answers -1: an ungrooved clip's `groove`
-        #     compares equal to `grooves[0]` in `groove_index`, so it reads 0,
-        #     indistinguishable from a clip assigned to pool index 0.
-        #
-        # Replaying a read from an ungrooved clip therefore *assigns* it pool
-        # groove 0 — actively harmful, not merely lossy. Do not "tidy" the -1
-        # branch away: it is the shape the fix restores. Owned by the roadmap
-        # defect "The clip↔groove assignment contract is broken in both
-        # directions"; see API.md § "Clip API" for the wire detail and
-        # § "Object-valued reads" for the convention this was an exception to.
+        # See API.md § "Clip API" for the wire detail, § "Groove API" for the
+        # one-way reasoning, and § "Object-valued reads" for the convention
+        # this fork no longer makes an exception to.
         #--------------------------------------------------------------------------------
         def clip_get_groove(clip, params: Tuple[Any] = ()):
-            index = groove_index(self.song, clip.groove)
+            index = clip_groove_index(self.song, clip)
             self.logger.info("Getting property for clip: groove = %d" % index)
             return (index,)
 
@@ -507,16 +509,23 @@ class ClipHandler(AbletonOSCHandler):
             index = int(params[0])
             if index == NO_INDEX:
                 #--------------------------------------------------------------------------------
-                # Raises Boost.Python.ArgumentError in Live 12.4.5 (measured
-                # 2026-08-29): Live's setter refuses NoneType. Left in place
-                # deliberately — the exception propagates to /live/error like
-                # any other handler failure, which is a truthful "could not
-                # clear" rather than a silent no-op, and this is the line the
-                # roadmap fix replaces once a working spelling is found.
+                # Exactly -1 is rejected here rather than forwarded to Live.
+                # Forwarding produced a Boost.Python.ArgumentError naming a C++
+                # signature; this raise produces the same /live/error envelope
+                # with a detail that names the actual limit. The branch stays
+                # keyed on exactly NO_INDEX so -2 and below still fall through
+                # to resolve_groove and keep their out-of-range message; the
+                # literal "cannot be cleared" is what distinguishes the two on
+                # the wire (tests_unit/test_groove.py asserts on it).
                 #--------------------------------------------------------------------------------
-                self.logger.info("Setting property for clip: groove = %d (clearing)" % index)
-                clip.groove = None
-                return
+                raise ValueError(
+                    "A clip's groove cannot be cleared over this bridge: Live's "
+                    "setter is typed (TPyHandle<AClip>, TPyHandle<AAbstractGroove>) "
+                    "and rejects None (measured against Live 12.4.5, 2026-08-29). "
+                    "No other spelling for \"no groove\" is documented in the LOM "
+                    "(searched, not measured). Send a pool index >= 0 to assign; "
+                    "un-assign in Live's Clip Groove chooser. This pool has "
+                    "%d groove(s)." % len(self.song.groove_pool.grooves))
             #--------------------------------------------------------------------------------
             # resolve_groove validates before it indexes, so this line is the
             # rejection path for -2 and below, and for an index past the end of
@@ -540,7 +549,7 @@ class ClipHandler(AbletonOSCHandler):
             #--------------------------------------------------------------------------------
             track_index, clip_index = params
             clip = self.song.tracks[track_index].clip_slots[clip_index].clip
-            return groove_index(self.song, clip.groove)
+            return clip_groove_index(self.song, clip)
 
         self.osc_server.add_handler("/live/clip/get/groove", create_clip_callback(clip_get_groove))
         self.osc_server.add_handler("/live/clip/set/groove", create_clip_callback(clip_set_groove))

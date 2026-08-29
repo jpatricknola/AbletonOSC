@@ -327,18 +327,36 @@ have taken the whole pool read down with it. Measured against Live 12.4.5 on
 is now conservatism rather than protection, and it stays only because moving a
 field into the dump is a wire-contract change. Folding it in is the shape fix.
 
-### `Clip.groove` — "no groove" is indistinguishable from pool index 0
+### `Clip.groove` — the "no groove" read is gated, but the gate is unverified
 
-A clip with no groove assigned reads `0` from `/live/clip/get/groove`, the same
-value as a clip explicitly assigned to pool index `0`, so the `-1` sentinel the
-object-read pattern promises is unreachable; and `/live/clip/set/groove -1`
-cannot clear, because `clip.groove = None` raises `Boost.Python.ArgumentError`.
-Both measured against Live 12.4.5 on 2026-08-29.
+`/live/clip/get/groove` answers `-1` when `Clip.has_groove` is false, without
+consulting `Clip.groove` at all (`clip_groove_index` in
+`abletonosc/groove.py`). That replaced an `==` scan over the pool, which could
+only ever answer an index — so "no groove" and "pool index `0`" were the same
+value on the wire, and replaying a read of an ungrooved clip *assigned* it pool
+groove 0. Live never hands back `None` for `Clip.groove`; the companion flag is
+the discriminator, which is why the flag exists at all.
 
-Recorded here as the shape gap it is, but **owned by the roadmap defect "The
-clip↔groove assignment contract is broken in both directions"** — that entry
-carries the diagnosis, the consumer harm and the two separable fixes. Don't
-plan against this paragraph.
+⚠️ **Evidence tier: assumed, not measured.** That `has_groove` is false for a
+clip Live's UI shows as ungrooved is Live's own documented contract ("Returns
+true if a groove is associated with this clip", LOM, since Live 11.0), but this
+fork has never seen it answer `False`. The one reading taken (Live 12.4.5,
+2026-08-29) was on a freshly created clip, which reported `has_groove = True`
+in a pool holding one groove — consistent with the clip genuinely holding pool
+groove 0, and equally consistent with the flag being true for every clip.
+Separating the two needs a pool holding **two** grooves and a UI-confirmed
+ungrooved clip; grooves cannot be added to the pool over this bridge (no
+`Browser.grooves` root, and `GroovePool` has no add — see § "Loading an `.agr`
+groove file into the pool"), so it needs a human at Live's UI. Until that runs,
+the gap stays open: the code is right under either reading, and the *claim* is
+not yet evidence. `API.md` § "Groove API" carries the same ⚠️.
+
+**The setter half is not a gap here.** `/live/clip/set/groove` can assign but
+never un-assign, because Live's setter refuses `NoneType` (measured) and the
+LOM documents no other spelling for "no groove" (searched). That is a layer-1
+Live limit, not a fork shape gap; it lives in `API.md` § "Groove API",
+"Assignment is one-way", and in `SESHAT.md`. The `-1` argument that once
+claimed to clear has been withdrawn.
 
 ## Residual member gaps
 

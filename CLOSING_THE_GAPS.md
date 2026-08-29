@@ -96,11 +96,14 @@ The wire form is the review subject, so one bucket each.
 | **Groove Pool `base` in the dump** | Fold `base` into `/live/song/get/groove_pool` as a sixth field and register `/live/groove/get/base` against the measured type. The protective reason is gone — measured 2026-08-29, `base` is a plain string (`gb_sixteen`) that encodes cleanly — so what is left is a wire-contract change to a reply Seshat already parses, which is why it stands alone. `/live/groove/start_listen/base` stays unregistered: [that asymmetry is deliberate](FORK_GAPS.md#groovebase-has-no-listen-pair), not an oversight to fix. Closes the [shape gap](FORK_GAPS.md#groove-pool-dump--base-excluded). |
 | **Clip notes listener** | `/live/clip/start_listen/notes` over Live's `add_notes_listener`. The subscription is five lines; **the push shape is the whole PR**. Resending the clip's full nine-field `notes_extended` group on every edit is the naive answer — decide between that and a bare "contents changed" ping the client follows with a read, before writing the handler. Closes the [residual entry](FORK_GAPS.md#clipnotes-has-no-listener). |
 
-Not a bucket: **`Clip.groove`'s unreachable `-1`**. Recorded as a shape gap
-but owned by the roadmap defect "The clip↔groove assignment contract is
-broken in both directions", which carries the diagnosis and the two
-separable fixes. FORK_GAPS says explicitly not to plan against that
-paragraph.
+Not a bucket: **`Clip.groove`'s `-1`**. The read is now gated on Live's own
+`Clip.has_groove` rather than an `==` scan, and the `-1` argument to
+`/live/clip/set/groove` has been withdrawn — assignment is one-way, which is a
+Live limit and not a shape this fork can close. What is left is a
+*verification* gap, not a code one: this fork has never seen `has_groove`
+answer `False`, and confirming it needs a two-groove pool and a UI-confirmed
+ungrooved clip, i.e. a human at Live's UI rather than a PR. It stays recorded
+in [FORK_GAPS](FORK_GAPS.md) for that reason.
 
 ## Member buckets by owning class
 
