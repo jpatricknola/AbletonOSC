@@ -24,6 +24,123 @@ def note_name_to_midi(name):
             return index
     return None
 
+#--------------------------------------------------------------------------------
+# Extended notes — the canonical field order, shared by every address in the
+# "Clip: Extended notes" block below (a Seshat extension; see SESHAT.md).
+#
+# The first five fields are exactly the order the old five-field addresses
+# (/live/clip/get/notes, /live/clip/add/notes) have always used, so a client
+# upgrades by widening its stride rather than by re-reading the fields. The
+# note id is not in this tuple because it is not settable and not part of an
+# *add*: it is appended last on every reply, which makes the add form the same
+# group truncated to eight.
+#
+# Nothing here may be reordered without changing the wire contract documented
+# in API.md § "Extended notes (note ids)".
+#--------------------------------------------------------------------------------
+EXTENDED_NOTE_FIELDS = ("pitch", "start_time", "duration", "velocity", "mute",
+                        "probability", "velocity_deviation", "release_velocity")
+
+#--------------------------------------------------------------------------------
+# Per-field coercion, positionally matched to EXTENDED_NOTE_FIELDS. Clients such
+# as TouchOSC send every numeric argument as a float, so a pitch arrives as
+# 60.0 and a mute flag as 0.0; Live wants an int pitch and a real bool. The
+# same table types the deprecated tuple forms (first five entries), so those
+# cannot drift from the extended ones.
+#--------------------------------------------------------------------------------
+def _to_bool(value):
+    return bool(int(value))
+
+EXTENDED_NOTE_COERCIONS = (int, float, float, float, _to_bool,
+                           float, float, float)
+
+
+def coerce_note_fields(group: Tuple[Any]) -> dict:
+    """
+    Map a wire group of note field values onto {field_name: coerced_value},
+    in canonical order. Accepts a group shorter than the full eight (the
+    deprecated five-field forms use the first five).
+    """
+    return dict((field, coerce(value))
+                for field, coerce, value in zip(EXTENDED_NOTE_FIELDS,
+                                                EXTENDED_NOTE_COERCIONS,
+                                                group))
+
+
+def make_note_specification(group: Tuple[Any]):
+    """
+    Build a Live.Clip.MidiNoteSpecification from an 8-field wire group.
+
+    Isolated in one function deliberately: whether the constructor accepts
+    `probability`, `velocity_deviation` and `release_velocity` as keyword
+    arguments is unmeasured (API.md marks it as such). If a future measurement
+    says it does not, setting them as attributes on the constructed spec is a
+    change to this function alone.
+    """
+    return Live.Clip.MidiNoteSpecification(**coerce_note_fields(group))
+
+
+def flatten_notes_extended(notes) -> list:
+    """
+    Nine fields per note — the canonical order, then the note id.
+    """
+    flat = []
+    for note in notes:
+        flat += [getattr(note, field) for field in EXTENDED_NOTE_FIELDS]
+        flat.append(note.note_id)
+    return flat
+
+
+def flatten_notes_basic(notes) -> list:
+    """
+    Five fields per note: the shape /live/clip/get/notes has always replied,
+    applied here to the selected-notes vector so that the deprecated
+    Clip.get_selected_notes member never has to be called.
+    """
+    flat = []
+    for note in notes:
+        flat += [getattr(note, field) for field in EXTENDED_NOTE_FIELDS[:5]]
+    return flat
+
+
+def parse_note_groups(params: Tuple[Any], stride: int, address: str) -> list:
+    """
+    Split flat wire params into fixed-stride note groups, or raise.
+
+    A zero-length request is an error rather than a no-op: every address that
+    parses groups mutates the clip, and a client that sent no notes at all has
+    a bug worth hearing about. (/live/clip/add/notes, upstream's, silently
+    does nothing in that case; it is left alone.)
+    """
+    if len(params) == 0 or len(params) % stride != 0:
+        raise ValueError("Invalid number of arguments for %s. Expected a non-zero "
+                         "multiple of %d note fields, got %d." % (address, stride, len(params)))
+    return [tuple(params[offset:offset + stride])
+            for offset in range(0, len(params), stride)]
+
+
+def parse_note_ids(params: Tuple[Any], address: str) -> Tuple[int]:
+    """
+    Cast wire note ids to a tuple of ints, or raise if none were given.
+    """
+    if len(params) == 0:
+        raise ValueError("Invalid number of arguments for %s. At least one note id "
+                         "must be passed." % address)
+    return tuple(int(note_id) for note_id in params)
+
+
+def parse_deprecated_note_tuple(params: Tuple[Any], address: str) -> Tuple[Tuple]:
+    """
+    Group flat wire params into the ((pitch, start_time, duration, velocity,
+    mute), ...) tuple that Live's deprecated set_notes / replace_selected_notes
+    members take, with the canonical per-field coercions applied.
+    """
+    groups = parse_note_groups(params, 5, address)
+    return tuple(tuple(coerce(value)
+                       for coerce, value in zip(EXTENDED_NOTE_COERCIONS, group))
+                 for group in groups)
+
+
 class ClipHandler(AbletonOSCHandler):
     class_identifier = "clip"
 
@@ -77,6 +194,13 @@ class ClipHandler(AbletonOSCHandler):
             "stop",
             "duplicate_loop",
             "remove_notes_by_id",
+            #--------------------------------------------------------------------------------
+            # Both take no arguments and return nothing, which is exactly what
+            # _call_method handles. Part of the extended-notes block below in
+            # everything but registration site (SESHAT.md).
+            #--------------------------------------------------------------------------------
+            "select_all_notes",
+            "deselect_all_notes",
             #--------------------------------------------------------------------------------
             # quantize(quantization_grid, amount).
             #
@@ -200,6 +324,123 @@ class ClipHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/clip/get/notes", create_clip_callback(clip_get_notes))
         self.osc_server.add_handler("/live/clip/add/notes", create_clip_callback(clip_add_notes))
         self.osc_server.add_handler("/live/clip/remove/notes", create_clip_callback(clip_remove_notes))
+
+        #--------------------------------------------------------------------------------
+        # Clip: Extended notes (note ids) — a Seshat extension, added in this fork.
+        #
+        # Everything above flattens a note to five fields, which throws away the
+        # note_id Live assigns and the probability / velocity_deviation /
+        # release_velocity it carries — and without an id on the wire, the whole
+        # id-keyed half of Live's note API is unreachable from a client, including
+        # the /live/clip/remove_notes_by_id this fork already registers.
+        #
+        # These addresses expose that half. The old five-field addresses are not
+        # touched: their reply shape is pinned by tests_unit/test_clip_notes.py,
+        # and a client upgrades by moving to a parallel address, never by having
+        # one change under it. Canonical field order lives in
+        # EXTENDED_NOTE_FIELDS at module scope; see API.md § "Extended notes".
+        #--------------------------------------------------------------------------------
+        def clip_get_notes_extended(clip, params: Tuple[Any] = ()):
+            if len(params) == 4:
+                pitch_start, pitch_span, time_start, time_span = params
+            elif len(params) == 0:
+                pitch_start, pitch_span, time_start, time_span = 0, 127, -8192, 16384
+            else:
+                raise ValueError("Invalid number of arguments for /clip/get/notes_extended. Either 0 or 4 arguments must be passed.")
+            notes = clip.get_notes_extended(pitch_start, pitch_span, time_start, time_span)
+            return tuple(flatten_notes_extended(notes))
+
+        def clip_add_notes_extended(clip, params: Tuple[Any] = ()):
+            #--------------------------------------------------------------------------------
+            # Silent on success, even though Live may well return the new notes:
+            # add_new_notes' return value is unmeasured, so the reply would be a
+            # guess. Clients read the new ids back with get/notes_extended.
+            #--------------------------------------------------------------------------------
+            groups = parse_note_groups(params, 8, "/live/clip/add/notes_extended")
+            notes = [make_note_specification(group) for group in groups]
+            clip.add_new_notes(tuple(notes))
+
+        def clip_get_selected_notes_extended(clip, params: Tuple[Any] = ()):
+            return tuple(flatten_notes_extended(clip.get_selected_notes_extended()))
+
+        def clip_get_selected_notes(clip, params: Tuple[Any] = ()):
+            #--------------------------------------------------------------------------------
+            # Five fields, from the extended call: Live's own get_selected_notes is
+            # deprecated, and flattening here gives the same five-field shape
+            # without calling it.
+            #--------------------------------------------------------------------------------
+            return tuple(flatten_notes_basic(clip.get_selected_notes_extended()))
+
+        def clip_get_notes_by_id(clip, params: Tuple[Any] = ()):
+            note_ids = parse_note_ids(params, "/live/clip/get_notes_by_id")
+            return tuple(flatten_notes_extended(clip.get_notes_by_id(note_ids)))
+
+        def clip_apply_note_modifications(clip, params: Tuple[Any] = ()):
+            #--------------------------------------------------------------------------------
+            # Live's modify-in-place path, as Push drives it: fetch the notes by id,
+            # mutate the objects, hand the same vector back. Every cited id is
+            # checked against what Live returned *before* anything is mutated, so an
+            # unknown id is a clean /live/error with the clip untouched rather than a
+            # half-applied edit.
+            #--------------------------------------------------------------------------------
+            groups = parse_note_groups(params, 9, "/live/clip/apply_note_modifications")
+            note_ids = tuple(int(group[8]) for group in groups)
+            notes = clip.get_notes_by_id(note_ids)
+            notes_by_id = dict((note.note_id, note) for note in notes)
+            for note_id in note_ids:
+                if note_id not in notes_by_id:
+                    raise ValueError("No note with id %d in this clip "
+                                     "(/live/clip/apply_note_modifications)" % note_id)
+            for group in groups:
+                note = notes_by_id[int(group[8])]
+                for field, value in coerce_note_fields(group).items():
+                    setattr(note, field, value)
+            clip.apply_note_modifications(notes)
+
+        def clip_duplicate_notes_by_id(clip, params: Tuple[Any] = ()):
+            if len(params) < 3:
+                raise ValueError("Invalid number of arguments for /live/clip/duplicate_notes_by_id. "
+                                 "Expected destination_time, transposition_amount and at least one note id.")
+            destination_time = float(params[0])
+            transposition_amount = int(params[1])
+            note_ids = parse_note_ids(params[2:], "/live/clip/duplicate_notes_by_id")
+            #--------------------------------------------------------------------------------
+            # OSC has no null, so a negative destination time is the sentinel for
+            # Live's None default (duplicate in place). -1 is the documented
+            # spelling; any negative value means the same, which is why duplicating
+            # *to* a negative beat is not reachable through this address.
+            #--------------------------------------------------------------------------------
+            if destination_time < 0:
+                destination_time = None
+            new_note_ids = clip.duplicate_notes_by_id(note_ids, destination_time,
+                                                      transposition_amount)
+            return tuple(int(note_id) for note_id in new_note_ids)
+
+        def clip_select_notes_by_id(clip, params: Tuple[Any] = ()):
+            clip.select_notes_by_id(parse_note_ids(params, "/live/clip/select_notes_by_id"))
+
+        #--------------------------------------------------------------------------------
+        # The two deprecated tuple members, exposed as pass-throughs for LOM
+        # parity. Live's own docstrings carry no description of what they do, and
+        # their semantics are unmeasured (API.md marks both). New clients should use
+        # add/notes_extended and apply_note_modifications instead.
+        #--------------------------------------------------------------------------------
+        def clip_replace_selected_notes(clip, params: Tuple[Any] = ()):
+            clip.replace_selected_notes(parse_deprecated_note_tuple(params, "/live/clip/replace_selected_notes"))
+
+        def clip_set_notes(clip, params: Tuple[Any] = ()):
+            clip.set_notes(parse_deprecated_note_tuple(params, "/live/clip/set_notes"))
+
+        self.osc_server.add_handler("/live/clip/get/notes_extended", create_clip_callback(clip_get_notes_extended))
+        self.osc_server.add_handler("/live/clip/add/notes_extended", create_clip_callback(clip_add_notes_extended))
+        self.osc_server.add_handler("/live/clip/get/selected_notes_extended", create_clip_callback(clip_get_selected_notes_extended))
+        self.osc_server.add_handler("/live/clip/get/selected_notes", create_clip_callback(clip_get_selected_notes))
+        self.osc_server.add_handler("/live/clip/get_notes_by_id", create_clip_callback(clip_get_notes_by_id))
+        self.osc_server.add_handler("/live/clip/apply_note_modifications", create_clip_callback(clip_apply_note_modifications))
+        self.osc_server.add_handler("/live/clip/duplicate_notes_by_id", create_clip_callback(clip_duplicate_notes_by_id))
+        self.osc_server.add_handler("/live/clip/select_notes_by_id", create_clip_callback(clip_select_notes_by_id))
+        self.osc_server.add_handler("/live/clip/replace_selected_notes", create_clip_callback(clip_replace_selected_notes))
+        self.osc_server.add_handler("/live/clip/set_notes", create_clip_callback(clip_set_notes))
 
         def clips_filter_handler(params: Tuple):
             # TODO: Pre-cache clip notes

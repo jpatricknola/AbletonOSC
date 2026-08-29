@@ -198,7 +198,7 @@ fork side has since landed are marked._
 | High | Return/master mixer and device addressing | An empty return cannot become a usable reverb/delay path without human device loading | **Landed** (`/live/return_track/*`, `/live/master/*`) for top-level devices; the remaining subset is under [Addressing gaps](#addressing-gaps) |
 | High | `Application.View.is_view_visible`, `hide_view` | Closes `show_view`'s blind loop; makes view smoke tests self-verifying | **Landed.** `focused_document_view` (Session vs Arranger, exact) still open and belongs in the same handler |
 | Medium–high | `DeviceParameter.value_items`, `is_enabled`, `automation_state`, `default_value`, `original_name` | Tools expose raw min/max but cannot name enum choices, tell whether a parameter is disabled, or warn that automation owns it | **Landed** as one unit, ahead of any device-specific API — see [Closed](#device-parameters--numeric-only--closed-2026-08-29) |
-| Medium–high | Extended note identity and modification (`note_id`, `apply_note_modifications`, selection/by-ID methods) | Safe single-note edits; keeps probability, deviation, release velocity the flattened reply discards | `edit_notes` composes remove + add today, keyed on the five-field reply; a widened reply carrying `note_id` would let it preserve probability, deviation and release velocity. See [Shape gaps](#notes--liveclipgetnotes-flattens-to-five-fields) |
+| Medium–high | Extended note identity and modification (`note_id`, `apply_note_modifications`, selection/by-ID methods) | Safe single-note edits; keeps probability, deviation, release velocity the flattened reply discards | **Landed** as one unit — see [Closed](#notes--flattened-to-five-fields--closed-2026-08-29). `/live/clip/get/notes_extended` carries `note_id`, probability, deviation and release velocity, and `apply_note_modifications` edits a note in place keeping its id, so Seshat's `edit_notes` no longer has to compose remove + add |
 | Medium | Count-in and automation state (`count_in_duration`, `is_counting_in`, `session_automation_record`, `re_enable_automation_enabled`) | Recording readiness and automation ownership are musically meaningful, exact, and invisible today | One focused transport/automation feature; the `re_enable_automation` action is already bridged |
 | Medium | `Song.View.draw_mode`, `follow_song` | Readable absolute state instead of focus-routed toggle shortcuts | Fold into a concrete view/automation workflow; no value as isolated knobs |
 | Medium–low | Groove Pool enumeration and clip assignment | Makes `set_groove_amount` useful without a groove assigned by hand | Curated entry above; index-based serialisation in Python |
@@ -312,19 +312,6 @@ are not addressable because there is no per-object view resolver.
 _Members the inventory counts as exposed, but whose wire form loses part
 of what Live provides. Hand-maintained._
 
-### Notes — `/live/clip/get/notes` flattens to five fields
-
-The handler calls `get_notes_extended` and emits
-`(pitch, start_time, duration, velocity, mute)` per note. Discarded:
-`note_id`, `probability`, `velocity_deviation`, `release_velocity`.
-Without `note_id` the ID-keyed members — `apply_note_modifications`,
-`get_notes_by_id`, `duplicate_notes_by_id`, `select_notes_by_id` — cannot
-be used from the client even if addresses were added; `remove_notes_by_id`
-is registered today but the client has no way to learn an ID.
-`/live/clip/add/notes` likewise takes five fields, so probability and
-deviation cannot be written. Fix is a widened reply (and a `notes_extended`
-address to keep the old shape stable), not a new member.
-
 ### Routing — names, not objects
 
 `/live/track/get/available_input_routing_types` etc. return names;
@@ -366,6 +353,45 @@ curated entry, and is the first consumer of this pattern). The generated
 inventory below still lists the closed members as gaps: it is regenerated only
 from a `/live/application/dump_lom` taken against a Live running the *installed*
 copy, and no dump has been taken since this landed.
+
+### Notes — flattened to five fields — closed 2026-08-29
+
+Was a shape gap: `/live/clip/get/notes` called `get_notes_extended` and emitted
+only `(pitch, start_time, duration, velocity, mute)` per note, discarding
+`note_id`, `probability`, `velocity_deviation` and `release_velocity`, and
+`/live/clip/add/notes` took the same five, so the three extended fields could
+not be written at all. Without a `note_id` on the wire the id-keyed half of
+Live's note API was unreachable from a client even where an address existed —
+`/live/clip/remove_notes_by_id` was registered and `API.md` had to warn that
+nothing in this API yielded an id to pass it.
+
+Closed by roadmap item B-1, which adds twelve addresses to `abletonosc/clip.py`
+without touching the old ones: `get/notes_extended`, `add/notes_extended`,
+`get/selected_notes_extended`, `get/selected_notes`, `get_notes_by_id`,
+`apply_note_modifications`, `duplicate_notes_by_id`, `select_notes_by_id`,
+`select_all_notes`, `deselect_all_notes`, and the deprecated
+`replace_selected_notes` / `set_notes` pass-throughs. `API.md` § "Extended
+notes (note ids)" is the permanent record — the canonical nine-field group
+order, the negative-`destination_time` sentinel, the int32/int64 note-id edge,
+and the ⚠️ markers on everything still unmeasured against a running Live.
+
+The old five-field addresses are byte-identical: their handler functions were
+not edited, and `tests_unit/test_clip_notes.py` pins the five-field reply
+against notes that carry the extended fields.
+
+Members this closed: `apply_note_modifications`, `get_notes_by_id`,
+`duplicate_notes_by_id`, `select_notes_by_id`, `get_selected_notes`,
+`get_selected_notes_extended`, `select_all_notes`, `deselect_all_notes`,
+`replace_selected_notes`, `set_notes` — ten inventory rows on
+`Live.Clip.Clip`.
+
+Still open on notes, as ordinary member gaps rather than a shape gap: the
+`notes` **listener** (`add_notes_listener`), and note editing on Arrangement
+clips and take lanes, which needs the clip resolver under
+[Addressing gaps](#addressing-gaps). The generated inventory below still lists
+the closed members as gaps: it is regenerated only from a
+`/live/application/dump_lom` taken against a Live running the *installed* copy,
+and no dump has been taken since this landed.
 
 ### Device parameters — numeric only — closed 2026-08-29
 

@@ -100,12 +100,22 @@ ALIASES = {
     "Live.Scene.Scene": {"clip_slots": "/live/clip_slot/*"},
     "Live.ClipSlot.ClipSlot": {"clip": "/live/clip/*"},
     "Live.Clip.Clip": {
-        "get_notes_extended": "/live/clip/get/notes",
-        "get_all_notes_extended": "/live/clip/get/notes (no args)",
-        "add_new_notes": "/live/clip/add/notes",
+        "get_notes_extended": "/live/clip/get/notes, /live/clip/get/notes_extended",
+        "get_all_notes_extended": "/live/clip/get/notes, /live/clip/get/notes_extended (no args)",
+        "add_new_notes": "/live/clip/add/notes, /live/clip/add/notes_extended",
         "remove_notes_extended": "/live/clip/remove/notes",
         "get_notes": "/live/clip/get/notes (this is the deprecated tuple form)",
         "remove_notes": "/live/clip/remove/notes (deprecated form)",
+        #--------------------------------------------------------------------------------
+        # The verb-form selection getters: their last segment is
+        # "selected_notes"/"selected_notes_extended", which does not equal the
+        # member name, so segment equality alone would keep counting them as
+        # gaps. The other extended-notes addresses are bare member names
+        # (/live/clip/get_notes_by_id, /live/clip/set_notes, …) and need no
+        # alias.
+        #--------------------------------------------------------------------------------
+        "get_selected_notes": "/live/clip/get/selected_notes",
+        "get_selected_notes_extended": "/live/clip/get/selected_notes_extended",
     },
 }
 

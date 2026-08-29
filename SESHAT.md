@@ -1073,6 +1073,87 @@ so treat any merge that reverts one as a regression, not a preference.
   structured errors, and that the pre-existing numeric addresses still answer
   unchanged). See § Merge hazards.
 
+- **`clip.py` — the extended-notes block (twelve addresses).** Upstream
+  describes a note as five numbers: `/live/clip/get/notes` calls
+  `get_notes_extended` and then flattens each `MidiNote` to
+  `(pitch, start_time, duration, velocity, mute)`, and `/live/clip/add/notes`
+  builds a five-field `MidiNoteSpecification`. Everything else Live knows about
+  a note — the `note_id` it assigned, `probability`, `velocity_deviation`,
+  `release_velocity` — was thrown away on the way out and unwritable on the way
+  in, and without an id on the wire the whole id-keyed half of Live's note API
+  was unreachable, including the `/live/clip/remove_notes_by_id` upstream
+  already registers. Added here, in one fork-owned block after the existing
+  notes handlers: `get/notes_extended`, `add/notes_extended`,
+  `get/selected_notes_extended`, `get/selected_notes`, `get_notes_by_id`,
+  `apply_note_modifications`, `duplicate_notes_by_id`, `select_notes_by_id`,
+  the deprecated `replace_selected_notes` / `set_notes` pass-throughs, and
+  `select_all_notes` / `deselect_all_notes` in the generic `methods` list.
+  `API.md` § "Extended notes (note ids)" is the wire contract.
+
+  Decisions worth keeping:
+
+  - **One canonical field order, defined once.** `EXTENDED_NOTE_FIELDS` at
+    module scope is `(pitch, start_time, duration, velocity, mute, probability,
+    velocity_deviation, release_velocity)`, and every replier and parser in the
+    block derives its order from it, so no two addresses can disagree about
+    what the sixth number means. The first five are exactly upstream's order,
+    which is what lets a client upgrade by widening its stride; `note_id` is
+    appended last on replies rather than living in the tuple, which makes the
+    *add* form the same group truncated to eight — Live assigns the id, so it
+    is never sent. A matching `EXTENDED_NOTE_COERCIONS` table types the fields
+    on the way in (int pitch, float times and velocities, `bool(int(...))`
+    mute), so a float-sending client such as TouchOSC needs no conversion of
+    its own. Upstream's `clip_add_notes` coerces nothing and is deliberately
+    left that way — its wire behaviour must not change.
+  - **The old addresses were not edited at all.** `clip_get_notes`,
+    `clip_add_notes` and `clip_remove_notes` are untouched, which is why their
+    replies are byte-identical rather than carefully kept so;
+    `tests_unit/test_clip_notes.py` pins the five-field reply against notes
+    that *do* carry the extended fields, so a future "tidy-up" that routes the
+    old address through the new flattener fails.
+  - **`add/notes_extended` is silent, on purpose.** `add_new_notes`' return
+    value is unmeasured, so a reply would be a guess; clients read the new ids
+    back with one `get/notes_extended`. If a measurement later shows Live
+    returns the new notes, giving the address a reply is a follow-up item, not
+    a correction.
+  - **`apply_note_modifications` validates before it mutates.** The handler
+    fetches the cited ids with `get_notes_by_id`, checks that Live returned
+    every id the request named *before* setting a single field, then mutates
+    the fetched objects and hands the same vector back — so an unknown id is a
+    `/live/error` naming it with the clip untouched, rather than a half-applied
+    edit. This is the path Live's own Push code takes (fetch → mutate → apply),
+    and it is what lets Seshat's `edit_notes` stop composing remove + add,
+    which destroys probability, deviation and release velocity on every edit
+    and changes the note's id.
+  - **A negative `destination_time` is the `None` sentinel** for
+    `duplicate_notes_by_id`, because OSC has no null. `-1` is the documented
+    spelling and any negative value means the same, so duplicating a note *to*
+    a negative beat is not expressible — recorded in `API.md` rather than
+    worked around.
+  - **The two deprecated members are exposed as pass-throughs**, for LOM
+    parity, with the coercions applied and a comment marking them deprecated.
+    `get/selected_notes` does *not* call Live's deprecated
+    `get_selected_notes`: it flattens the extended vector to five fields, so
+    the old shape is available without the old member.
+  - **Every address is a literal `add_handler` string** (or a name in the
+    `methods` list), for the same reason as the device block: Seshat's
+    `vendored_addresses_test` scrapes those literals and checks each appears in
+    `API.md`.
+
+  Everything rides the fork's own `create_clip_callback` (§ Merge hazards), so
+  indices are normalised, replies get `(track_index, clip_index, *rv)`
+  prepended and failures become the structured `/live/error ("request", …)`
+  envelope. No listener is added or changed. ⚠️ Whether
+  `MidiNoteSpecification` takes the three extended fields as constructor
+  keywords, whether a real `MidiNote`'s attributes are writable, what
+  `get_notes_by_id` does with an unknown id, what the deprecated members
+  actually do, and whether the selection API needs the clip in the detail view
+  are all **unmeasured** — measurement needs a probe in the installed copy,
+  which the environment refused (the same wall B-2 hit). `API.md` carries the
+  same ⚠️ markers and the Live verification checks are in the archived plan.
+  The Live-free tripwire is `tests_unit/test_clip_notes.py` (52 cases). See
+  § Merge hazards.
+
 ### Seshat's own handlers
 
 Three modules that upstream has no equivalent of. Each carries its own header
@@ -1270,6 +1351,16 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   a client only notices that its mirror drifts. The three edits are one line
   each and easy to lose in a conflict resolution.
   `tests_unit/test_listener_identity.py` is the tripwire.
+
+  The `clip.py` half of that bullet also covers the **extended-notes block**:
+  a merge that takes upstream's `clip.py` wholesale drops the twelve addresses
+  and the module-level `EXTENDED_NOTE_FIELDS` / helper functions above the
+  class, with no conflict and no error — the addresses simply stop existing.
+  Watch upstream **PR #198** in particular: this fork took its `quantize`
+  method and deliberately left its extended-note work (see the additions
+  section), so merging that PR now means reconciling two different extended
+  note contracts, not adding a missing one. `tests_unit/test_clip_notes.py` is
+  that block's tripwire.
 
 - **Anything touching `track.py`'s `create_track_callback`, or
   `manager.py`'s `reload_imports` list.** In this fork `create_track_callback`
