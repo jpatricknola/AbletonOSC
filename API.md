@@ -1480,12 +1480,16 @@ audio clip all arrive as the structured
 both mean "duplicate in place". Notes *can* start before beat 0 in Live, but
 duplicating *to* such a position is not expressible through this address.
 
-**Note ids in `[2^31, 2^32)` would drop the reply.** The vendored pythonosc
-builder tags a Python int as int32 unless `bit_length() > 32`, so an id in that
-window fails `struct.pack(">i", …)` and the datagram is dropped with a logged
-`BuildError`; an id at or above `2^32` goes out int64-tagged (`h`), which a
-client's decoder must tolerate. Live's ids are small monotonic integers in
-practice — this is documented rather than worked around.
+**Large note ids go out int64-tagged.** The vendored pythonosc builder tags a
+Python int as int32 only inside the *signed* int32 window `[-2^31, 2^31)`;
+anything outside it, in either direction, goes out int64-tagged (`h`), which a
+client's decoder must tolerate. That window is the fix for a real drop: the
+builder used to test `bit_length() > 32`, which ignores the sign bit, so an id
+in `[2^31, 2^32)` was tagged int32, failed `struct.pack(">i", …)`, and took the
+whole datagram with it — `OSCServer.send` catches the `BuildError` and only
+logs. Live's ids are small monotonic integers in practice, so this window is
+unlikely to be reached; it is now encodable rather than silently fatal
+(`tests_unit/test_int_encoding.py`).
 
 **Unmeasured, and marked ⚠️ until a Live verification session runs**
 (the checks are written out in the plan doc archived with this item):

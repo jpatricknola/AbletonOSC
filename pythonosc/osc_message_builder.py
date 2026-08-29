@@ -112,10 +112,19 @@ class OscMessageBuilder(object):
         elif arg_value is False:
             arg_type = self.ARG_TYPE_FALSE
         elif isinstance(arg_value, int):
-            if arg_value.bit_length() > 32:
-                arg_type = self.ARG_TYPE_INT64
-            else:
+            # Seshat fix: the int32 window is the *signed* one. Upstream tested
+            # bit_length() > 32, which ignores the sign bit and so tagged every
+            # value in [2**31, 2**32) — and, symmetrically, in
+            # (-2**32, -2**31) — as int32; struct.pack(">i", …) then raised and
+            # osc_server.send dropped the entire datagram with only a log line.
+            # Those values are representable, and are now tagged int64, which
+            # is what upstream already did for anything wider. Live's note ids
+            # are the concrete case (see API.md), but the window is reachable
+            # by any int-valued reply.
+            if -2 ** 31 <= arg_value < 2 ** 31:
                 arg_type = self.ARG_TYPE_INT
+            else:
+                arg_type = self.ARG_TYPE_INT64
         elif isinstance(arg_value, float):
             arg_type = self.ARG_TYPE_FLOAT
         elif isinstance(arg_value, tuple) and len(arg_value) == 4:

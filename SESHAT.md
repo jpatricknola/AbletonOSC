@@ -381,6 +381,26 @@ ongoing cost — merging upstream releases — is close to zero.
   in § "Additions to upstream's code" — taking upstream's file back restores
   this send silently, along with dropping every address added there.
 
+- **`pythonosc/osc_message_builder.py` — the int32 window is the signed
+  one.** `_get_arg_type` chose int64 only when `bit_length() > 32`. Python's
+  `bit_length()` ignores the sign bit, so every value in `[2**31, 2**32)` —
+  and its negative mirror `(-2**32, -2**31]` — was tagged `i`, and then
+  `struct.pack(">i", …)` raised. `OSCServer.send` catches `BuildError` and
+  only logs, so the **entire reply datagram** disappeared: no reply, no
+  error address, nothing on the wire for the client to time out against
+  except silence. The check is now the actual signed range
+  (`-2**31 <= value < 2**31` → `i`, otherwise `h`), which is what upstream
+  already did for anything wider.
+
+  Reachable from any int-valued reply; the concrete case is Live's note ids
+  on `/live/clip/get/notes_extended` and the id-keyed addresses, where
+  `API.md` documents the width a client's decoder must tolerate.
+  `tests_unit/test_int_encoding.py` pins tag selection at both boundaries
+  and round-trips each one over the loopback socket.
+
+  **Merge hazard.** `pythonosc/` is vendored, so a wholesale refresh from
+  upstream pythonosc reintroduces the drop; the test above is the tripwire.
+
 ### Deliberate changes to upstream's behaviour
 
 Not bug fixes and not extensions: places where upstream works as intended and
