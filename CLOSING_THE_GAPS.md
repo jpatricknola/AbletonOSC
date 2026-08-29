@@ -10,9 +10,11 @@ five addressing gaps and four shape gaps._
 **The goal is full Live Object Model coverage.** Every bucket below is
 scheduled work; the order is impact-per-effort, most valuable first, and
 the tail is genuinely last rather than out of scope. The only surface that
-stays permanently unaddressed is what a safety argument keeps out — rule 5
-below, and rule 4's constraint on handlers taking a filesystem path. A
-bucket is never held back for want of a downstream consumer requesting it.
+stays permanently unaddressed is what a safety argument keeps out, and that
+is rule 5 alone. Rule 4 is not an exclusion: the path-taking handlers are
+scheduled work in *Simpler and Sample*, and the rule constrains the shape
+of their handlers, not whether they get written. A bucket is never held
+back for want of a downstream consumer requesting it.
 
 Buckets are named, not numbered. FORK_GAPS.md points at three of them by
 name — the [cue-points bucket](FORK_GAPS.md#songcue_points--the-remaining-locator-members),
@@ -58,8 +60,21 @@ members once for all of them. Ordered last, not excluded.
    tuple; say which in the PR.
 4. Handlers taking an absolute filesystem path (`Track.create_audio_clip`,
    `ClipSlot.create_audio_clip`, `SimplerDevice.replace_sample`) follow
-   the fork's path-safety rule. All three live in one bucket so the rule
-   is reviewed once.
+   the fork's path-safety rule, which constrains their shape and does not
+   keep them out. Note what the rule cannot be here: `/live/browser/export`
+   answers the hazard by naming the destination itself, which works only
+   because no caller cared what the file was called. These three are the
+   opposite — Live's signature takes the path as the *subject* of the call
+   (`create_audio_clip((Track), (object)path, (float)position)`), and the
+   caller is choosing which file. They are also reads rather than writes,
+   so traversal and clobber, the concerns `export` removed, do not apply
+   in the same form. The bucket must therefore decide a shape rather than
+   copy one: a rooted allowlist (`realpath` the argument, require it under
+   a declared root set, reject otherwise with `export`'s error shape) is
+   the presumed answer, with a `BrowserItem.uri` form alongside it if
+   measurement shows a URI resolves to a filesystem path. Settle the root
+   set against a stated consumer use case — there is none on record yet.
+   All three live in one bucket so the shape is reviewed once.
 5. `press_current_dialog_button` is the one exception to the coverage goal
    and it is a **safety** exception, not a scheduling one: a dialog on
    screen may be guarding unsaved work, and pressing its buttons blind is

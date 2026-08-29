@@ -1286,7 +1286,7 @@ so treat any merge that reverts one as a regression, not a preference.
 
   | File | What it gains |
   |---|---|
-  | `abletonosc/groove.py` (**new**) | `GrooveHandler` (`class_identifier = "groove"`) — get/set for `name`, `base` and the four amounts, listen pairs for the five observable ones — plus the Live-free pool helpers `GROOVE_FIELDS`, `GROOVE_FIELD_COERCIONS`, `NO_INDEX`, `resolve_groove`, `groove_index`, `groove_pool_dump` |
+  | `abletonosc/groove.py` (**new**) | `GrooveHandler` (`class_identifier = "groove"`) — get/set for `name`, `base` and the four amounts, listen pairs for the five observable ones — plus the Live-free pool helpers `GROOVE_FIELDS`, `GROOVE_FIELD_COERCIONS`, `NO_INDEX`, `resolve_groove`, `groove_index`, `clip_groove_index`, `groove_pool_dump` |
   | `abletonosc/song.py` | `/live/song/get/groove_pool` and its listen pair, hand-written beside the `appointed_device` block |
   | `abletonosc/clip.py` | `/live/clip/get|set/groove` and its listen pair, hand-written after the extended-notes block; the `##"groove"` TODO line replaced by a pointer to it |
   | `abletonosc/__init__.py`, `manager.py` | the export, the handler-list entry, and a `reload_imports` entry ordered *before* `clip` and `song` |
