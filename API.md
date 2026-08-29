@@ -1294,7 +1294,7 @@ ignored**. Sending fewer than two is a malformed request and answers on
 | `/live/clip/get/notes` | `track_id, clip_id, [start_pitch, pitch_span, start_time, time_span]` | `track_id, clip_id, pitch, start_time, duration, velocity, mute, ...` | Query notes (optional range) |
 | `/live/clip/add/notes` | `track_id, clip_id, pitch, start_time, duration, velocity, mute, ...` | | Add MIDI notes |
 | `/live/clip/remove/notes` | `track_id, clip_id, [start_pitch, pitch_span, start_time, time_span]` | | Remove notes (no range = all) |
-| `/live/clip/remove_notes_by_id` | `track_id, clip_id, note_id, ...` | | Remove notes by Live note id. ⚠️ Of limited use here: `get/notes` replies carry no ids, so nothing in this API yields an id to pass |
+| `/live/clip/remove_notes_by_id` | `track_id, clip_id, note_id, ...` | | Remove notes by Live note id. Ids come from `/live/clip/get/notes_extended` (or `get_notes_by_id` / `get/selected_notes_extended`) — see § "Extended notes (note ids)" below |
 | `/live/clip/get/color` | `track_id, clip_id` | `track_id, clip_id, color` | Clip color |
 | `/live/clip/set/color` | `track_id, clip_id, color` | | Set clip color |
 | `/live/clip/get/color_index` | `track_id, clip_id` | `track_id, clip_id, color_index` | Color index (0-69) |
@@ -1426,6 +1426,100 @@ reads the clip extent, not the brace Live will restore when looping goes back on
 (that brace survives independently — measured by toggling looping off and on
 around a 2.0–6.0 brace, which came back as 2.0–6.0).
 
+### Extended notes (note ids)
+
+**Seshat extension, added 2026-08-29** (SESHAT.md). `/live/clip/get/notes`
+describes a note as five fields; Live describes it as nine. These addresses
+carry the whole set — including the `note_id` Live assigns, which is what makes
+the id-keyed half of Live's note API (`remove_notes_by_id`,
+`apply_note_modifications`, `duplicate_notes_by_id`, `select_notes_by_id`)
+usable from a client at all. **The five-field addresses are unchanged**: nothing
+already written against `get/notes` / `add/notes` has to move, and a regression
+test (`tests_unit/test_clip_notes.py`) pins their reply shape.
+
+**The canonical group, in this order:**
+
+    pitch, start_time, duration, velocity, mute, probability, velocity_deviation, release_velocity, note_id
+
+The first five are exactly the order the old addresses use, so a client upgrades
+by widening its stride rather than by re-reading the fields. `note_id` is last,
+and the *add* form is the same group truncated to eight — Live assigns the id,
+so it is never sent.
+
+**Types.** `pitch` and `note_id` are ints; `start_time`, `duration`, `velocity`,
+`probability`, `velocity_deviation` and `release_velocity` are floats; `mute`
+goes **out** as an OSC boolean (`T`/`F`) and is accepted **in** as `0`/`1` — the
+same request/reply asymmetry the old addresses have (§ "Note windows match by
+start"). Requests are coerced field by field on the way in, so a client that
+sends every number as a float (TouchOSC) needs no conversion of its own; a reply
+still cannot be re-sent verbatim, because of `mute`.
+
+| Address | Query Params | Response Params | Description |
+|---|---|---|---|
+| `/live/clip/get/notes_extended` | `track_id, clip_id, [start_pitch, pitch_span, start_time, time_span]` | `track_id, clip_id, <9 fields per note>, ...` | The extended read. Range args are all-or-nothing (0 or 4, as for `get/notes`); no args means the whole clip (`0, 127, -8192, 16384`). Notes are matched by their *start* time, as for `get/notes` |
+| `/live/clip/add/notes_extended` | `track_id, clip_id, <8 fields per note>, ...` | | Add notes with probability, velocity deviation and release velocity. Argument count must be a non-zero multiple of 8. **No reply, ever** — read the new ids back with `get/notes_extended` |
+| `/live/clip/get/selected_notes_extended` | `track_id, clip_id` | `track_id, clip_id, <9 fields per note>, ...` | The notes selected in the clip's editor. Empty selection replies just the two indices |
+| `/live/clip/get/selected_notes` | `track_id, clip_id` | `track_id, clip_id, <5 fields per note>, ...` | The same selection, flattened to the old five fields |
+| `/live/clip/get_notes_by_id` | `track_id, clip_id, note_id, ...` | `track_id, clip_id, <9 fields per note>, ...` | Fetch specific notes. At least one id required |
+| `/live/clip/apply_note_modifications` | `track_id, clip_id, <9 fields per note>, ...` | | **Edit notes in place, keeping their ids.** Count must be a non-zero multiple of 9. The handler fetches the cited ids, checks that Live returned every one of them *before* mutating anything, sets the eight value fields and applies. An id the clip does not hold is a `/live/error` naming it, with nothing applied. Two groups citing the same id is not an error: the later group wins |
+| `/live/clip/duplicate_notes_by_id` | `track_id, clip_id, destination_time, transposition_amount, note_id, ...` | `track_id, clip_id, new_note_id, ...` | Duplicate notes. `destination_time` **negative means "in place"** (Live's `None` default; `-1` is the documented spelling). `transposition_amount` is in semitones, `0` for none. At least one id required |
+| `/live/clip/select_notes_by_id` | `track_id, clip_id, note_id, ...` | | Select notes in the clip editor |
+| `/live/clip/select_all_notes` | `track_id, clip_id` | | Select every note in the clip |
+| `/live/clip/deselect_all_notes` | `track_id, clip_id` | | Clear the note selection |
+| `/live/clip/replace_selected_notes` | `track_id, clip_id, <5 fields per note>, ...` | | ⚠️ **Deprecated in Live**, exposed for parity. Count must be a non-zero multiple of 5 |
+| `/live/clip/set_notes` | `track_id, clip_id, <5 fields per note>, ...` | | ⚠️ **Deprecated in Live**, exposed for parity. Prefer `add/notes` / `add/notes_extended` |
+
+Every mutator is silent on success, per the fork norm; the getters always reply,
+answering the two indices and nothing else when there are no notes to report. A
+malformed argument count, a bad track/clip index, or a notes call against an
+audio clip all arrive as the structured
+`/live/error ["request", <address>, <message>, <argc>, *args]` envelope.
+
+**Duplicating to a negative beat is unreachable.** Because OSC has no null,
+`destination_time < 0` is the sentinel for Live's `None`, so `-1` and `-0.5`
+both mean "duplicate in place". Notes *can* start before beat 0 in Live, but
+duplicating *to* such a position is not expressible through this address.
+
+**Large note ids go out int64-tagged.** The vendored pythonosc builder tags a
+Python int as int32 only inside the *signed* int32 window `[-2^31, 2^31)`;
+anything outside it, in either direction, goes out int64-tagged (`h`), which a
+client's decoder must tolerate. That window is the fix for a real drop: the
+builder used to test `bit_length() > 32`, which ignores the sign bit, so an id
+in `[2^31, 2^32)` was tagged int32, failed `struct.pack(">i", …)`, and took the
+whole datagram with it — `OSCServer.send` catches the `BuildError` and only
+logs. Live's ids are small monotonic integers in practice, so this window is
+unlikely to be reached; it is now encodable rather than silently fatal
+(`tests_unit/test_int_encoding.py`).
+
+**Unmeasured, and marked ⚠️ until a Live verification session runs**
+(the checks are written out in the plan doc archived with this item):
+
+- ⚠️ Whether `Live.Clip.MidiNoteSpecification` accepts `probability`,
+  `velocity_deviation` and `release_velocity` as constructor keywords. Assumed
+  yes: the M4L note specification documents the fields, and Live 12's shipped
+  `pushbase` bytecode carries those names around `MidiNoteSpecification`. If it
+  does not, `add/notes_extended` fails with the structured error envelope and
+  the fix is confined to `make_note_specification` in `abletonosc/clip.py`.
+- ⚠️ Whether a fetched `MidiNote`'s attributes are writable from Remote Script
+  Python — what `apply_note_modifications` depends on. Assumed yes: Push's own
+  note editor fetches, mutates and applies.
+- ⚠️ Whether a `MidiNote` exposes `probability`, `velocity_deviation`,
+  `release_velocity` and `note_id` under those names at all — four of the
+  twelve addresses read them by attribute name (`abletonosc/clip.py`'s
+  `EXTENDED_NOTE_FIELDS`), and that assumption is separate from the two above:
+  even if the attributes are writable, a rename or absence here would drop or
+  misname a field rather than raise.
+- ⚠️ What `get_notes_by_id` does with an id the clip does not hold (raise, or a
+  shorter vector), and whether its reply follows request order. The modify path
+  is deterministic either way, because the handler checks the ids itself.
+- ⚠️ What the deprecated `set_notes` and `replace_selected_notes` actually do —
+  Live's docstrings carry no description, and the pre-Live-11 "set notes"
+  *added* notes rather than replacing them.
+- ⚠️ Whether the selection members need the clip open in Live's detail view.
+- ⚠️ What `add_new_notes` returns. `add/notes_extended` is silent by design; if
+  Live turns out to return the new notes, giving it a reply is a follow-up
+  item, not a change to this contract.
+
 ### Note windows match by start, and a read can be re-sent — after two conversions
 
 Measured 2026-08-27, Live 12.4.3, on a fresh MIDI clip holding four notes with
@@ -1450,9 +1544,14 @@ off-grid values (starts 0.0 / 1.6667 / 0.25 / 2.125, durations 0.3333 / 1.75 /
   `FunctionClauseError` inside the Transport GenServer (reproduced, restarted
   by its supervisor). Convert before sending: `mute` → `0|1`, velocity →
   `round/1`.
-- What the round trip cannot preserve: `probability`, `velocity_deviation`,
-  `release_velocity` — the reply does not carry them (FORK_GAPS.md, "Notes
-  flatten to five fields"), so re-added notes get Live's defaults.
+- What the *five-field* round trip cannot preserve: `probability`,
+  `velocity_deviation`, `release_velocity` — `get/notes` does not carry them,
+  so notes re-added through `add/notes` get Live's defaults. Since 2026-08-29
+  the fork answers all three (and the note id) on
+  `/live/clip/get/notes_extended`, and takes them on
+  `/live/clip/add/notes_extended`; editing a note **without** disturbing them
+  at all is `/live/clip/apply_note_modifications`, which keeps the note's id.
+  See § "Extended notes (note ids)".
 
 ### Quantization grid
 

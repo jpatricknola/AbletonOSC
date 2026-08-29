@@ -28,13 +28,23 @@ that pretend to no Live *behaviour* whatsoever:
 2. _install_empty_live_stub() installs an *empty* module as
    sys.modules["Live"] for the four loaders whose module does `import Live`
    at module scope. Three of them dereference it only inside a callback, at
-   call time: clip.py (Live.Clip.MidiNoteSpecification in clip_add_notes),
-   song.py (Live.Track.Track in get/track_data) and view.py
-   (Live.Application.get_application() in show_view / get/is_view_visible /
-   hide_view). An empty module satisfies the import, and any test that
-   dispatched one of those addresses would fail loudly on the missing
-   attribute rather than quietly exercising a fake Live. No test in this
-   suite dispatches them.
+   call time: clip.py (Live.Clip.MidiNoteSpecification in clip_add_notes and
+   make_note_specification), song.py (Live.Track.Track in get/track_data)
+   and view.py (Live.Application.get_application() in show_view /
+   get/is_view_visible / hide_view). An empty module satisfies the import,
+   and a test that dispatched one of those addresses without arranging for
+   the attribute would fail loudly on the missing name rather than quietly
+   exercising a fake Live.
+
+   test_clip_notes.py is the one test module that dispatches such an
+   address — the two /live/clip/add/notes{,_extended} forms. It supplies
+   the missing name the way test_application.py supplies its application
+   object: `monkeypatch.setattr(sys.modules["Live"], "Clip", ns,
+   raising=False)` for the duration of a test, carrying a recording
+   MidiNoteSpecification. monkeypatch deletes the attribute again at
+   teardown, so the stub is empty again for every other test, and the
+   fake is visible only to the tests that asked for it. Nothing else in
+   the suite dispatches a Live-dereferencing address.
 
    application.py is the fourth, and the one exception to "only inside a
    callback": it needs the application object at *registration* time, to
@@ -247,8 +257,11 @@ def load_clip_module():
     """
     Import the real `abletonosc.clip` beneath the synthetic root, over the
     empty `Live` stub: clip.py's only dereference is
-    Live.Clip.MidiNoteSpecification, inside clip_add_notes at call time, and
-    no test in this suite dispatches that address.
+    Live.Clip.MidiNoteSpecification, at call time, inside clip_add_notes and
+    the module-level make_note_specification that clip_add_notes_extended
+    uses. test_clip_notes.py dispatches both of those addresses, and
+    monkeypatches a `Clip` namespace onto the stub for the tests that do
+    (see the module docstring); the stub itself stays empty.
     """
     load_handler_module()
     _install_empty_live_stub()
