@@ -1,5 +1,14 @@
 # Plan: Notes extended (B-1)
 
+**Archived 2026-08-29 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in
+`abletonosc/clip.py` (the "Clip: Extended notes" block, twelve new
+addresses) and `API.md` § "Extended notes (note ids)". The Live
+verification section's seven checks did not run — the installed Remote
+Scripts copy was not this checkout during the run (see its Results
+subsection) — so every ⚠️ marker in `API.md` stands and all six Open
+questions below stay open for whoever verifies against a running Live next.
+
 Roadmap item: **#1 · B-1 · Notes extended** — from `CLOSING_THE_GAPS.md` row
 B-1, closing FORK_GAPS "Notes — `/live/clip/get/notes` flattens to five
 fields" and the curated "Extended note identity and modification" row.
@@ -358,6 +367,41 @@ Remains uncovered even after these: behaviour on take-lane/arrangement
 clips (no resolver exists — Session clips only, as for every `/live/clip/*`
 address) and ids' stability across undo (out of scope, roadmap #5 owns undo
 semantics).
+
+### Results — checks 1-7 **skipped by environment** (pr-review, 2026-08-29)
+
+Recorded by the review of branch `feat/notes-extended`. No check was run, and
+no result below is approximated or inferred.
+
+The section's own precondition fails. Live 12 *is* running (PID 78577), but
+the installed Remote Scripts copy is not this checkout:
+
+    diff -rq --exclude=__pycache__ abletonosc \
+        "$HOME/Music/Ableton/User Library/Remote Scripts/AbletonOSC/abletonosc"
+    Files abletonosc/application.py ... differ
+    Files abletonosc/clip.py ... differ
+    Files abletonosc/device.py ... differ
+    Files abletonosc/track_identity.py ... differ
+
+`clip.py` differing is decisive on its own: none of the twelve new addresses
+exist in the copy Live loaded, so every check would report an unknown address
+and prove nothing about this branch. Closing the gap needs the copy replaced
+*and* Live restarted, and this lifecycle may do neither.
+
+| Check | Status | Reason |
+|---|---|---|
+| 1 extended round trip | skipped by environment | installed copy is not this checkout — Open question 1 (`MidiNoteSpecification` kwargs) stays open |
+| 2 modify in place | skipped by environment | as above — Open question 2 (`MidiNote` attribute writability) stays open |
+| 3 duplicate | skipped by environment | as above |
+| 4 unknown id | skipped by environment | as above — Open question 3 stays open |
+| 5 selection vs detail view | skipped by environment | as above — Open question 5 stays open |
+| 6 deprecated semantics | skipped by environment | as above — Open question 4 stays open |
+| 7 `add_new_notes` return value | skipped by environment | as above, and it additionally needs the probe rig, whose write into the installed copy this environment refuses — Open question 6 stays open |
+
+Consequence for the shipped state: every ⚠️ marker in `API.md` § "Extended
+notes (note ids)" stands as written, and all six Open questions above stay
+open. Nothing in the Live-free gate is affected — `python3 -m pytest
+tests_unit/` is green at 462 passed (52 of them this item's).
 
 ## Downstream
 

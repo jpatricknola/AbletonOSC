@@ -41,32 +41,7 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · B-1 · Notes extended
-
-**Plan:** [docs/PLAN_notes_extended.md](docs/PLAN_notes_extended.md)
-
-**Goal:** `/live/clip/get/notes_extended` and `/live/clip/add/notes_extended`
-carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`,
-old five-field addresses unchanged; then the ID-keyed members
-(`apply_note_modifications`, `get_notes_by_id`, `duplicate_notes_by_id`,
-`select_notes_by_id`, `get_selected_notes(_extended)`, `select_all_notes`,
-`deselect_all_notes`, `replace_selected_notes`, `set_notes`).
-
-**Why:** the largest-value gap PR and self-contained; it is what Seshat's
-"Modify a note in place" roadmap item needs.
-
-**Planner notes:**
-- Source: `CLOSING_THE_GAPS.md`, row **B-1**; closes FORK_GAPS "Notes —
-  `/live/clip/get/notes` flattens to five fields".
-- The LOM call needs no change: `/live/clip/get/notes` already calls
-  `clip.get_notes_extended` (`clip.py:173`) and throws the extra fields away
-  when it flattens to five. Only the reply shape and the new addresses are
-  new work — which also means the old five-field addresses stay byte-identical
-  by construction, not by care.
-- Shape PR: the wire form is the review subject.
-- No dependencies.
-
-## #2 · A-3 · Return / master `Track` parity
+## #1 · A-3 · Return / master `Track` parity
 
 **Goal:** `/live/return_track/*` and `/live/master/*` reach the regular-track
 address set — colour, routing, meters, `has_*_input/output`, every
@@ -90,7 +65,7 @@ over the difference.
 - Prefer a shared track resolver over three copies of the handler table.
 - No dependencies.
 
-## #3 · C-1 · `Song` remainder
+## #2 · C-1 · `Song` remainder
 
 **Goal:** the remaining scalar `Song` members through the generic property
 loop — count-in, automation state, scale mode/intervals, tempo follower, Link
@@ -108,7 +83,7 @@ start/stop, `file_path`, exclusive arm/solo, and the rest listed in the bucket.
   `scale_intervals` and `is_ableton_link_start_stop_sync_enabled` only.
 - No dependencies.
 
-## #4 · D-2 · Groove
+## #3 · D-2 · Groove
 
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
@@ -131,7 +106,7 @@ amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 - Measure whether `browser.load_item` can load an `.agr` into the pool.
 - No dependencies.
 
-## #5 · One `/live/song/undo` does not revert an OSC-created scene
+## #4 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -170,7 +145,7 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #6 · Make a failed live code reload safe and reported
+## #5 · Make a failed live code reload safe and reported
 
 **Goal:** a reload that raises does not activate a partially reloaded module
 graph — `/live/api/reload` either preserves a usable previous API or fails in a
@@ -200,10 +175,10 @@ is told nothing went wrong.
   listener dict — decide in this item whether to close it or record it as
   accepted, since the code comment currently points here for the answer.
 - Every gap PR uses reload during development; move this up if it bites
-  during #1–#4.
+  during #1–#3.
 - No dependencies.
 
-## #7 · Stop masking Remote Script import failures
+## #6 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -222,7 +197,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #8 · Remove the process-global and shared-file risks from song structure export
+## #7 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -244,7 +219,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #9 · Add bounded log retention
+## #8 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -261,7 +236,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #10 · Document `song` in the handler constructor contract
+## #9 · Document `song` in the handler constructor contract
 
 **Goal:** `abletonosc/handler.py`'s `AbletonOSCHandler` "Constructor
 contract" docstring lists `song` alongside the other invariants (`logger`,
@@ -286,7 +261,7 @@ Comment-only; no behaviour changes.
   no non-comment line, same as the A-4 `track_identity.py` precedent.
 - No dependencies.
 
-## #11 · Verify wildcard fan-out against Seshat's `/live/device/` usage
+## #10 · Verify wildcard fan-out against Seshat's `/live/device/` usage
 
 **Goal:** confirm whether Seshat ever sends an OSC address *pattern* (not a
 literal address) under `/live/device/`, and if so, record what changes for
