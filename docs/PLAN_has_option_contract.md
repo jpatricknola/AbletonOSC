@@ -366,6 +366,42 @@ enumeration API (`non_api_add_option` / `non_api_remove_option` are not exposed
 to scripts), so "which options exist" is unanswerable from a Remote Script by
 construction, not by omission.
 
+### Results — checks 1-7 **skipped by environment** (`/pr-review`, 2026-08-29)
+
+The shared precondition fails. Live 12.4.5 is running (PID 83844), but the
+installed copy is **not** this checkout:
+
+```
+diff -rq --exclude=__pycache__ abletonosc \
+  "$HOME/Music/Ableton/User Library/Remote Scripts/AbletonOSC/abletonosc"
+Files .../abletonosc/application.py and .../AbletonOSC/abletonosc/application.py differ
+```
+
+The installed `application.py` is byte-identical to `fe6730e`, this branch's
+base — the pre-change handler, with no `HAS_OPTION_KEY_LENGTH` and no
+validation. Installing it, reloading and restarting Live are all out of bounds
+for a review, so nothing on the wire or in `logs/abletonosc.log` can say
+anything about the code under review; a run against the installed copy would
+be measuring the defect this branch fixes.
+
+| # | Send | Result | Missing |
+|---|---|---|---|
+| 1 | `has_option "0"*64` | skipped by environment | installed copy is the pre-change code (`fe6730e`) |
+| 2 | `has_option <licensing key>` | skipped by environment | as above — **Open question 1 stays open**; no value recorded for the licensing key |
+| 3 | same key, upper case | skipped by environment | as above |
+| 4 | `has_option "-_EnableExtendedFileFormat"` | skipped by environment | as above |
+| 5 | `has_option "0"*63` | skipped by environment | as above |
+| 6 | `/live/application/get/* "notakey"` | skipped by environment | as above |
+| 7 | `has_option` with no arguments | skipped by environment | as above |
+
+What *was* verified without Live: `python3 -m pytest tests_unit/` — **791
+passed**, including the five-case malformed-key rejection with
+`has_option_calls == []` and the wildcard-skip case. Checks 1-7 remain the
+outstanding evidence that the fork's validator matches Live's, and they are
+runnable by whoever next installs and reloads: the ok-path log line the greps
+in checks 1-3 read is `has_option for application: <key> = <bool>`, which is
+what `application.py:183` emits.
+
 ## Downstream
 
 **Pin bump only.** Verified, not assumed:
