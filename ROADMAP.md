@@ -43,6 +43,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · D-2 · Groove
 
+**Plan:** [docs/PLAN_groove.md](docs/PLAN_groove.md)
+
 **Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
 amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
 
