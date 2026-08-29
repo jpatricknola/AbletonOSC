@@ -1,126 +1,157 @@
 # Closing the gaps — plan of attack for FORK_GAPS.md
 
 _Companion to [FORK_GAPS.md](FORK_GAPS.md). That file is the inventory and
-is never prioritised; this file is the sequencing. It groups the 494 member
+is never prioritised; this file is the sequencing. It groups the member
 gaps, the addressing gaps and the shape gaps into PR-sized buckets so a
-single PR ships a coherent batch instead of one address at a time._
+single PR ships a coherent batch instead of one address at a time. Against
+the 2026-08-29 inventory that is **419 member gaps across 44 classes**, plus
+five addressing gaps and four shape gaps._
 
-_The ranked queue of what to do next — mixing these buckets with
-[issues.md](issues.md) — is [ROADMAP.md](ROADMAP.md)._
+Buckets are named, not numbered. FORK_GAPS.md points at three of them by
+name — the [cue-points bucket](FORK_GAPS.md#songcue_points--the-remaining-locator-members),
+the [view bucket](FORK_GAPS.md#songview--applicationview--liveview-is-a-fixed-set)
+and the [browser-tree bucket](FORK_GAPS.md#loading-an-agr-groove-file-into-the-pool)
+— so a name here is a cross-reference and changing one breaks that file.
 
 ## Why buckets, not one PR per gap
 
 Every PR that closes a gap carries the same fixed overhead: handlers,
 `API.md` rows, removing the FORK_GAPS entries in the same commit,
 regenerating the inventory, a Seshat submodule pin bump and the
-`vendored_addresses_test` tripwire. Batching amortises that. More
-importantly, the three gap kinds have very different cost profiles:
+`vendored_addresses_test` tripwire. Batching amortises that. The three gap
+kinds have very different cost profiles:
 
-- **Scalar member gaps** (Song, Track, Application, Clip flags) ride the
-  generic `properties_r/rw` loop. Cheap. Batch by owning class.
+- **Member gaps** on scalars ride the generic `properties_r/rw` loop.
+  Cheap. Batch by owning class.
 - **Addressing gaps** are unlocked by a *resolver*, not by members. One
   device-path resolver opens `RackDevice` (37) + `Chain` (16) +
   `ChainMixerDevice` (4) + `DrumPad` (6) + `DrumChain` (19) + `DeviceIO`
-  (5) — 87 gaps — and the Arrangement clip resolver makes all 86 `Clip`
-  members reachable at a second location. These must land first and land
-  alone.
-- **Shape gaps** need hand-written handlers with a designed wire form.
-  Each is its own PR so the shape can be reviewed on its own.
+  (5) — 87 gaps — and a second clip resolver makes all 86 `Clip` members
+  reachable at Arrangement and take-lane locations. Resolvers land first
+  and land alone.
+- **Shape gaps** need a hand-written handler with a designed wire form.
+  One bucket each, so the shape is the review subject.
 
 Device-specific classes (Drift, Wavetable, Looper, …) are deferred, per
-the "Conditional" dispositions in FORK_GAPS.md: they get a PR when a
-feature needs them, never as blanket parity work.
+the Conditional dispositions in FORK_GAPS.md: a PR when a feature names
+one, never blanket parity work.
 
-## Rules that apply to every PR
+## Rules that apply to every bucket
 
 1. Read the member's row in the generated inventory before writing a
    handler: owner class, rw/ro, observable, M4L column.
 2. Members marked Remote-Script-only (no M4L) are undocumented — probe
    them through the rig in [API.md](API.md) ("Measuring the Live API
    without building the feature first") before committing to a shape.
-3. Object-valued members (`groove`, `group_track`, `appointed_device`,
-   `cue_points`, `tracks`, `scenes`, `tuning_system`) never enter the
-   generic property loop. Hand-written, index- or name-keyed.
-4. Handlers that take a filesystem path (`create_audio_clip`,
-   `replace_sample`) follow the fork's path-safety rule; they live only in
-   the bucket that owns them (D-4) so the rule is reviewed once.
-5. `press_current_dialog_button` stays out unless a separately reviewed,
-   non-file use case proves safe — a dialog may guard unsaved work.
+3. Object-valued members never enter the generic property loop —
+   FORK_GAPS names `Song.cue_points`, `appointed_device`, `groove_pool`,
+   `tuning_system`, `tracks`, `scenes`, `slices`, `Device.view`.
+   Hand-written, taking or returning an index, a name or a flattened
+   tuple; say which in the PR.
+4. Handlers taking an absolute filesystem path (`Track.create_audio_clip`,
+   `ClipSlot.create_audio_clip`, `SimplerDevice.replace_sample`) follow
+   the fork's path-safety rule. All three live in one bucket so the rule
+   is reviewed once.
+5. `press_current_dialog_button` stays out — Declined in the dispositions
+   until a separately reviewed, non-file use case proves it safe.
 6. Same commit: add addresses, document them in `API.md`, delete the
    FORK_GAPS entries, regenerate the inventory.
-7. Resolver PRs (A-1, A-2) ship no scalar padding. They are the riskiest
-   changes in the plan (dispatch refactor) and must be reviewable alone.
+7. Resolver buckets ship no scalar padding. They are the riskiest changes
+   here (a dispatch refactor each) and must be reviewable alone.
+8. A member whose only remaining gap is a **listen pair** is not an
+   inventory row — its getter already exists. Those ride along with the
+   bucket owning the getter, never a PR of their own.
 
-## Tier A — foundations (resolvers)
+## Resolvers — land first
 
-Land first, in order. Everything in Tier D depends on A-1; A-4 has landed.
+Both are declined in FORK_GAPS's dispositions until a workflow needs the
+payoff. They are listed first because everything under *Object families*
+depends on the first one, not because they are scheduled.
 
-| PR | Scope | Unlocks |
+| Bucket | Scope | Unlocks |
 |---|---|---|
-| **A-1** Device path resolver | `/live/device/*` (and `return_track`/`master` device addresses) accept a track kind plus a chain path, e.g. `<track> <device> [chain <c> device <d>]…` or a single path string. Reaches `RackDevice.chains[c].devices[d]`, `drum_pads[p].chains[c].devices[d]`, rack return chains, Max `DeviceIO`. | Whole `RackDevice` / `Chain` / `DrumPad` / `DrumChain` / `ChainMixerDevice` / `DeviceIO` family; device parity on returns and master (`class_name`, `type`, `parameters/min|max|is_quantized`, listeners). Closes the [Device addressing gap](FORK_GAPS.md#device--deviceparameter--top-level-devices-only). |
-| **A-2** Arrangement and take-lane clip resolver | Second clip resolver keyed `(track, arrangement_index)` and `(track, take_lane, index)`; `Clip.is_arrangement_clip` / `is_session_clip` / `is_take_lane_clip`; `TakeLane` members; `Track.take_lanes`, `create_take_lane`, `duplicate_clip_to_arrangement`. | All 86 `Clip` members at Arrangement locations. Closes the [Clip addressing gap](FORK_GAPS.md#clip--session-clips-only). Note: FORK_GAPS marks Arrangement as "Conditional / declined until a workflow is chosen"; this PR is still the cheapest place to build the resolver, and it can wait behind A-1 if no consumer exists yet. |
-| ~~**A-3** Return / master `Track` parity~~ | ~~Bring `/live/return_track/*` and `/live/master/*` up to the regular-track address set: colour, routing, meters, `has_*_input/output`, every `start_listen`, `insert_device`, `mixer_device.sends` on returns. Prefer a shared track resolver over three copies of the handler table.~~ | Landed 2026-08-29, branch `feat/return-master-track-parity`. Record: `API.md` § "Return Track & Master: `Track` parity" (now `FORK_GAPS.md` § Closed); address counts 108/30/21 → 109/60/49. Devices inside racks and the remaining master/return omissions stay open under the [Track addressing gap](FORK_GAPS.md#track--regular-tracks-get-109-addresses-return-60-master-49) and the [`MixerDevice` gap](FORK_GAPS.md#mixerdevice--four-of-eleven-members-and-only-via-track). |
-| ~~**A-4** Object-valued read helpers~~ | ~~Index-returning handlers for `Song.master_track`, `Song.appointed_device` (get/set/listen), `Track.group_track`, `ClipSlot.clip`, `Song.View.selected_chain`, `selected_parameter`, `mod_mapping_device/parameter`. Establishes the pattern (index or `-1`) used by every later object read.~~ | Landed 2026-08-27, branch `object-valued-read-helpers`. Record: `API.md` § "Object-valued reads" (now `FORK_GAPS.md` § Closed). `Song.master_track` shipped out of scope — see `ROADMAP.md` § Deliberately not planned. |
+| **Device path resolver** | `/live/device/*` (and the `return_track` / `master` device prefixes) accept a track kind plus a chain path — `<track> <device> [chain <c> device <d>]…`, or one path string. Reaches `RackDevice.chains[c].devices[d]`, `drum_pads[p].chains[c].devices[d]`, rack return chains and Max `DeviceIO`. | The whole rack family (87 gaps, written in *Racks, chains and drum pads*), and device parity on returns and master: `class_name`, `type`, `num_parameters`, the rich per-parameter reads, the `parameters/*` bulk reads with `min`/`max`/`is_quantized`, `set/parameter/display_value`, `set/parameters/value`, the gesture pair and all four listen pairs. Closes the [Device addressing gap](FORK_GAPS.md#device--deviceparameter--top-level-devices-only). |
+| **Arrangement and take-lane clip resolver** | A second clip resolver keyed `(track, arrangement_index)` and `(track, take_lane, index)`; `Clip.is_arrangement_clip` / `is_session_clip` / `is_take_lane_clip`; the four `TakeLane` members; `Track.take_lanes`, `create_take_lane`, `duplicate_clip_to_arrangement`. | 10 member gaps directly, and all 86 `Clip` members at a second and third location. Closes the [Clip addressing gap](FORK_GAPS.md#clip--session-clips-only). Cheapest place to build the resolver even though Arrangement is Conditional/declined; it can wait behind the device resolver if no consumer exists. |
 
-## Tier B — shape fixes
+## Shape buckets
 
-One PR each; the wire form is the review subject.
+The wire form is the review subject, so one bucket each.
 
-| PR | Scope |
+| Bucket | Scope |
 |---|---|
-| ~~**B-1** Notes extended~~ | ~~`/live/clip/get/notes_extended` and `/live/clip/add/notes_extended` carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`; old five-field addresses unchanged. Then the ID-keyed members: `apply_note_modifications`, `get_notes_by_id`, `duplicate_notes_by_id`, `select_notes_by_id`, plus `get_selected_notes(_extended)`, `select_all_notes`, `deselect_all_notes`, `replace_selected_notes`, `set_notes`.~~ Landed 2026-08-29, branch `feat/notes-extended`. Record: `API.md` § "Extended notes (note ids)" and the roadmap "Modify a note in place". |
-| ~~**B-2** DeviceParameter rich reply~~ | ~~One richer `parameters` reply plus per-parameter addresses: `value_items`, `short_value_items`, `display_value` (get/set), `state`, `is_enabled`, `automation_state`, `default_value`, `original_name`, `begin_gesture`/`end_gesture`.~~ Landed 2026-08-29, branch `feat/device-parameter-rich-reply`. Record: `API.md` § "Parameter description" (now `FORK_GAPS.md` § Closed). `str_for_value` was already shipped before this PR, as `/live/device/get/parameter/value_string`. |
-| **B-3** Cue points keyed and observable | `start_listen/cue_points`, per-cue `name`/`time` listeners, `CuePoint.name` set, `can_jump_to_next_cue`/`_prev_cue` (get + listen), `is_cue_point_selected`. Name- or ID-keyed form so deletion does not shift the key. Closes the [curated entry](FORK_GAPS.md#songcue_points--the-remaining-locator-members) and the [shape gap](FORK_GAPS.md#songcue_points--index-keyed-no-timename-listen). |
-| **B-4** Routing as stable identifiers | Expose routing objects by index alongside display names (`display_name`, `category`, `attached_object`); setters accept an index. `Track.current_*_routing` / `sub_routing`. Closes [Routing shape gap](FORK_GAPS.md#routing--names-not-objects). |
+| **Cue points keyed and observable** | `start_listen/cue_points`, per-cue `name`/`time` listeners, `CuePoint.name` set, `CuePoint.jump`, `can_jump_to_next_cue`/`_prev_cue` (get + listen), `is_cue_point_selected`. Name- or ID-keyed so deleting a locator does not shift the key. Six member gaps — the whole `CuePoint` class plus three on `Song`. Closes the [curated entry](FORK_GAPS.md#songcue_points--the-remaining-locator-members) and the [shape gap](FORK_GAPS.md#songcue_points--index-keyed-no-timename-listen). This is the bucket the curated entry names. |
+| **Routing as stable identifiers** | Expose routing objects by index alongside their display names (`display_name`, `category`, `attached_object`); setters accept an index. Covers `Track.current_input_routing` / `current_output_routing` and both `sub_routing` members, which the inventory still counts as gaps because the fork answers only the legacy string API — and which are ambiguous today whenever two routings share a display name. Closes the [Routing shape gap](FORK_GAPS.md#routing--names-not-objects). |
+| **Groove Pool `base` in the dump** | Fold `base` into `/live/song/get/groove_pool` as a sixth field and register `/live/groove/get/base` against the measured type. The protective reason is gone — measured 2026-08-29, `base` is a plain string (`gb_sixteen`) that encodes cleanly — so what is left is a wire-contract change to a reply Seshat already parses, which is why it stands alone. `/live/groove/start_listen/base` stays unregistered: [that asymmetry is deliberate](FORK_GAPS.md#groovebase-has-no-listen-pair), not an oversight to fix. Closes the [shape gap](FORK_GAPS.md#groove-pool-dump--base-excluded). |
+| **Clip notes listener** | `/live/clip/start_listen/notes` over Live's `add_notes_listener`. The subscription is five lines; **the push shape is the whole PR**. Resending the clip's full nine-field `notes_extended` group on every edit is the naive answer — decide between that and a bare "contents changed" ping the client follows with a read, before writing the handler. Closes the [residual entry](FORK_GAPS.md#clipnotes-has-no-listener). |
 
-## Tier C — scalar batches by owning class
+Not a bucket: **`Clip.groove`'s unreachable `-1`**. Recorded as a shape gap
+but owned by the roadmap defect "The clip↔groove assignment contract is
+broken in both directions", which carries the diagnosis and the two
+separable fixes. FORK_GAPS says explicitly not to plan against that
+paragraph.
 
-Mostly generic-loop additions. Each PR is one class (or one view family).
-C-1 has landed.
+## Member buckets by owning class
 
-| PR | Scope |
+Mostly generic-loop additions, one bucket per class or view family.
+
+| Bucket | Scope | Gaps |
+|---|---|---|
+| **View classes** | A per-object view resolver is the substance; the members are cheap once it exists. `Song.View`: `draw_mode`, `follow_song`, `highlighted_clip_slot`, `select_device`. `Application.View`: `focused_document_view` (High in the dispositions — the exact Session-vs-Arranger read `/live/view` cannot give), `available_main_views`, `browse_mode`; `focus_view`, `scroll_view`, `zoom_view` and `toggle_browse` only with a user story, per the cautions. `Track.View`: `is_collapsed`, `device_insert_mode`, `select_instrument`. `Clip.View`: `grid_quantization`, `grid_is_triplet`, the envelope show/hide four. Plus `Device.view`, `RackDevice.View`, `Eq8Device.View`. Closes the [View addressing gap](FORK_GAPS.md#songview--applicationview--liveview-is-a-fixed-set) and the [`Device.view` residual](FORK_GAPS.md#deviceview). This is the bucket the dispositions table names. | 28 |
+| **`Track` remainder** | `is_frozen`, `can_be_frozen`, `back_to_arranger`, `implicit_arm`, `muted_via_solo`, `performance_impact`, `input_meter_left/right/level`, `is_part_of_selection`, `can_show_chains`, `is_showing_chains`, `create_midi_clip`, `duplicate_clip_slot`, `duplicate_device`, `jump_in_running_session_clip`, `get_data`/`set_data`. (`create_audio_clip` → *Simpler and Sample*, rule 4. The take-lane trio → clip resolver. The four `current_*_routing` → *Routing as stable identifiers*.) | 22 |
+| **`Clip` / `ClipSlot` / `Scene` remainder** | Warp markers (`warp_markers`, `add`/`move`/`remove_warp_marker`, `available_warp_modes`, `sample_rate`), envelopes (`automation_envelopes`, `automation_envelope`, `create_automation_envelope`, `clear_envelope`, `clear_all_envelopes`, `has_envelopes`), `crop`, `duplicate_region`, `quantize_pitch`, `signature_numerator`/`denominator`, `scrub`/`stop_scrub`, `move_playing_pos`, the beat/sample/seconds conversions, `note_number_to_name`, `set_fire_button_state` on all three classes; `ClipSlot.color`, `color_index`, `is_recording`. The envelope members are object-valued — an `Envelope` keyed by a `DeviceParameter` — so they need a designed reply under rule 3, and they are the reason this bucket may want splitting. (`ClipSlot.create_audio_clip` → *Simpler and Sample*; `Clip.view` → *View classes*; the three `is_*_clip` flags → clip resolver.) | 30 |
+| **`Device` / `MixerDevice` remainder** | `Device`: `is_active`, `latency_in_ms`/`_samples`, `class_display_name`, `can_have_chains`, `can_have_drum_pads`, `can_compare_ab`, `is_using_compare_preset_b`, `save_preset_to_compare_ab_slot`, `store_chosen_bank`. `MixerDevice`: `crossfade_assign` and `panning_mode` are scalars; `crossfader`, `track_activator`, `left`/`right_split_stereo` and `song_tempo` are each a `DeviceParameter`, so they follow the object-read pattern, and `crossfader`/`song_tempo` exist on the Main track only. Closes the [`MixerDevice` addressing gap](FORK_GAPS.md#mixerdevice--four-of-eleven-members-and-only-via-track) for regular tracks; `ChainMixerDevice` stays behind the device resolver. | 17 |
+| **Parameter automation follow-ups** | `DeviceParameter.re_enable_automation`, held back from the parameter-description work because it is a mutation belonging with automation-shaped work, plus listen pairs on the three observable members `state`, `automation_state` and `display_value`, copying `device_get_parameter_value_listener`. Pairs naturally with the clip-envelope members above if the two land together. Closes the [residual entry](FORK_GAPS.md#deviceparameter--re_enable_automation-and-three-listen-pairs). | 1 |
+| **`Application` listen pairs** | `unavailable_features` and `control_surfaces` — observable, but session-static in practice, and each push needs a custom flattening getter. Rule 8 applies: this exists only once a consumer asks, or riding along with another `Application`-touching change. Closes the [residual entry](FORK_GAPS.md#application--listen-pairs-for-unavailable_features-and-control_surfaces). | 0 |
+
+## Object families
+
+Each needs the device path resolver first.
+
+| Bucket | Scope | Gaps |
+|---|---|---|
+| **Racks, chains and drum pads** | The addresses written over the resolver. `RackDevice` (chains, return chains, macros, variations, `insert_chain`), `Chain`, `ChainMixerDevice` (volume, panning, sends, chain_activator — the members that keep rack chains silent even once devices are reachable), `DrumPad`, `DrumChain` including the curated [pad-map read](FORK_GAPS.md#drumchainin_note-and-rack-chain-insertion--read-the-drum-rack-pad-map): `/live/device/get/drum_pads <track> <device>` → `(chain_index, in_note, name)*`, with `in_note`/`out_note` setters for building a kit programmatically. `DeviceIO`. Large enough to split by class if the resolver lands with room to spare. | 87 |
+| **Browser tree** | `Browser` roots (`instruments`, `sounds`, `drums`, `audio_effects`, `midi_effects`, `max_for_live`, `plugins`, `clips`, `samples`, `packs`, `user_library`, `user_folders`, `current_project`, `legacy_libraries`, `colors`), `BrowserItem` traversal, `filter_type`, `hotswap_target`, `relation_to_hotswap_target`. Also settles [loading an `.agr` into the Groove Pool](FORK_GAPS.md#loading-an-agr-groove-file-into-the-pool) — there is no `Browser.grooves` root, so if `.agr` files are reachable at all it is through `packs`, which this bucket already exposes. Measure that first: a "no" is a Live limit worth recording, not a reason to widen the groove family. This is the bucket that residual entry names. | 27 |
+| **Simpler and Sample** | The curated [slicing entry](FORK_GAPS.md#simplerdevice-slicing--slice-a-loaded-sample-from-the-bridge): `playback_mode`, `slicing_playback_mode`, `slices`, `insert`/`remove`/`clear`/`reset`/`move_slice`, `selected_slice`, `sample`, `Sample.*`, `SimplerDevice.View`. Verify each slice member's owner and signature in Live's shipped Python first — the apiref lists only three of them. Also the home for every path-taking handler under rule 4: `replace_sample`, `Track.create_audio_clip`, `ClipSlot.create_audio_clip`. | 62 |
+| **Tuning system and set data** | `TuningSystem` (whole class), `Song.tuning_system` (object-valued — index- or name-keyed, never the generic loop), `Song.get_data`/`set_data`. Small; stands alone unless a bucket it fits inside is already open. | 10 |
+
+## Measurement, not addresses
+
+No new addresses. These close ⚠️ marks on contracts already shipped, and
+each is cheap enough to fold into any PR that runs a Live session anyway.
+Listed so they are not mistaken for gaps.
+
+| Bucket | Scope |
 |---|---|
-| ~~**C-1** `Song` remainder~~ | ~~`count_in_duration`, `is_counting_in`, `session_automation_record`, `re_enable_automation_enabled`, `scale_mode`, `scale_intervals`, `tempo_follower_enabled`, `is_ableton_link_start_stop_sync_enabled`, `start_time`, `last_event_time`, `file_path`, `exclusive_arm`, `exclusive_solo`, `select_on_launch`, `can_capture_midi`, `overdub`, `visible_tracks`, `scrub_by`, `play_selection`, `get_beats_loop_start/length`, `get_current_smpte_song_time`, `move_device`, `find_device_position`, `sync_parameter_changes`.~~ Landed 2026-08-29, branch `feat/song-remainder`. Record: `API.md` §§ "Song Getters", "Song Setters", "Song: method queries" (now `FORK_GAPS.md` § Closed); fifty-eight addresses across the twenty-five members listed. |
-| **C-2** View classes | `Song.View`: `draw_mode`, `follow_song`, `highlighted_clip_slot`, `select_device`. `Application.View`: `focused_document_view`, `available_main_views`, `browse_mode`, `focus_view`, `scroll_view`, `zoom_view`, `toggle_browse` (last four only with a user story — see dispositions). `Track.View`: `is_collapsed`, `device_insert_mode`, `select_instrument`. `Clip.View`, `Device.View`, `RackDevice.View`, `Eq8Device.View` via a per-object view resolver. Closes the [View addressing gap](FORK_GAPS.md#songview--applicationview--liveview-is-a-fixed-set). |
-| ~~**C-3** `Application`~~ | ~~Dialog reads only: `open_dialog_count`, `current_dialog_message`, `current_dialog_button_count` (listen where observable). `get_bugfix_version`, `get_build_id`, `get_variant`, `get_version_string`, `has_option`, `peak_process_usage`, `unavailable_features`, `number_of_push_apps_running`, `show_message`, `show_on_the_fly_message`, `control_surfaces` (names only).~~ Landed 2026-08-29, branch `application-dialogs-and-versions`. Record: `API.md` § "Application API" (now `FORK_GAPS.md` § Closed). Also removed `issues.md`'s "Remove the unsolicited average-process-usage startup datagram" entry in the same commit. |
-| **C-4** `Track` remainder | `is_frozen`, `can_be_frozen`, `back_to_arranger`, `implicit_arm`, `muted_via_solo`, `performance_impact`, `input_meter_left/right/level`, `is_part_of_selection`, `can_show_chains`, `is_showing_chains`, `create_midi_clip`, `duplicate_clip_slot`, `duplicate_device`, `jump_in_running_session_clip`, `get_data`/`set_data`. (`create_audio_clip` → D-4, path rule.) |
-| **C-5** `Clip` / `ClipSlot` / `Scene` remainder | Warp markers (`warp_markers`, `add/move/remove_warp_marker`, `available_warp_modes`, `sample_rate`), envelopes (`automation_envelopes`, `automation_envelope`, `create_automation_envelope`, `clear_envelope`, `clear_all_envelopes`, `has_envelopes`), `crop`, `duplicate_region`, `quantize_pitch`, `signature_numerator/denominator`, `scrub`/`stop_scrub`, `move_playing_pos`, `beat/sample/seconds` time conversions, `note_number_to_name`, `set_fire_button_state` on Clip, ClipSlot and Scene; `ClipSlot.color`, `color_index`, `is_recording`. (`ClipSlot.create_audio_clip` → D-4.) |
-| **C-6** `Device` / `MixerDevice` remainder | `Device`: `is_active`, `latency_in_ms/samples`, `class_display_name`, `can_have_chains`, `can_have_drum_pads`, `can_compare_ab`, `is_using_compare_preset_b`, `save_preset_to_compare_ab_slot`, `store_chosen_bank`. `MixerDevice`: `crossfade_assign`, `crossfader`, `panning_mode`, `track_activator`, `left/right_split_stereo`, `song_tempo`. |
-
-## Tier D — object families
-
-Each depends on A-1 (path resolver). A-4 (object-read pattern) has landed and
-is available to use directly — see `API.md` § "Object-valued reads".
-
-| PR | Scope |
-|---|---|
-| **D-1** Racks, chains, drum pads | `RackDevice` (chains, return chains, macros, variations, `insert_chain`), `Chain`, `ChainMixerDevice` (volume, panning, sends, chain_activator), `DrumPad`, `DrumChain` incl. the curated [pad-map read](FORK_GAPS.md#drumchainin_note-and-rack-chain-insertion--read-the-drum-rack-pad-map): `/live/device/get/drum_pads` → `(chain_index, in_note, name)*`, `in_note`/`out_note` setters. `DeviceIO`. |
-| ~~**D-2** Groove~~ | ~~`/live/song/get/groove_pool` → indexed names and amounts; `Groove.*` amounts get/set; `/live/clip/get|set/groove` by pool index or `-1`. Measure whether `browser.load_item` can load an `.agr` into the pool.~~ Landed 2026-08-29, branch `feat/groove`. Record: `API.md` § "Groove API" (now `FORK_GAPS.md` § Closed), including the curated `Clip.groove` entry it named. `.agr`-via-browser measurement carried forward as still open — see that section. |
-| **D-3** Browser tree | `Browser` roots (`instruments`, `sounds`, `drums`, `audio_effects`, `midi_effects`, `max_for_live`, `plugins`, `clips`, `samples`, `packs`, `user_library`, `user_folders`, `current_project`, `legacy_libraries`, `colors`), `BrowserItem` traversal, `filter_type`, `hotswap_target`, `relation_to_hotswap_target`. |
-| **D-4** Simpler and Sample (path-taking handlers) | Curated [slicing entry](FORK_GAPS.md#simplerdevice-slicing--slice-a-loaded-sample-from-the-bridge): `playback_mode`, `slicing_playback_mode`, `slices`, `insert/remove/clear/reset/move_slice`, `selected_slice`, `sample`, `Sample.*`, `SimplerDevice.View`. Plus every path-taking handler in one reviewed place: `replace_sample`, `Track.create_audio_clip`, `ClipSlot.create_audio_clip`. |
-| **D-5** Small leftovers | `TuningSystem`, `Song.tuning_system`, `Song.get_data`/`set_data`. C-1 shipped without these (confirmed in FORK_GAPS's "Already in the fork" table); stands alone unless a smaller bucket fits. |
+| **Open measurements** | `Song.sync_parameter_changes` — [registered, behaviour unknown](FORK_GAPS.md#songsync_parameter_changes--registered-behaviour-unknown); Remote-Script-only, absent from Max for Live's table, docstring is the signature alone. `move_device` and `find_device_position`, unmeasured because the verification set had no track carrying a device. The `count_in_duration` index and the `TimeFormat` int mappings, accepted and echoed but never decoded. And the values behind the `Application` getters whose OK paths log nothing — those replies go to a port this machine cannot bind, so this one needs a free reply port or a temporary logging patch before it can run at all. |
 
 ## Deferred — device-specific classes
 
-Not scheduled. One PR each, only when a feature names it; D-4 sets the
-pattern for a device subclass PR. Roughly 130 gaps:
+Not scheduled. One PR each, only when a feature names it; *Simpler and
+Sample* sets the pattern for a device subclass PR. 117 gaps:
 
 `DriftDevice` (29), `WavetableDevice` (20), `LooperDevice` (16),
 `SpectralResonatorDevice` (12), `HybridReverbDevice` (8), `MaxDevice` (8),
 `CompressorDevice` (4), `MeldDevice` (4), `PluginDevice` (4),
-`Eq8Device` (3 + View 2), `RoarDevice` (3), `ShifterDevice` (3),
-`DrumCellDevice` (1).
+`Eq8Device` (3, its `View` in *View classes*), `RoarDevice` (3),
+`ShifterDevice` (3), `DrumCellDevice` (1). Each also inherits the 15
+`Device` members, which the device resolver and the `Device` remainder
+bucket cover once for all of them.
 
 ## Count
 
-| | PRs | Gaps closed |
+| | Buckets | Gaps closed |
 |---|---|---|
-| Tiers A–D | 19 (floor ~15 with the suggested merges) | ~365 of 494, plus every addressing and shape gap |
-| Deferred device classes | ~13 | ~130 |
-| **Full parity** | **~30** | 494 |
+| Named buckets above | 15 | 300 of 419, plus every addressing and shape gap |
+| Deferred device classes | ~13 | 117 |
+| **Full parity** | **~28** | 419 |
+
+The two members in neither row are `Application.get_document` — a false
+gap, `self.song` *is* the document — and `press_current_dialog_button`,
+declined under rule 5.
 
 ## Tracking
 
-Update this file when a PR lands: strike the row, note the PR number. When
-a tier is empty, delete it. Regenerate the FORK_GAPS inventory in the same
-commit so the two files never disagree on what is open.
+Update this file when a bucket lands: strike the row, note the PR. When a
+section is empty, delete it. Regenerate the FORK_GAPS inventory in the
+same commit so the two files never disagree on what is open, and check the
+three buckets FORK_GAPS names still exist under those names.

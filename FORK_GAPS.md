@@ -26,8 +26,10 @@ capability looks out of reach, classify it in this order:
    limit.)
 2. Check the fork's Python registrations, not only the API markdown — the
    inventory's address list is taken from the running server.
-3. Check whether Seshat already has a handler/tool for the address
-   ([false gaps](#already-in-the-fork-false-gaps) below lists the usual ones).
+3. Check whether Seshat already has a handler/tool for the address. Most
+   "the fork can't do X" claims die here: the address exists and the missing
+   layer is Seshat's. `API.md` is the address list to check against, never a
+   guess from AbletonOSC naming patterns.
 4. Only then record it here as a fork gap, or in Seshat as a tool gap.
 
 ## Three kinds of gap
@@ -61,6 +63,9 @@ shapes, and each has its own section below:
   class, rw/ro, observable) before writing prose about it.
 - **Add an addressing or shape entry** when you find one; the tool cannot.
   Both sections are hand-maintained.
+- **Before implementing any gap**, reconcile its address rows with the Python
+  source in the same change, and never infer an address name from AbletonOSC
+  naming patterns — the fork's names diverge from upstream's in places.
 - **Remove an entry** when the fork gains the address, in the same commit.
   Don't leave it marked done — the address docs are the record of what
   exists. The inventory drops it on the next regeneration.
@@ -78,11 +83,10 @@ shapes, and each has its own section below:
   (`API.md` § "Groove API").
 - **History.** Seshat's former `docs/evaluating/lom-to-fork-gap-audit.md`
   (2026-07-31, deleted 2026-08-27 once folded in here; hand-written from `strings` on `LomTypes.pyc` and the
-  apiref) was the first pass and has been folded into this file: its
-  dispositions and false-gap table are the two sections below the curated
-  entries, its membership claims are superseded by the generated inventory
-  (which read ~200 members it did not name and reflects addresses added
-  since). Entries that say "July audit" mean that document.
+  apiref) was the first pass and has been folded into this file: what
+  survives of it is the dispositions section below, its membership claims
+  superseded by the generated inventory (which read ~200 members it did not
+  name). Entries that say "July audit" mean that document.
 
 ## Evidence tiers
 
@@ -117,8 +121,7 @@ Remote-Script-only member does what its name suggests.
   (observable), `is_cue_point_selected`. Tier 1 (inventory, 2026-08-27).
 - **Fork today:** `/live/song/get/cue_points` → flattened `(name, time)*`;
   `/live/song/cue_point/jump <index|name>`; `/live/song/cue_point/add_or_delete`;
-  `/live/song/jump_to_next_cue`, `jump_to_prev_cue`. (An earlier version of
-  this entry said "nothing" — it was wrong; the inventory is what to check.)
+  `/live/song/jump_to_next_cue`, `jump_to_prev_cue`.
 - **Still missing:** `start_listen/cue_points` (the list is observable, so
   a locator added in the UI could push), `can_jump_to_next_cue`/`_prev_cue`,
   `is_cue_point_selected`, `CuePoint.name` set, and per-cue `name`/`time`
@@ -172,7 +175,7 @@ side has landed are deleted, not marked — the address docs are the record._
 
 | Priority | Missing bridge surface | Why it matters | Disposition |
 |---|---|---|---|
-| High | `Application.View.focused_document_view` | Exact Session-vs-Arranger read; `show_view`, `hide_view` and `is_view_visible` shipped without it | Open, and belongs in the same handler — the view bucket in [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md) |
+| High | `Application.View.focused_document_view` | `/live/view` can show, hide and test a view but cannot say which document view has focus — Session vs Arranger, exact | Belongs in the same handler as the existing view addresses — the view bucket in [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md) |
 | Medium | `Song.View.draw_mode`, `follow_song` | Readable absolute state instead of focus-routed toggle shortcuts | Fold into a concrete view/automation workflow; no value as isolated knobs |
 | Declined | `Application.press_current_dialog_button` | Would let a client dismiss a blocking Live dialog rather than only describe it | Stays out unless a separately reviewed, non-file use case proves it safe: a dialog on screen may be guarding unsaved work, and pressing its buttons blind is not recoverable. The same decision is why the two `show_*` addresses raise **OK-only** dialogs, passing Live the text and nothing else so `buttons` keeps its default |
 | Conditional | Arrangement clips and take lanes | LOM support is substantial; Seshat is deliberately Session-first | Declined until an Arrangement/comping workflow is chosen |
@@ -195,33 +198,6 @@ inventory's one-line docstrings do not carry them:
 - `Application.control_surfaces` is an object list with little value to
   Seshat today.
 
-## Already in the fork (false gaps)
-
-_Common sources of wrong "fork gap" claims. The missing layer is Seshat's,
-not Python's._
-
-| Capability | Existing fork surface | Actual missing layer |
-|---|---|---|
-| Read/set regular-track audio input | `/live/track/get|set/input_routing_type`, `input_routing_channel`, and the `available_*` lists | Tool layer |
-| Read/set regular-track output | Matching `output_routing_*` addresses | Tool layer |
-| Set monitoring mode | `/live/track/get|set/current_monitoring_state` | Tool layer |
-| Track colour | `/live/track/get|set/color`, `color_index` | Tool layer |
-| Read Arrangement clip summary | `/live/track/get/arrangement_clips/{name,length,start_time}` | A full Arrangement workflow, not the three reads |
-| Scene tempo / time signature | `/live/scene/get|set/*` | Tool layer |
-| Link enable | `is_ableton_link_enabled` get/set/listen | Tool/docs layer |
-| Scale root / name | `root_note`, `scale_name`, `scale_mode` get/set/listen and `scale_intervals` get/listen — `API.md` § "Song Getters" | Tool choices; only `tuning_system` remains a true fork gap (the small-leftovers bucket in [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md)) |
-| Cue points | `/live/song/get/cue_points`, `cue_point/jump`, `cue_point/add_or_delete`, `jump_to_next/prev_cue` | Tool layer, plus the listen/guard members in the curated entry |
-| Dialog detection needs AX | `/live/application/get/open_dialog_count`, `current_dialog_message`, `current_dialog_button_count` (+ listen on the count) | False, and not a fork gap either: the addresses exist — `API.md` § "Application API", "Detecting dialogs" |
-| Drum Rack pad map unreadable | — | False: `DrumChain.in_note` is a fork gap (curated entry) |
-| `Application.get_document` | Needs no address — `self.song` **is** the document, and `view` and `browser` are reached under `/live/view/*` and `/live/browser/*` | Nothing. The inventory counts it a gap only because no address segment equals its name |
-| `DeviceParameter.str_for_value` | `/live/device/get/parameter/value_string` | Nothing; same segment-equality artefact |
-
-The audit also found eight registered addresses missing from Seshat's
-`API.md`; all eight are documented there now. The
-rule stands: before implementing any gap, reconcile the address rows with
-the Python source in the same change, and never infer an address name from
-AbletonOSC naming patterns.
-
 ## Addressing gaps
 
 _Members the inventory counts as exposed, but whose address resolves only
@@ -242,21 +218,20 @@ apart.
 
 ### `Device` / `DeviceParameter` — top-level devices only
 
-`/live/device/*` resolves `song.tracks[t].devices[d]` — 39 addresses, including
-everything **B-2** added (the rich per-parameter reads, the `parameters/*` bulk
-reads, `set/parameter/display_value`, `set/parameters/value`,
-`parameter/begin_gesture`/`end_gesture`) and four listen pairs.
-`/live/return_track/device/*` and `/live/master/device/*` carry five addresses
-each for return and master top-level devices — `get/name`, `get/parameters`,
-`get/parameter/value`, `get/parameter/value_string` and `set/parameter/value`,
-beside `/live/return_track|master/get/devices`. Everything else on the regular
-prefix is missing there: `class_name`, `type`, `num_parameters`, every B-2 read
+`/live/device/*` resolves `song.tracks[t].devices[d]` — regular tracks only.
+Return and master devices have their own prefixes
+(`/live/return_track/device/*`, `/live/master/device/*`) carrying five
+addresses each; everything else the regular prefix answers is missing there:
+`class_name`, `type`, `num_parameters`, the rich per-parameter reads
 (`value_items`, `short_value_items`, `display_value`, `state`, `is_enabled`,
 `automation_state`, `default_value`, `original_name`), the `parameters/*` bulk
-reads including `min`/`max`/`is_quantized`, the gesture pair, and all four
-listen pairs. Nothing reaches devices inside a Rack (`RackDevice.chains[c].devices[d]`),
-Drum Rack pads (`drum_pads[p].chains[c].devices[d]`), rack return chains,
-or Max-device `DeviceIO`. Needs a recursive path form; the whole
+reads including `min`/`max`/`is_quantized`, `set/parameter/display_value`,
+`set/parameters/value`, the `begin_gesture`/`end_gesture` pair, and all four
+listen pairs.
+
+Nothing at all reaches devices inside a Rack (`RackDevice.chains[c].devices[d]`),
+Drum Rack pads (`drum_pads[p].chains[c].devices[d]`), rack return chains, or
+Max-device `DeviceIO`. Needs a recursive path form; the whole
 `RackDevice`/`Chain`/`DrumPad`/`DrumChain` family in the inventory is
 unreachable until it exists.
 
@@ -264,20 +239,8 @@ unreachable until it exists.
 
 `/live/track/*` is `song.tracks` only. `Track` is also every return track and
 the master, reached instead through `/live/return_track/*` and
-`/live/master/*`. Since **A-3** those two prefixes carry the mixer surface
-(`name`, `volume`, `panning`, `mute`, `solo`, `cue_volume`), the device subset
-(`devices`, `device/*`, `delete_device`, `insert_device`, `select_device`),
-`select`, colour (`color`, `color_index`), the four `has_*_input/output`
-reads, the three `output_meter_*` reads, output routing (both `available_*`
-lists and both get/set pairs), the returns' own `mixer_device.sends`, and a
-`start_listen`/`stop_listen` pair for every mutable scalar among them.
-
-Counts measured from the registered address tables on 2026-08-29: **109 / 60 /
-49**, against 108 / 30 / 21 before A-3 landed (the "107 / 20 / 15" this
-heading carried for months predated the fork's return/master work entirely).
-Confirmed the same day against a running Live 12.4.5 by reading the live
-server's own registration table back through `/live/application/dump_lom`
-(774 addresses total): 109 / 60 / 49 exactly.
+`/live/master/*` — 109 / 60 / 49 addresses respectively, measured 2026-08-29
+against the live server's own registration table.
 
 Still missing on returns/master, and deliberately so unless a feature asks:
 the clip family (`clip_slots`, `arrangement_clips`, `stop_all_clips`,
@@ -291,10 +254,8 @@ the split `devices/*` getters.
 
 ### `MixerDevice` — four of eleven members, and only via `Track`
 
-`volume`, `panning`, `sends` reach `track.mixer_device` on a regular track,
-and since **A-3** `sends` reaches a *return* track's mixer too
-(`/live/return_track/get|set/send`) — Live 12's return-to-return send
-section. `cue_volume` reaches the master's. `Chain.mixer_device`
+`volume`, `panning` and `sends` reach `track.mixer_device` on a regular track
+and on a return; `cue_volume` reaches the master's. `Chain.mixer_device`
 (`ChainMixerDevice`: volume, panning, sends, chain_activator) still has no
 path, which is what makes rack chains silent even once devices are reachable;
 so do `crossfade_assign`, `panning_mode`, `track_activator`, `crossfader`,
@@ -302,12 +263,11 @@ so do `crossfade_assign`, `panning_mode`, `track_activator`, `crossfader`,
 
 ### `Song.View` / `Application.View` — `/live/view` is a fixed set
 
-`/live/view/*` exposes selected track/scene/clip/device, `detail_clip`
-set, `show_view`, `hide_view`, `is_view_visible`, and — since A-4 — the four
-object-valued `Song.View` reads `selected_chain`, `selected_parameter`,
-`mod_mapping_device` and `mod_mapping_parameter`. `Track.View`,
-`Clip.View`, `Device.View`, `RackDevice.View` and `Eq8Device.View` members
-are not addressable because there is no per-object view resolver.
+`/live/view/*` is a fixed set of `Song.View` and `Application.View` addresses
+with no per-object view resolver behind it, so `Track.View`, `Clip.View`,
+`Device.View`, `RackDevice.View` and `Eq8Device.View` members are not
+addressable at all. `Application.View`'s own remainder — `focused_document_view`,
+`available_main_views`, `browse_mode` — is a member gap on top of that.
 
 ## Shape gaps
 
@@ -354,11 +314,11 @@ clip↔groove assignment contract is broken in both directions"** — that entry
 carries the diagnosis, the consumer harm and the two separable fixes. Don't
 plan against this paragraph.
 
-## Residual member gaps from shipped work
+## Residual member gaps
 
-_Members a shipped item deliberately left open. They are ordinary member gaps
-now and the generated inventory lists them; this section carries the reason so
-a later plan does not have to re-derive it._
+_Single members left open beside a family that is otherwise complete — each a
+deliberate stop, not an oversight. The generated inventory lists them like any
+other gap; this section carries the reason so a plan need not re-derive it._
 
 ### `Clip.notes` has no listener
 
@@ -371,13 +331,12 @@ resending the whole clip on every note edit is the naive answer.
 
 ### `DeviceParameter` — `re_enable_automation` and three listen pairs
 
-The description surface shipped read-only (`value_items`, `short_value_items`,
-`state`, `is_enabled`, `automation_state`, `default_value`, `original_name`)
-plus `set/parameter/display_value`. Still open: the **`re_enable_automation`
-mutation**, which belongs with an automation-shaped item rather than a
-description one, and **listen pairs** on the three observable members `state`,
-`automation_state` and `display_value` — Live offers an `add_<name>_listener`
-for each, and `device_get_parameter_value_listener` is the pattern to copy.
+Two things are missing beside an otherwise complete parameter surface: the
+**`re_enable_automation` mutation**, held back because it belongs with an
+automation-shaped item rather than a description one, and **listen pairs** on
+the three observable members `state`, `automation_state` and `display_value` —
+Live offers an `add_<name>_listener` for each, and
+`device_get_parameter_value_listener` is the pattern to copy.
 
 ### `Application` — listen pairs for `unavailable_features` and `control_surfaces`
 
