@@ -1,3 +1,20 @@
+**Archived 2026-08-29 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in
+`abletonosc/song.py` (two contiguous fork-owned blocks appended to
+`properties_rw`/`properties_r`, a `properties_r_no_listen` get-only loop,
+hand-written `scale_intervals`/`visible_tracks`/`num_visible_tracks` reads, a
+second fork-owned methods loop, and five hand-written method-query handlers —
+fifty-eight new addresses); `API.md` § "Song Getters", § "Song Setters" and
+§ "Song: method queries" are the permanent record. Live verification's ten
+checks did not run — the installed Remote Scripts copy differs from this
+checkout in seven files including `song.py` (see the pr-review re-check
+recorded under Live verification below) — so every ⚠️ marker in `API.md`
+stands and all eight Open questions below stay open for whoever verifies
+against a running Live next. No follow-up gap was left open under this
+item's own scope; `D-5` (`TuningSystem`, `Song.tuning_system`,
+`Song.get_data`/`set_data`, `CLOSING_THE_GAPS.md`) remains a separate,
+unstarted bucket, unaffected by this item.
+
 # Plan: `Song` remainder (C-1)
 
 Roadmap item: **#1 · C-1 · `Song` remainder** — from `CLOSING_THE_GAPS.md`
@@ -449,6 +466,14 @@ evidence from the installed `logs/abletonosc.log`, wrap mutations in
    raised or not (its semantics stay ⚠️ even after a clean call).
 10. **No-listen contract:** `start_listen/file_path`; evidence = the
     `Unknown OSC address` log line and no error datagram.
+
+**pr-review re-check (2026-08-29):** independently re-verified the
+precondition rather than trusting the "deferred" claim above — diffed the
+installed Remote Scripts copy against this checkout and found 7 files differ,
+`song.py` among them, so the installed copy is not running this branch's code
+regardless of a Live restart. All 10 checks above are confirmed **SKIPPED by
+environment**, not merely asserted; nothing in this section should be read as
+having run.
 
 **Remains uncovered even after this pass:** `sync_parameter_changes`
 semantics (a clean no-op call proves callability, not meaning);
