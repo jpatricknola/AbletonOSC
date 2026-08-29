@@ -175,23 +175,31 @@ index other than `0` are each a `ValueError` arriving as a structured
 `/live/error`, never a Python negative-index wrap-around. It reaches top-level
 devices only, and cannot un-appoint.
 
-**`/live/clip/set/groove` is the one sanctioned exception to "`-1` is an
-answer, never an argument"**, and it is worth being precise about why, because
-the rule is not being relaxed:
+⚠️ **`/live/clip/set/groove` was specified as the one sanctioned exception to
+"`-1` is an answer, never an argument". Measured against Live 12.4.5 on
+2026-08-29, the exception does not work and the round trip it justified does
+not exist.** Both halves fail, and a client must treat the clip↔groove
+assignment as write-only until they are fixed:
 
-- The hazard the rule guards against is Python's silent negative indexing —
-  sending back a `-1` read from a getter and having it resolve to *the last
-  element* instead of "none". That hazard is absent here: this setter never
-  uses its argument as a subscript. Exactly `-1` is intercepted first and maps
-  to an explicit `clip.groove = None`; `-2` and below, and anything past the
-  end of the pool, are a `ValueError` on `/live/error`; only a validated
-  `>= 0` ever reaches the collection.
-- The round trip is therefore *correct* rather than merely accepted:
-  `get/groove` → `-1` → `set/groove -1` restores "no groove", which is what the
-  read said. On `set/appointed_device` the same value could not mean anything
-  honest, because un-appointing has no Live-side spelling this fork has
-  measured — which is why that setter stays narrow, and why the exception is
-  one address wide rather than a general relaxation.
+- **`set/groove -1` cannot clear.** `clip.groove = None` raises
+  `Boost.Python.ArgumentError` — Live's setter is
+  `None(TPyHandle<AClip>, TPyHandle<AAbstractGroove>)` and refuses `NoneType`.
+  The clear arrives as `/live/error` and the clip keeps whatever groove it
+  had. No spelling of "no groove" is known to this fork.
+- **`get/groove` cannot report "no groove".** A clip with no groove assigned
+  reads `0`, the same value as a clip explicitly assigned to pool index `0`,
+  so the `-1` this document promises is unreachable and the two states are
+  indistinguishable on the wire. Measured on two freshly created clips, both
+  before and after an explicit `set/groove 0`.
+
+Consequently `get/groove` → `set/groove` is **not** a safe round trip: replaying
+a read of an ungrooved clip assigns it pool groove `0`. The reasoning below is
+kept because it still describes the intent and the guard that does hold — the
+setter never uses its argument as a subscript, so `-2` and below and anything
+past the end of the pool are a `ValueError` on `/live/error` and only a
+validated `>= 0` reaches the collection. What is not true is that `-1` maps to
+a working clear. See ROADMAP, "The clip↔groove assignment contract is broken
+in both directions".
 
 ⚠️ **Seshat extension.** Every object-valued read is added by this fork; none
 exists in stock AbletonOSC — `track/get/group_track`, `clip_slot/get/clip`, the
@@ -386,7 +394,7 @@ Consequences, all of them load-bearing:
 | `/live/application/get/bugfix_version` | | `bugfix` | Seshat extension. The third component, e.g. the `3` of `12.4.3` |
 | `/live/application/get/build_id` | | `build_id` | Seshat extension. The exact build |
 | `/live/application/get/variant` | | `variant` | Seshat extension. Live's edition (Suite, Standard, Intro, Lite), which decides whether a given LOM member exists at all — see `get/unavailable_features`. ⚠️ The exact strings Live returns are unmeasured |
-| `/live/application/get/has_option` | `option` | `option, present` | Seshat extension. Whether an Options.txt option is active. The option string is handed to Live **unmodified** and echoed back beside the answer, so a burst of requests can be correlated — there is no other discriminator on this address. Sending no argument is a structured `/live/error`, not a default. ⚠️ Live's matching semantics (whether the leading `-` belongs in the string) are unmeasured |
+| `/live/application/get/has_option` | `key` | `key, present` | Seshat extension. ⚠️ **Broken as documented — do not use.** This was specified as an Options.txt query; measured against Live 12.4.5 on 2026-08-29, `Application.has_option` is nothing of the kind. It accepts **exactly 64 hexadecimal characters** and rejects everything else before reaching the answer: a non-hex string raises `Key contains non-hex characters`, and a hex string of any other length (63, 40, 32, 16, 8) raises `basic_string` — both arriving as `/live/error`. No option name is callable through it. The argument is still handed to Live unmodified and echoed back beside the answer. See ROADMAP, "`/live/application/get/has_option` documents a contract Live does not implement" |
 | `/live/application/get/open_dialog_count` | | `count` | Seshat extension. Number of open Live dialogs; `0` when none. Observable — see **Detecting dialogs** below |
 | `/live/application/get/current_dialog_message` | | `message` | Seshat extension. Text of the last dialog that appeared; empty once all dialogs have gone. **Not** observable |
 | `/live/application/get/current_dialog_button_count` | | `count` | Seshat extension. Buttons on the current dialog. **Not** observable |
@@ -450,21 +458,33 @@ the three top-level routes — `dump_lom`, `show_message` and
 `dump_lom` sits in the `/live/application/*` blast radius already, for the
 unrelated reason noted in its own row above.
 
-> **Not yet measured against a running Live (as of 2026-08-29).** The
-> application addresses above landed without the usual measurement pass:
-> the checks need the installed Remote Scripts copy replaced and Live
-> restarted, which the session that wrote them could not do. Five things are
-> therefore documented from Live's own signatures and docstrings rather than
-> from observation, and carry ⚠️ in their rows — the exact `get/variant`
-> strings, whether `unavailable_features` elements are strings or enum
-> objects, how `control_surfaces` represents an unassigned slot, whether
-> `show_message` blocks the tick thread and what its returned int means, and
-> what form `has_option` expects. The reply *shapes* are pinned by
-> `tests_unit/test_application.py` and do not depend on any of that; the
-> handler coerces defensively (`str()` on every list element, `None` slots to
-> `""`) so a wrong guess degrades the reply's readability, not its
-> well-formedness. The measurement procedure is § "Measuring the Live API
-> without building the feature first" above.
+> **Partially measured against Live 12.4.5 on 2026-08-29.** These addresses
+> shipped without a measurement pass and one has since run. What it settled:
+>
+> - **`has_option` does not do what this document said.** It is not an
+>   Options.txt query — it takes a 64-hex-character key. See its row above;
+>   the correction is a roadmap defect, not a documentation tidy-up.
+> - **The registration table is exactly 21 addresses**, matching
+>   `tests_unit/test_application.py::test_registration_table_is_exactly_this`,
+>   read back from the live server through `/live/application/dump_lom`.
+> - **Every remaining getter answers without raising**, including the four
+>   version reads and both flattened list reads, so no member name or arity
+>   in this section is wrong.
+>
+> Still unmeasured, and still carrying ⚠️ — the exact `get/variant` strings,
+> whether `unavailable_features` elements are strings or enum objects, how
+> `control_surfaces` represents an unassigned slot, and whether
+> `show_message` blocks the tick thread. These are **values**, and this fork
+> cannot read a reply on the machine it is developed on: replies go to
+> `(sender_host, 11001)`, that port belongs to another consumer, and no
+> loopback alias is bindable (`Errno 49`), so verification reads the
+> handler's own log lines — which these custom getters do not write. They
+> need either a free reply port or a temporary logging patch. The reply
+> *shapes* are pinned by `tests_unit/test_application.py` and do not depend
+> on any of it; the handler coerces defensively (`str()` on every list
+> element, `None` slots to `""`) so a wrong guess degrades the reply's
+> readability, not its well-formedness. The measurement procedure is
+> § "Measuring the Live API without building the feature first" above.
 
 ⚠️ **Don't reach for `/live/api/reload`.** Two problems, both observed:
 
@@ -823,25 +843,35 @@ one — exactly as `/live/song/set/appointed_device` reaches top-level devices
 only. The reply echoes the target identity before Live's return value so
 several of these can be in flight at once.
 
-> **Not yet measured against a running Live (as of 2026-08-29).** The whole
-> `Song` remainder landed without a measurement pass — the checks need the
-> installed Remote Scripts copy replaced and Live restarted, which the session
-> that wrote them could not do. Six things are documented from Live's own
-> signatures, docstrings and shipped scripts rather than from observation, and
-> carry ⚠️ in their rows: the `count_in_duration` index mapping, the
-> `BeatTime`/`SmpteTime` attribute names (`bars`/`beats`/`sub_division` appear
-> as attribute names in Live 12.4.3's own shipped scripts; `ticks` and the four
-> SMPTE fields are Max-for-Live-derived), the `Live.Song.TimeFormat` int
-> mapping (M4L names the members `smpte_24`, `smpte_25`, `smpte_29`,
-> `smpte_30`, `smpte_30_drop`, `ms_time` — the ints behind them are
-> unmeasured), what `move_device` / `find_device_position` return and whether
-> `find` really is non-mutating, `overdub`'s relationship to `session_record`,
-> and what `sync_parameter_changes` does at all. Wrong struct attribute names
-> fail **loudly** — an `AttributeError` on `/live/error` naming the attribute,
-> never a plausible wrong number. The reply *shapes* are pinned by
-> `tests_unit/test_song_remainder.py` and depend on none of it. The measurement
-> procedure is § "Measuring the Live API without building the feature first"
-> above.
+> **Partially measured against Live 12.4.5 on 2026-08-29.** The `Song`
+> remainder shipped without a measurement pass and one has since run.
+> What it settled:
+>
+> - ✅ **The `SmpteTime` attribute names are right.**
+>   `/live/song/get_current_smpte_song_time` answers a well-formed
+>   `format, hours, minutes, seconds, frames` for `format` 0 through 4 with no
+>   `AttributeError`, so the four SMPTE field names this fork reads exist under
+>   those names. Wrong names fail loudly, which is what makes the silence
+>   meaningful. The *values* were all zero (a stopped playhead at song time 0),
+>   so the mapping from `Live.Song.TimeFormat` ints to frame rates is still
+>   unmeasured — the ints are accepted and echoed, nothing more.
+> - ✅ **Every scalar in this section answers**, including
+>   `count_in_duration`, the scale members, the Link switches, the tempo
+>   follower and the automation flags — no member name in the table is wrong.
+>
+> Still unmeasured and still ⚠️ in their rows: the `count_in_duration` index
+> mapping (the preference read `0` throughout, so only "None" was observed),
+> the `Live.Song.TimeFormat` int mapping as above, `overdub`'s relationship to
+> `session_record`, and what `sync_parameter_changes` does at all.
+>
+> **`move_device` / `find_device_position` remain entirely unmeasured**, and
+> deliberately so: exercising them needs a track carrying a device, and the
+> set used for the run had none. Both what the returned int means and whether
+> `find` is genuinely non-mutating are still open, and `find` should be
+> treated as potentially mutating until someone checks. The reply *shapes* are
+> pinned by `tests_unit/test_song_remainder.py` and depend on none of it. The
+> measurement procedure is § "Measuring the Live API without building the
+> feature first" above.
 
 ### Song: Track/Scene/Cue Queries
 
@@ -1467,8 +1497,8 @@ ignored**. Sending fewer than two is a malformed request and answers on
 | `/live/clip/get/warp_mode` | `track_id, clip_id` | `track_id, clip_id, warp_mode` | Warp mode (0=Beats, 1=Tones, 2=Texture, 3=Re-Pitch, 4=Complex, 6=Pro) |
 | `/live/clip/set/warp_mode` | `track_id, clip_id, warp_mode` | | Set warp mode |
 | `/live/clip/get/has_groove` | `track_id, clip_id` | `track_id, clip_id, has_groove` | Has groove? |
-| `/live/clip/get/groove` | `track_id, clip_id` | `track_id, clip_id, groove_index` | ⚠️ **Seshat extension** — which Groove Pool groove is assigned to this clip, as its **index into `/live/song/get/groove_pool`**, or `-1` when none is assigned (also `-1` if the assigned groove is somehow not in the pool — absence is an answer, not an error). See **Object-valued reads** and the **Groove API** |
-| `/live/clip/set/groove` | `track_id, clip_id, groove_index` | | ⚠️ **Seshat extension** — assign the groove at `groove_index` in the pool, or **exactly `-1` to clear the assignment** (`clip.groove = None`). This is the one address in this fork where `-1` is an argument rather than an answer, so a `get → set` round trip restores what was read; see **Object-valued reads**. `-2` and below, and an index past the end of the pool, answer on `/live/error` naming the pool's real size and change nothing. ⚠️ Whether Live accepts the clear is unmeasured |
+| `/live/clip/get/groove` | `track_id, clip_id` | `track_id, clip_id, groove_index` | ⚠️ **Seshat extension** — which Groove Pool groove is assigned to this clip, as its **index into `/live/song/get/groove_pool`**, ⚠️ **the `-1` documented here is unreachable** — measured against Live 12.4.5 on 2026-08-29, a clip with no groove reads `0`, indistinguishable from a clip assigned to pool index `0`. Treat this read as "which groove, if the clip has one" and do not feed it back to `set/groove`. See **Object-valued reads** and the **Groove API** |
+| `/live/clip/set/groove` | `track_id, clip_id, groove_index` | | ⚠️ **Seshat extension** — assign the groove at `groove_index` in the pool, ⚠️ **`-1` does not clear** — `clip.groove = None` raises `Boost.Python.ArgumentError` in Live 12.4.5 (measured 2026-08-29) and answers `/live/error`, leaving the assignment untouched; there is no known way to un-assign a groove over this bridge. Assignment to a valid pool index works. `-2` and below, and an index past the end of the pool, answer on `/live/error` naming the pool's real size and change nothing. See **Object-valued reads** |
 | `/live/clip/start_listen/groove` | `track_id, clip_id` | | ⚠️ **Seshat extension** — `Clip.groove` is observable; pushes arrive on `/live/clip/get/groove` as `track_id, clip_id, groove_index`. ⚠️ Whether a push fires when the *pool* renumbers (a groove removed above the assigned one changes the index but not the object) is unmeasured — `get/groove` stays correct either way, so treat the getter, not the push, as the source of truth. Unlike every other clip listener, the push value is re-resolved from `(track_id, clip_id)` at push time rather than from the originally-subscribed clip: if *track or clip* indices renumber between subscribe and push, the push reports the groove of whatever clip now sits at that identity, not the clip that was subscribed |
 | `/live/clip/stop_listen/groove` | `track_id, clip_id` | | ⚠️ **Seshat extension** — stop listening |
 | `/live/clip/get/legato` | `track_id, clip_id` | `track_id, clip_id, legato` | Legato (0=False, 1=True) |
@@ -1625,12 +1655,16 @@ unlikely to be reached; it is now encodable rather than silently fatal
 **Unmeasured, and marked ⚠️ until a Live verification session runs**
 (the checks are written out in the plan doc archived with this item):
 
-- ⚠️ Whether `Live.Clip.MidiNoteSpecification` accepts `probability`,
-  `velocity_deviation` and `release_velocity` as constructor keywords. Assumed
-  yes: the M4L note specification documents the fields, and Live 12's shipped
-  `pushbase` bytecode carries those names around `MidiNoteSpecification`. If it
-  does not, `add/notes_extended` fails with the structured error envelope and
-  the fix is confined to `make_note_specification` in `abletonosc/clip.py`.
+- ✅ **Confirmed (measured against Live 12.4.5, 2026-08-29).** `Live.Clip.MidiNoteSpecification` **does** accept
+  `probability`, `velocity_deviation` and `release_velocity` as constructor
+  keywords: `/live/clip/add/notes_extended` with all eight fields builds and
+  applies the note with no error, on a MIDI clip created for the check. A
+  seven-field call is still rejected with the structured envelope, so the
+  arity guard holds. This was the largest assumption in this section; the
+  reply *values* were not read back (replies go to a port this fork cannot
+  bind locally — see the Application section's measurement note), so what is
+  pinned is that Live accepts the construction, not that each field
+  round-trips.
 - ⚠️ Whether a fetched `MidiNote`'s attributes are writable from Remote Script
   Python — what `apply_note_modifications` depends on. Assumed yes: Push's own
   note editor fetches, mutates and applies.
@@ -1824,10 +1858,15 @@ do not reorder without changing this document):
 
     name, quantization_amount, timing_amount, random_amount, velocity_amount
 
-`base` is deliberately **not** in that tuple. Its wire type is unverified, and
-the OSC builder drops an entire reply it cannot encode — so keeping `base` out
-of the dump means an encoding surprise breaks one address instead of the whole
-pool read. It has its own get/set pair below.
+`base` is deliberately **not** in that tuple. The reasoning was that its wire
+type was unverified and the OSC builder drops an entire reply it cannot encode,
+so keeping `base` out of the dump means an encoding surprise breaks one address
+instead of the whole pool read. That surprise did not materialise: `base` reads
+as a plain string (measured against Live 12.4.5, 2026-08-29 — a stock "Swing 16ths 66" groove answers `gb_sixteen`)
+and encodes without a `BuildError`. The exclusion is therefore now
+conservatism rather than protection, and it is kept because moving a field
+into the dump is a wire-contract change, not a documentation one. It has its
+own get/set pair below.
 
 **A subscription's identity is one int** — `groove_index` is normalised to an
 int at the callback boundary and that int is the pool lookup, the
@@ -1853,9 +1892,9 @@ Listen via `/live/groove/start_listen/<property> <groove_index>`, stop via
 |---|---|---|---|
 | `/live/groove/get/name` | `groove_index` | `groove_index, name` | The groove's name, as it reads in the Groove Pool. Observable |
 | `/live/groove/set/name` | `groove_index, name` | | Rename the groove |
-| `/live/groove/get/quantization_amount` | `groove_index` | `groove_index, quantization_amount` | How strongly the groove quantizes toward its grid. Observable. ⚠️ Range unmeasured — assumed `0.0`–`1.0` for the UI's 0–100% |
+| `/live/groove/get/quantization_amount` | `groove_index` | `groove_index, quantization_amount` | How strongly the groove quantizes toward its grid. Observable. Range is **`0.0`–`100.0`**, matching the UI's 0–100% — *not* a 0–1 fraction (measured against Live 12.4.5, 2026-08-29) |
 | `/live/groove/set/quantization_amount` | `groove_index, amount` | | Set it. Passed through **unclamped**: Live is the authority on the range, so read back after setting |
-| `/live/groove/get/timing_amount` | `groove_index` | `groove_index, timing_amount` | How strongly the groove's timing offsets apply. Observable. ⚠️ Range unmeasured — assumed `0.0`–`1.0` |
+| `/live/groove/get/timing_amount` | `groove_index` | `groove_index, timing_amount` | How strongly the groove's timing offsets apply. Observable. Range is **`0.0`–`100.0`**, matching the UI (measured against Live 12.4.5, 2026-08-29: a stock "Swing 16ths 66" groove reads `timing_amount = 100.0`) |
 | `/live/groove/set/timing_amount` | `groove_index, amount` | | Set it, unclamped |
 | `/live/groove/get/random_amount` | `groove_index` | `groove_index, random_amount` | The groove's randomness. Observable. ⚠️ Range unmeasured — assumed `0.0`–`1.0` |
 | `/live/groove/set/random_amount` | `groove_index, amount` | | Set it, unclamped |
@@ -2294,10 +2333,10 @@ never as a bare `None`.
 | `/live/return_track/set/color_index` | `return_index, color_index` | | |
 | `/live/return_track/start_listen/color_index` | `return_index` | | Push `[return_index, color_index]` |
 | `/live/return_track/stop_listen/color_index` | `return_index` | | |
-| `/live/return_track/get/has_audio_input` | `return_index` | `return_index, "ok", 0\|1` | ⚠️ Constant on a return, expected always `1` — **unmeasured**. No setter, **no listen pair** |
-| `/live/return_track/get/has_audio_output` | `return_index` | `return_index, "ok", 0\|1` | ⚠️ Constant, expected always `1` — **unmeasured** |
-| `/live/return_track/get/has_midi_input` | `return_index` | `return_index, "ok", 0\|1` | ⚠️ Constant, expected always `0` — **unmeasured** |
-| `/live/return_track/get/has_midi_output` | `return_index` | `return_index, "ok", 0\|1` | ⚠️ Constant, expected always `0` — **unmeasured** |
+| `/live/return_track/get/has_audio_input` | `return_index` | `return_index, "ok", 0\|1` | Constant on a return; **`1`** (measured against Live 12.4.5, 2026-08-29). No setter, **no listen pair** |
+| `/live/return_track/get/has_audio_output` | `return_index` | `return_index, "ok", 0\|1` | Constant; **`1`** (measured against Live 12.4.5, 2026-08-29) |
+| `/live/return_track/get/has_midi_input` | `return_index` | `return_index, "ok", 0\|1` | Constant; **`0`** (measured against Live 12.4.5, 2026-08-29) |
+| `/live/return_track/get/has_midi_output` | `return_index` | `return_index, "ok", 0\|1` | Constant; **`0`** (measured against Live 12.4.5, 2026-08-29) |
 | `/live/return_track/get/output_meter_level` | `return_index` | `return_index, "ok", level` | Output meter, 0.0 to 1.0 |
 | `/live/return_track/start_listen/output_meter_level` | `return_index` | | Push `[return_index, level]` on every change — ⚠️ a *high-rate* subscription while audio plays |
 | `/live/return_track/stop_listen/output_meter_level` | `return_index` | | |
@@ -2319,7 +2358,7 @@ never as a bare `None`.
 | `/live/return_track/set/send` | `return_index, send_id, value` | | Set one of the return's sends |
 | `/live/return_track/insert_device` | `return_index, device_name[, position]` | `return_index, "ok", device_index, count` | Insert a device by name; `device_index` is its position **re-read** from the chain, `count` the new chain length |
 | | | `return_index, "error", message` | Index out of range, no name given, or the LOM call raised |
-| `/live/master/get/color` | | `"ok", color` / `"error", message` | ⚠️ Whether the Main track *has* `color` is **unmeasured** — the envelope answers truthfully either way |
+| `/live/master/get/color` | | `"ok", color` / `"error", message` | The Main track **does** have `color` (measured against Live 12.4.5, 2026-08-29; read back `16749734`) |
 | `/live/master/set/color` | `color` | | ⚠️ If the Main track refuses the member the write raises and arrives on `/live/error`, not as silence |
 | `/live/master/start_listen/color` | | | Push `/live/master/get/color [color]` on every change |
 | `/live/master/stop_listen/color` | | | |
@@ -2327,10 +2366,10 @@ never as a bare `None`.
 | `/live/master/set/color_index` | `color_index` | | |
 | `/live/master/start_listen/color_index` | | | Push `[color_index]` |
 | `/live/master/stop_listen/color_index` | | | |
-| `/live/master/get/has_audio_input` | | `"ok", 0\|1` / `"error", message` | ⚠️ Constant, expected always `1` — **unmeasured**. No setter, no listen pair |
-| `/live/master/get/has_audio_output` | | `"ok", 0\|1` / `"error", message` | ⚠️ Constant, expected always `1` — **unmeasured** |
-| `/live/master/get/has_midi_input` | | `"ok", 0\|1` / `"error", message` | ⚠️ Constant, expected always `0` — **unmeasured** |
-| `/live/master/get/has_midi_output` | | `"ok", 0\|1` / `"error", message` | ⚠️ Constant, expected always `0` — **unmeasured** |
+| `/live/master/get/has_audio_input` | | `"ok", 0\|1` / `"error", message` | Constant; **`1`** (measured against Live 12.4.5, 2026-08-29). No setter, no listen pair |
+| `/live/master/get/has_audio_output` | | `"ok", 0\|1` / `"error", message` | Constant; **`1`** (measured against Live 12.4.5, 2026-08-29) |
+| `/live/master/get/has_midi_input` | | `"ok", 0\|1` / `"error", message` | Constant; **`0`** (measured against Live 12.4.5, 2026-08-29) |
+| `/live/master/get/has_midi_output` | | `"ok", 0\|1` / `"error", message` | Constant; **`0`** (measured against Live 12.4.5, 2026-08-29) |
 | `/live/master/get/output_meter_level` | | `"ok", level` / `"error", message` | Master output meter |
 | `/live/master/start_listen/output_meter_level` | | | Push `[level]` — ⚠️ high-rate |
 | `/live/master/stop_listen/output_meter_level` | | | |

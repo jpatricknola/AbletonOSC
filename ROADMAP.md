@@ -41,7 +41,94 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · One `/live/song/undo` does not revert an OSC-created scene
+## #1 · The clip↔groove assignment contract is broken in both directions
+
+**Goal:** `/live/clip/get/groove` distinguishes "no groove assigned" from
+"pool index 0", and `/live/clip/set/groove` either clears an assignment or
+stops claiming it can. API.md's "one sanctioned exception to `-1` is an
+answer, never an argument" is then either true as written or withdrawn.
+
+**Why:** measured against Live 12.4.5 on 2026-08-29, both halves of the
+contract shipped in the Groove item fail:
+
+- `set/groove -1` raises rather than clearing. `clip.groove = None` is
+  rejected by Live — `Boost.Python.ArgumentError: ... did not match C++
+  signature: None(TPyHandle<AClip>, TPyHandle<AAbstractGroove>)` — so the
+  clear answers `/live/error` and the clip keeps its groove
+  (`abletonosc/clip.py:494`). Live's setter wants a groove handle and has no
+  known spelling for "none".
+- `get/groove` never answers `-1`. A freshly created clip with no groove
+  reads `0`, the same value as a clip explicitly assigned to pool index `0`;
+  confirmed on two clips, before and after an explicit `set/groove 0`.
+  `groove_index`'s `==` scan (`abletonosc/groove.py`) matches the absent
+  groove against `grooves[0]`, so `NO_INDEX` is unreachable.
+
+Together these make `get/groove` → `set/groove` actively harmful rather than
+merely lossy: replaying a read taken from an ungrooved clip **assigns** it
+pool groove 0. The Groove item's stated purpose was making `Song.groove_amount`
+mean something on sets where no human had dragged a groove onto a clip, and a
+consumer doing that from a mirror will groove clips it never meant to touch.
+
+**Planner notes:**
+- A regression introduced by the Groove item (PR #22, merged 2026-08-29), not
+  a pre-existing gap. The plan listed `clip.groove = None` as an open question
+  and the PR review accepted it as documented-but-unmeasured; the first Live
+  run disproved it.
+- Two separable fixes, and the read is the more urgent: a wrong "which groove"
+  answer silently corrupts sets through the round trip, while a failing clear
+  is at least loud. Do not fix only the setter.
+- For the read, establish what `clip.groove` actually returns for an ungrooved
+  clip before choosing an approach — whether it is a null handle that compares
+  equal to any pool member, or a distinct "empty groove" object. `==` on
+  Boost.Python proxies is the suspect; identity (`is`) against pool members, or
+  a truthiness/None check before the scan, are the obvious candidates. Whether
+  a set with several pool grooves changes the picture is worth one probe: the
+  measured set had exactly one.
+- For the clear, find out whether Live accepts anything as "no groove" — an
+  empty `AAbstractGroove` handle, a pool sentinel — before deciding. If
+  nothing works, the honest outcome is withdrawing `-1` as an argument,
+  deleting the exception from API.md § "Object-valued reads", and saying
+  plainly that assignment is one-way over this bridge.
+- Whatever lands, the `tests_unit/` fakes need to stop modelling
+  `clip.groove = None` as working, since they are what made this look green.
+- Source: the Live verification run of 2026-08-29, recorded in API.md's Clip
+  and Groove sections.
+
+## #2 · `/live/application/get/has_option` documents a contract Live does not implement
+
+**Goal:** `/live/application/get/has_option` either answers a question a caller
+can actually ask, or is removed. API.md stops describing it as an Options.txt
+query.
+
+**Why:** it was shipped as "whether an Options.txt option is active", with the
+option name handed to Live unmodified. Measured against Live 12.4.5 on
+2026-08-29, `Application.has_option` is not that function at all: it accepts
+**exactly 64 hexadecimal characters** and nothing else. A non-hex string raises
+`Key contains non-hex characters`; a hex string of any other length — 63, 40,
+32, 16, 8 — raises `basic_string`. Both reach the client as `/live/error`. No
+Options.txt name is expressible, so every documented use of this address fails,
+and a client following API.md gets an error for a correctly formed request.
+
+**Planner notes:**
+- A defect introduced by the Application dialogs and versions item (PR #18,
+  merged 2026-08-29). The plan flagged "what form `has_option` expects" as an
+  open question and shipped the guess as documentation.
+- Establish what the 64-hex key *is* before deciding the address's fate — the
+  shape (32 bytes, hex) and the "Key" wording in Live's own error suggest a
+  hash or licence/feature key rather than anything a Remote Script caller can
+  compose. If a caller cannot construct one, the address is not useful and
+  removing it beats documenting a trap.
+- If it stays, the argument needs validating at the handler rather than
+  passed through to a C++ exception: 64 hex characters or a structured
+  `/live/error` naming the requirement.
+- Whatever lands, the ⚠️ correction already in API.md's Application table must
+  be replaced by the real contract, and `tests_unit/test_application.py`'s
+  `has_option` cases pin only the echo shape today — they pass against a
+  function that can never succeed.
+- Source: the Live verification run of 2026-08-29, recorded in API.md's
+  Application section.
+
+## #3 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -80,7 +167,7 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #2 · Make a failed live code reload safe and reported
+## #4 · Make a failed live code reload safe and reported
 
 **Goal:** a reload that raises does not activate a partially reloaded module
 graph — `/live/api/reload` either preserves a usable previous API or fails in a
@@ -115,7 +202,7 @@ is told nothing went wrong.
   still have open rows, but none is currently ranked in this file.
 - No dependencies.
 
-## #3 · Stop masking Remote Script import failures
+## #5 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -134,7 +221,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #4 · Remove the process-global and shared-file risks from song structure export
+## #6 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -156,7 +243,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #5 · Add bounded log retention
+## #7 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -173,7 +260,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #6 · Document `song` in the handler constructor contract
+## #8 · Document `song` in the handler constructor contract
 
 **Goal:** `abletonosc/handler.py`'s `AbletonOSCHandler` "Constructor
 contract" docstring lists `song` alongside the other invariants (`logger`,
@@ -198,7 +285,7 @@ Comment-only; no behaviour changes.
   no non-comment line, same as the A-4 `track_identity.py` precedent.
 - No dependencies.
 
-## #7 · Verify wildcard fan-out against Seshat's `/live/device/` usage
+## #9 · Verify wildcard fan-out against Seshat's `/live/device/` usage
 
 **Goal:** confirm whether Seshat ever sends an OSC address *pattern* (not a
 literal address) under `/live/device/`, and if so, record what changes for
@@ -233,7 +320,7 @@ could the nit-triage pass that declined fixing it inline.
 - No dependencies; verification-only, and may resolve to "no action" without
   ever becoming a Python change here.
 
-## #8 · `stop_listen` can leave a listener stranded when its collection shrinks
+## #10 · `stop_listen` can leave a listener stranded when its collection shrinks
 
 **Goal:** stopping a listen on an indexed family (`/live/groove/stop_listen/*`,
 `/live/scene/stop_listen/*`, and any future one built the same way) always
