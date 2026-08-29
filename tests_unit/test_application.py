@@ -15,7 +15,7 @@ image of `bind_song()`, and it is what keeps the suite's `Live` stub empty
 What this pins is the glue: every address as registered, the reply arity and
 shape of each read, the flattening rules for `unavailable_features` and
 `control_surfaces` (including the empty-slot and empty-list cases), the
-`has_option` echo, listener bookkeeping across `clear_api()` for the two
+`has_option` key validation and echo, listener bookkeeping across `clear_api()` for the two
 observable members, and the structured `/live/error` envelope for a missing
 argument.
 
@@ -35,8 +35,13 @@ Two of these are regression tests for decisions rather than for code paths:
 
 What no test here can reach is the real LOM: whether Live's
 `unavailable_features` elements stringify usefully, whether `show_message`
-blocks the tick thread, what `has_option` actually matches. Those are Live
-verification, and `API.md` still marks them ⚠️.
+blocks the tick thread, whether any given option key is present in a
+particular Live installation. Those are Live verification, and `API.md`
+still marks them ⚠️. `FakeApplication.has_option` is a set-membership
+test on whatever string it is handed, so it models the *fork's* contract —
+that a 64-hex key reaches Live and anything else does not — and never Live's
+own C++ one; the evidence that the validator matches Live is the measurement
+table in `API.md`.
 """
 
 import pytest
@@ -45,6 +50,16 @@ from .conftest import dispatch, load_application_module
 
 STARTUP = "/live/startup"
 ERROR = "/live/error"
+
+#--------------------------------------------------------------------------------
+# has_option keys. Live wants exactly 64 hexadecimal characters — a digest of
+# an internal option name, not an Options.txt entry; see application.py and
+# API.md. Nothing here needs to be a *real* key: FakeApplication answers set
+# membership, and what these pin is the fork's validation and echo.
+#--------------------------------------------------------------------------------
+PRESENT_KEY = "a" * 64
+ABSENT_KEY = "b" * 64
+MIXED_CASE_KEY = "AbCdEf0123456789" * 4
 
 
 class FakeManager:
@@ -250,7 +265,7 @@ REGISTERED_ADDRESSES = {
     "/live/application/get/build_id",
     "/live/application/get/variant",
     "/live/application/get/version_string",
-    # Options.txt.
+    # The 64-hex option-key lookup.
     "/live/application/get/has_option",
     # The two flattened list reads.
     "/live/application/get/unavailable_features",
@@ -317,40 +332,117 @@ def test_version_reads(server, receiver, handler, address, expected):
 # has_option
 #--------------------------------------------------------------------------------
 
-def test_has_option_echoes_the_option_it_was_asked_about(server, receiver, monkeypatch):
+def test_has_option_echoes_the_key_it_was_asked_about(server, receiver, monkeypatch):
     #--------------------------------------------------------------------------------
     # The echo is the only discriminator on this address: a client firing a
     # burst of has_option requests has nothing else to correlate replies
     # against.
     #--------------------------------------------------------------------------------
-    application = FakeApplication(options=("-_EnableFoo",))
+    application = FakeApplication(options=(PRESENT_KEY,))
     build_handler(server, monkeypatch, application)
     receiver.drain()
 
-    dispatch(server, "/live/application/get/has_option", "-_EnableFoo")
+    dispatch(server, "/live/application/get/has_option", PRESENT_KEY)
     assert receiver.drain() == [("/live/application/get/has_option",
-                                 ("-_EnableFoo", True))]
+                                 (PRESENT_KEY, True))]
 
-    dispatch(server, "/live/application/get/has_option", "-_NoSuchOption")
+    dispatch(server, "/live/application/get/has_option", ABSENT_KEY)
     assert receiver.drain() == [("/live/application/get/has_option",
-                                 ("-_NoSuchOption", False))]
+                                 (ABSENT_KEY, False))]
 
 
-def test_has_option_passes_the_string_to_live_unmodified(server, receiver,
-                                                         monkeypatch):
+def test_has_option_passes_the_key_to_live_unmodified(server, receiver,
+                                                      monkeypatch):
+    #--------------------------------------------------------------------------------
+    # Live accepts A-F as readily as a-f, so the validator must not case-fold
+    # on its way through: the echo has to be byte-for-byte what the client
+    # sent, or a client correlating a burst by its own key strings loses the
+    # match.
+    #--------------------------------------------------------------------------------
     application = FakeApplication()
     build_handler(server, monkeypatch, application)
     receiver.drain()
 
-    dispatch(server, "/live/application/get/has_option", "-_SomeOption")
-    assert application.has_option_calls == ["-_SomeOption"]
+    dispatch(server, "/live/application/get/has_option", MIXED_CASE_KEY)
+    assert application.has_option_calls == [MIXED_CASE_KEY]
+    assert receiver.drain() == [("/live/application/get/has_option",
+                                 (MIXED_CASE_KEY, False))]
+
+
+@pytest.mark.parametrize("malformed", [
+    "0" * 63,
+    "0" * 65,
+    "",
+    "z" * 64,
+    "-_EnableExtendedFileFormat",
+])
+def test_has_option_rejects_a_malformed_key(server, receiver, monkeypatch,
+                                            malformed):
+    """
+    The handler validates before Live is called. Live's own rejections are
+    unusable: a wrong-length key raises IndexError("basic_string") — which
+    reads exactly like the no-argument case — and a non-hex key raises
+    RuntimeError("Key contains non-hex characters"), which is not a wildcard
+    skip. Measured against Live 12.4.5 on 2026-08-29; see API.md.
+    """
+    application = FakeApplication()
+    build_handler(server, monkeypatch, application)
+    receiver.drain()
+
+    dispatch(server, "/live/application/get/has_option", malformed)
+
+    messages = receiver.drain()
+    assert len(messages) == 1
+    address, params = messages[0]
+    assert address == ERROR
+    assert params[0] == "request"
+    assert params[1] == "/live/application/get/has_option"
+    assert "64" in params[2] and "hexadecimal" in params[2]
+    assert params[3] == 1
+    assert params[4] == malformed
+
+    #--------------------------------------------------------------------------------
+    # The substance of the fix, and invisible from the reply alone: Live was
+    # never asked.
+    #--------------------------------------------------------------------------------
+    assert application.has_option_calls == []
+
+
+def test_has_option_is_skipped_by_a_wildcard_sweep(server, receiver, monkeypatch):
+    """
+    ValueError is in OSCServer.WILDCARD_SKIP_EXCEPTIONS, so a sweep carrying
+    a string that is not a key skips this endpoint with a debug log instead
+    of contributing a /live/error. That is the correct reading of the skip
+    contract — "this matched endpoint does not apply to this request" — and
+    it is a real behaviour change: Live's RuntimeError is not a skip, so
+    today the same sweep produces an error datagram nobody asked for.
+    """
+    application = FakeApplication(open_dialog_count=2)
+    build_handler(server, monkeypatch, application)
+    receiver.drain()
+
+    dispatch(server, "/live/application/get/*", "notakey")
+
+    addresses = [address for address, _ in receiver.drain()]
+    assert ERROR not in addresses
+    assert "/live/application/get/has_option" not in addresses
+
+    #--------------------------------------------------------------------------------
+    # The rest of the sweep is unaffected — the skip is one endpoint declining,
+    # not the fan-out aborting.
+    #--------------------------------------------------------------------------------
+    assert "/live/application/get/open_dialog_count" in addresses
+    assert "/live/application/get/version_string" in addresses
 
 
 def test_has_option_with_no_argument_is_a_structured_error(server, receiver, handler):
     """
     params[0] raises IndexError, which OSCServer._dispatch turns into the
     documented ("request", address, detail, argc, *args) envelope rather than
-    a malformed reply or silence.
+    a malformed reply or silence. Also pins that key validation did not move
+    ahead of params[0]: this envelope must keep argc 0 and stay an IndexError
+    path, which is what makes an argument-less wildcard sweep skip the
+    endpoint rather than error on it.
     """
     receiver.drain()
     dispatch(server, "/live/application/get/has_option")
