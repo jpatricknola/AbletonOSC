@@ -1,8 +1,28 @@
+**Archived 2026-08-29 — shipped.** This is the plan as written *before*
+implementation; the code as merged may differ. The change lives in
+`abletonosc/groove.py` (new — `GrooveHandler`, `/live/groove/*`, plus the
+Live-free pool helpers `song.py` and `clip.py` import), a hand-written
+`/live/song/get/groove_pool` dump and listen pair in `abletonosc/song.py`,
+and a hand-written `/live/clip/get|set/groove` pair and listen pair in
+`abletonosc/clip.py`; `API.md` § "Groove API" and the `groove_pool` /
+`groove` rows under Song and Clip are the permanent record. Live
+verification's six checks did not run — the installed Remote Scripts copy
+differs from this checkout in eight files and does not contain `groove.py`
+at all (see the pr-review re-check recorded under Live verification below)
+— so every ⚠️ marker in `API.md` stands and all four Open questions below
+stay open for whoever verifies against a running Live next. One follow-up
+surfaced in review — `stop_listen` can strand a listener when its indexed
+collection shrinks (present in both `groove.py` and `scene.py`, fork-wide,
+not groove-specific) — went to `ROADMAP.md` as its own item rather than
+being fixed here; the `.agr`-via-browser measurement this item deferred
+stays open under `FORK_GAPS.md`'s Groove Pool entry.
+
 # Plan: Groove (D-2)
 
 Roadmap item: **#1 · D-2 · Groove** — from `CLOSING_THE_GAPS.md` row D-2 and
-the curated [`Clip.groove`](../FORK_GAPS.md#clipgroove--assign-a-groove-pool-groove-to-a-clip)
-entry in `FORK_GAPS.md`. Closes the whole `Live.Groove.Groove` class (6
+the curated `Clip.groove` entry it named in `FORK_GAPS.md` (since folded
+into [Groove Pool — closed](../../FORK_GAPS.md#groove-pool--closed-2026-08-29)).
+Closes the whole `Live.Groove.Groove` class (6
 members), `Live.GroovePool.GroovePool` (1 member, `grooves`),
 `Live.Song.Song.groove_pool`, and the curated `Clip.groove` gap.
 
@@ -336,6 +356,20 @@ code four unmerged PRs behind — and this run's environment denies the probe
 writes and UDP sends the measurement rig needs anyway. Everything below
 therefore waits for a session where the stacked branches are merged,
 installed, and Live restarted.
+
+**PR review, 2026-08-29 — every check below is SKIPPED BY ENVIRONMENT.** The
+precondition fails on both halves. `diff -rq --exclude=__pycache__ abletonosc
+"$HOME/Music/Ableton/User Library/Remote Scripts/AbletonOSC/abletonosc"`
+reports eight differing files (`__init__.py`, `application.py`, `clip.py`,
+`device.py`, `return_track.py`, `song.py`, `track.py`, `track_identity.py`)
+and `Only in .../ableton-osc/abletonosc: groove.py` — the installed bridge
+does not contain this family's code at all, so no send could exercise it and
+a silent wire would mean a stale install, not a bug. This run may not install,
+restart Live, or send UDP either. Checks 1 (pool dump), 2 (assign and clear),
+3 (amount ranges), 4 (`base`), 5 (`.agr` via the browser) and 6 (listeners)
+are therefore each recorded as **skipped by environment: installed copy is not
+this checkout and lacks `groove.py`; probe writes and UDP sends denied**. No
+result is written for any of them.
 
 Precondition for every check: the Remote Scripts copy equals this checkout
 byte for byte (`diff -rq`) **and** Live has been restarted since it was
