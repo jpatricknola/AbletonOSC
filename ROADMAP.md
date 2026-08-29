@@ -256,6 +256,42 @@ could the nit-triage pass that declined fixing it inline.
 - No dependencies; verification-only, and may resolve to "no action" without
   ever becoming a Python change here.
 
+## #9 · `stop_listen` can leave a listener stranded when its collection shrinks
+
+**Goal:** stopping a listen on an indexed family (`/live/groove/stop_listen/*`,
+`/live/scene/stop_listen/*`, and any future one built the same way) always
+unbinds the actually-subscribed listener, even when the index named in the
+`stop_listen` call has since moved past the end of a collection that shrank
+after `start_listen` — instead of raising `/live/error` before unbinding runs
+and leaving the listener registered with no address left able to remove it.
+
+**Why:** flagged in pr-review of `feat/groove` (2026-08-29). Every one of
+these handlers resolves-then-unbinds: the index is validated against the
+collection's current size first, and only then does `_stop_listen` look up
+the real subscribed object in `listener_objects` (which is index-independent
+once bound). If the collection has shrunk below the subscribed index in the
+meantime, validation raises before `_stop_listen` ever runs, so the listener
+that started when the index was valid can never be stopped through that
+address again — a subscription leak. Confirmed present in `groove.py` and
+`scene.py`; not a groove-specific regression, so out of scope for the D-2
+Groove PR that surfaced it.
+
+**Planner notes:**
+- Source: pr-review nit on `feat/groove` (2026-08-29), non-blocking, declined
+  for that PR as fork-wide and beyond a single item's scope — recorded here
+  rather than fixed blind in one family.
+- Reproduce Live-free first: `/live/groove/start_listen/name <index>`, pop
+  grooves from the pool until `<index>` is past the end, then
+  `/live/groove/stop_listen/name <index>` — expect `/live/error` and the
+  listener still bound. Check `scene.py`'s equivalent for the same shape
+  before concluding it's one bug rather than two independent copies.
+- Likely fix is an order-of-operations change in the shared `_stop_listen`
+  path (or its callers): attempt the unbind by identity first, and only
+  surface a validation error if there is nothing registered to unbind under
+  that key. Verify this doesn't change behaviour for the legitimate
+  never-started case, which should still be a no-op or an error as today.
+- No dependencies.
+
 ---
 
 ## Deliberately not planned

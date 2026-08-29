@@ -579,6 +579,32 @@ def test_pool_stop_listen_unbinds_the_alias(song_handler, song, server, receiver
     assert receiver.drain() == []
 
 
+def test_pool_stop_listen_unbinds_the_original_pool_after_it_is_replaced(
+        song_handler, song, server, receiver):
+    """
+    `song_start_listen_groove_pool` / `song_stop_listen_groove_pool` both
+    dereference `self.song.groove_pool` at call time rather than binding it
+    into a partial() at registration (song.py's "dereferenced at *call*
+    time" comment) — because loading a set can hand back a different pool
+    object. Unbinding is claimed to stay correct "either way" because
+    `_stop_listen` unbinds from the object stored in `listener_objects`, not
+    the one it is handed. Pin that: swap in a fresh pool between start and
+    stop, and confirm the *original* pool's listener is the one removed.
+    """
+    dispatch(server, POOL_START)
+    receiver.drain()
+    original_pool = song.groove_pool
+    assert len(original_pool.grooves_listeners) == 1
+
+    song.groove_pool = FakeGroovePool(make_grooves())
+
+    dispatch(server, POOL_STOP)
+    assert original_pool.grooves_listeners == []
+
+    original_pool.notify_grooves()
+    assert receiver.drain() == []
+
+
 def test_clear_api_unbinds_the_pool_listener(song_handler, song, server, receiver):
     dispatch(server, POOL_START)
     receiver.drain()

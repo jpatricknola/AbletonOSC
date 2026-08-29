@@ -495,8 +495,12 @@ class ClipHandler(AbletonOSCHandler):
                 return
             #--------------------------------------------------------------------------------
             # resolve_groove validates before it indexes, so this line is the
-            # whole rejection path for -2, for a non-integral negative float and
-            # for an index past the end of the pool.
+            # rejection path for -2 and below, and for an index past the end of
+            # the pool. `index` is already an int by here (truncated toward
+            # zero above, this fork's documented convention), so a
+            # non-integral negative float never reaches this line: -0.5
+            # truncates to 0 (assigns pool[0]) and -1.5 truncates to -1 (the
+            # NO_INDEX clear above).
             #--------------------------------------------------------------------------------
             groove = resolve_groove(self.song, index)
             self.logger.info("Setting property for clip: groove = %d" % index)
