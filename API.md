@@ -701,8 +701,8 @@ Listen via `/live/song/start_listen/<property>`, stop via
 | `/live/song/get/overdub` | `overdub` | ⚠️ **Seshat extension** — Live 8's legacy overdub hook. Observable. ⚠️ Live's docstring is truncated ("Now hooks to…") — assumed to mirror session-record state, unmeasured; read `session_record` when you mean session record |
 | `/live/song/get/punch_in` | `punch_in` | Punch in |
 | `/live/song/get/punch_out` | `punch_out` | Punch out |
-| `/live/song/get/record_mode` | `record_mode` | Record mode |
 | `/live/song/get/re_enable_automation_enabled` | `re_enable_automation_enabled` | ⚠️ **Seshat extension** — true when some automated parameter has been overridden — i.e. when Live's Re-Enable Automation button is lit and `/live/song/re_enable_automation` would do something. Observable |
+| `/live/song/get/record_mode` | `record_mode` | Record mode |
 | `/live/song/get/root_note` | `root_note` | Root note |
 | `/live/song/get/scale_intervals` | `interval, ...` | ⚠️ **Seshat extension** — the current scale's intervals in halfsteps from the root, flattened into one reply with **no count prefix** (Major → `0 2 4 5 7 9 11`), like `/live/application/get/unavailable_features`. Each element is coerced with `int()`. Observable — the listen pair pushes the same flattened tuple |
 | `/live/song/get/scale_mode` | `scale_mode` | ⚠️ **Seshat extension** — Live's Scale Mode setting (scale highlighting in the MIDI note editor, scale-degree editing in MIDI tools). Pairs with the existing `root_note` / `scale_name`. Observable |
@@ -786,11 +786,14 @@ not `get/beats_loop_start`. None of them exists in stock AbletonOSC.
 device arrives as the `(category, track_index, device_index)` triple every
 object-valued read already replies, and the target as the
 `(category, index)` track identity — `category` is `"track"`,
-`"return_track"` or `"master"` (see **Object-valued reads**). Every argument is
+`"return_track"` or `"master"` (see **Object-valued reads**). The five identity
+arguments — both categories, both track indices and `device_index` — are
 *validated* rather than used as a subscript: `"none"` (reply-only), an unknown
 category, a negative or out-of-range index, or a master index other than `0`
 each answer on `/live/error` and call nothing. `-1` is an answer, never an
-argument.
+argument, for any of the five. `position`, the sixth argument, is not
+validated — it is `int()`-coerced and passed straight to Live, so an
+out-of-range value is Live's behaviour to define, not this handler's.
 
 **Track-level targets only.** A device inside a rack chain has no address in
 this fork (roadmap A-1), so neither the device argument nor the target can name
@@ -824,7 +827,7 @@ several of these can be in flight at once.
 |---|---|---|---|
 | `/live/song/get/cue_points` | | `name, time, ...` | List cue points |
 | `/live/song/get/num_scenes` | | `num_scenes` | Number of scenes |
-| `/live/song/get/num_tracks` | | `num_tracks` | Number of regular tracks (excludes return and master tracks) |
+| `/live/song/get/num_tracks` | | `num_tracks` | Number of regular tracks (excludes return and master tracks); see also `/live/song/get/num_visible_tracks` in § Song Getters |
 | `/live/song/get/scenes/name` | `[index_min, index_max]` | `[names...]` | All scene names in one reply, in index order (optional half-open range — see below) |
 | `/live/song/get/track_names` | `[index_min, index_max]` | `[names...]` | Regular track names, in index order (optional range) |
 | `/live/song/get/track_data` | `start_track, end_track, properties...` | `[values...]` | Bulk track/clip data query (regular tracks only) |

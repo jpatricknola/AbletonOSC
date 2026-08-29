@@ -310,10 +310,14 @@ class SongHandler(AbletonOSCHandler):
         # fork until A-1, exactly as `resolve_device` reaches top-level devices
         # only.
         #
-        # Every argument is validated by the resolvers rather than used as a
-        # subscript ("-1 is an answer, never an argument"), so "none", an
-        # unknown category, or an out-of-range index is a ValueError on
-        # /live/error and never a Python negative-index wrap-around.
+        # The five identity arguments are validated by the resolvers rather
+        # than used as a subscript ("-1 is an answer, never an argument"), so
+        # "none", an unknown category, or an out-of-range index is a
+        # ValueError on /live/error and never a Python negative-index
+        # wrap-around. The sixth argument, `position`, is not one of these —
+        # it is only int()-coerced below and handed to Live unmodified, so an
+        # out-of-range value is Live's behaviour, not this handler's. See
+        # API.md.
         #
         # The reply echoes the target identity before the int Live returns,
         # so a burst of these can be correlated. ⚠️ What that int means
