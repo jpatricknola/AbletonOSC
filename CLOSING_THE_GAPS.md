@@ -258,19 +258,25 @@ not been regenerated since (that needs a `/live/application/dump_lom` from a
 Live running the new code). Moving it to 416 here would desync the two files;
 the next regeneration moves both.
 
-**It was 27 PRs, down from the ~28 buckets an earlier count named — but that
-figure counted a 62-member bucket and an 87-member bucket as one PR each.** The bucket count barely moves because splitting the four
+**It was 27 PRs, down from the ~28 buckets an earlier count named — but
+that figure counted a 62-member bucket and an 87-member bucket as one PR
+each.** The bucket count barely moves because splitting the four
 oversized buckets is offset by merging the sub-PR items away: the
 `Application` listen pairs, the lone `DeviceParameter` follow-up and the
 seven tiny device classes no longer hold rows of their own.
 
 The **PR column is exact** — it is this file's own decision. The
-**member column is estimates**, and it sums a little above the 417 real
-gaps because a few members are described in two rows' prose: the four
-`Track.current_*_routing` members are counted in `Track`'s inventory and
-discussed under *Routing as stable identifiers*, and `Clip.view` is
-counted on `Clip` and discussed under *Object view classes*. Neither is
-work done twice. [FORK_GAPS.md](FORK_GAPS.md) remains the count of record.
+**member column is estimates**: the section rows sum to 405, a little
+*under* the 419 the total row holds, because the per-bucket figures are
+rounded and the three members that shipped with the path handlers are no
+longer in any row while the total deliberately stays at FORK_GAPS.md's
+un-regenerated figure. A few members also appear in two rows' prose,
+which pushes the other way: the four `Track.current_*_routing` members
+are counted in `Track`'s inventory and discussed under *Routing as
+stable identifiers*, and `Clip.view` is counted on `Clip` and discussed
+under *Object view classes*. Neither is work done twice. Do not read the
+column as an addition; [FORK_GAPS.md](FORK_GAPS.md) remains the count of
+record.
 
 Everything here is in scope; the split is order, not inclusion. The two
 members in no bucket are `Application.get_document` — a false gap,

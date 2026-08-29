@@ -154,10 +154,16 @@ class ClipSlotHandler(AbletonOSCHandler):
             # read: the arity is part of the contract, the discriminator is not
             # allowed to move.
             #--------------------------------------------------------------------------------
+            # The fallback read of `clip_slot.clip` is inside the `try` on
+            # purpose: reading a LOM member can raise rather than return
+            # falsy, and by this point the clip exists — an escaping
+            # exception would turn a successful import into a /live/error
+            # and the caller would never learn it succeeded.
             length = -1.0
-            for candidate in (clip, getattr(clip_slot, "clip", None)):
+            for read in (lambda: clip.length,
+                         lambda: clip_slot.clip.length):
                 try:
-                    length = float(candidate.length)
+                    length = float(read())
                 except Exception:
                     continue
                 break

@@ -281,6 +281,17 @@ envelope like every other address in its family. Everything the worker decides
 raised by Live inside the call — arrives as an `"error"` reply on the request
 address instead. A client that treats the two as one will mis-handle both.
 
+**Under an address pattern the three do not behave alike, deliberately.**
+`/live/device/replace_sample` binds the Simpler method *before* it looks at the
+name, so a device that is not a Simpler is the silent wildcard skip
+[README](README.md#wildcard-queries) describes. The two `create_audio_clip`
+addresses do the opposite: a missing or malformed argument list is an `"error"`
+reply, never a skip. So `/live/clip_slot/* <t> <c>` and `/live/track/* <t>` each
+draw one `"error"` datagram from these addresses, where every other method on
+those prefixes stays silent. A malformed request is not the same thing as an
+endpoint that does not apply, and answering says which it was. (Nothing in
+Seshat sends a pattern request today.)
+
 **This is the read-side rule. `/live/browser/export` is the write-side one**,
 and it is deliberately different: it takes no destination from the wire at all,
 chooses one inside a private root and replies with the absolute path it wrote.
@@ -1311,7 +1322,7 @@ query.** One request, one action per regular track.
 |---|---|
 | `/live/track/get/<prop> *` | **One reply datagram per regular track**, each on the concrete request address, each carrying the exact single-track payload `track_index, ...values`. Built and sent in ascending `track_index` order within a single tick. |
 | `/live/track/set/<prop> * <value>` | Applies to every regular track. No reply, exactly as the single-track form. |
-| `/live/track/<method> *`, `/live/track/delete_clip * <slot>` | Invoked on every regular track. No reply. |
+| `/live/track/<method> *`, `/live/track/delete_clip * <slot>` | Invoked on every regular track. No reply — **except `/live/track/create_audio_clip`**, which always replies, and so sends one reply datagram per regular track (see its row). |
 | `/live/track/start_listen/<prop> *` / `stop_listen` | Subscribes/unsubscribes every track. Pushes remain one per track, `track_index, value`, on `/live/track/get/<prop>`. Unchanged. |
 
 - **"Every regular track" means `song.tracks`** — audio and MIDI tracks. Return
@@ -1369,7 +1380,7 @@ query.** One request, one action per regular track.
 |---|---|---|
 | `/live/track/delete_clip` | `track_id, clip_index` | Delete the clip in slot `clip_index`. No reply — same address family as `/live/clip_slot/delete_clip`, which Seshat uses instead |
 | `/live/track/delete_device` | `track_id, device_id` | Delete a device from the track's chain. **No reply on success** — `_call_method` returns nothing. A bad index raises inside the callback and comes back as `/live/error ["request", "/live/track/delete_device", ...]`. Callers wanting positive confirmation re-read `/live/track/get/num_devices` |
-| `/live/track/insert_device` | `track_id, device_name[, position]` | ⚠️ Seshat extension. Insert a device by name into the track's chain; `position` (default `-1`) is the `DeviceIndex` argument of `Track.insert_device`. **No reply on success**, like every other `/live/track/<method>`; a name Live rejects, or a Live older than 12.3 (where the LOM member does not exist), raises inside the callback and comes back as `/live/error ["request", "/live/track/insert_device", ...]`. Callers wanting the new device's index re-read `/live/track/get/devices/name`, or use the return/master forms below, which reply with it. ⚠️ Which `DeviceName` strings Live accepts is **unmeasured** — the LOM signature is known, the name semantics are not |
+| `/live/track/insert_device` | `track_id, device_name[, position]` | ⚠️ Seshat extension. Insert a device by name into the track's chain; `position` (default `-1`) is the `DeviceIndex` argument of `Track.insert_device`. **No reply on success**, like every other `/live/track/<method>` bar `/live/track/create_audio_clip`; a name Live rejects, or a Live older than 12.3 (where the LOM member does not exist), raises inside the callback and comes back as `/live/error ["request", "/live/track/insert_device", ...]`. Callers wanting the new device's index re-read `/live/track/get/devices/name`, or use the return/master forms below, which reply with it. ⚠️ Which `DeviceName` strings Live accepts is **unmeasured** — the LOM signature is known, the name semantics are not |
 | `/live/track/stop_all_clips` | `track_id` | Stop all clips on track |
 | `/live/track/create_audio_clip` | `track_id, name, position` | ⚠️ Seshat extension. Import an audio file onto the track's **Arrangement** at `position`. `name` is a path *relative to the import root* `~/.seshat/generated`, never an absolute path — see **Handlers that name a file to read**, which is also where the always-reply convention and the two failure channels are spelled out. Replies `track_index, "ok", position, length` on success, or `track_index, "error", message` on any refusal (a name the rule rejects, a malformed argument list, or an exception Live raised inside the call). The discriminator is always field 1; the two replies are deliberately different lengths and the refusal is not padded. A bad `track_id` is `/live/error` instead, not an `"error"` reply. ⚠️ `position` is passed to Live unmodified as a float; **beats in Arrangement time is inferred** from `/live/track/get/arrangement_clips/start_time`'s units, not measured. ⚠️ `length` is `clip.length` read back off the returned `Clip` immediately, and is `-1.0` if it cannot be read; whether the returned `Clip` is readable synchronously is **unmeasured**. The created clip is **not addressable** by any `/live/clip/*` address — find it again with `/live/track/get/arrangement_clips/start_time`. Under `track_id = "*"` this creates one clip **per regular track** and replies once per track; a refused name creates nothing, but a partial fan-out leaves clips already created in place |
 
@@ -1475,7 +1486,7 @@ Container for clips. Create, delete, and query clip existence.
 | `/live/clip_slot/get/has_stop_button` | `track_index, clip_index` | `track_index, clip_index, has_stop_button` | Has stop button? |
 | `/live/clip_slot/set/has_stop_button` | `track_index, clip_index, has_stop_button` | | Set stop button (1=on, 0=off) |
 | `/live/clip_slot/duplicate_clip_to` | `track_index, clip_index, target_track, target_clip` | | Duplicate clip to target slot |
-| `/live/clip_slot/create_audio_clip` | `track_index, clip_index, name` | `track_index, clip_index, "ok", length` or `track_index, clip_index, "error", message` | ⚠️ **Seshat extension.** Import an audio file into this Session slot as an audio clip. `name` is a path *relative to the import root* `~/.seshat/generated`, never an absolute path — see **Handlers that name a file to read** for the rule, the always-reply convention and the two failure channels. Refusals (all with `"error"`, and none of which calls into Live): the name fails the rule; the slot already holds a clip (the fork's own check, on `has_clip`); Live raised inside `create_audio_clip`, whose message is carried through. The discriminator is always field 2. A bad `track_index`/`clip_index` is `/live/error` instead, not an `"error"` reply. ⚠️ `length` is `clip.length` in beats read back immediately, `-1.0` if it cannot be read; whether the returned `Clip` is readable synchronously, and what Live raises for a non-audio file or a MIDI track's slot, are **unmeasured**. Read back with `/live/clip/get/file_path` and `/live/clip/get/is_audio_clip`. **No listen pair** — a method, not a property |
+| `/live/clip_slot/create_audio_clip` | `track_index, clip_index, name` | `track_index, clip_index, "ok", length` or `track_index, clip_index, "error", message` | ⚠️ **Seshat extension.** Import an audio file into this Session slot as an audio clip. `name` is a path *relative to the import root* `~/.seshat/generated`, never an absolute path — see **Handlers that name a file to read** for the rule, the always-reply convention and the two failure channels. Refusals (all with `"error"`, and none of which calls a Live *method* — the occupied-slot check does read `ClipSlot.has_clip`): the name fails the rule; the slot already holds a clip (the fork's own check, on `has_clip`); Live raised inside `create_audio_clip`, whose message is carried through. The discriminator is always field 2. A bad `track_index`/`clip_index` is `/live/error` instead, not an `"error"` reply. ⚠️ `length` is `clip.length` in beats read back immediately, `-1.0` if it cannot be read; whether the returned `Clip` is readable synchronously, and what Live raises for a non-audio file or a MIDI track's slot, are **unmeasured**. Read back with `/live/clip/get/file_path` and `/live/clip/get/is_audio_clip`. **No listen pair** — a method, not a property |
 
 Every `get/` property above **except `get/clip`** also has
 `/live/clip_slot/start_listen/<property> <track_index> <clip_index>` and
@@ -2579,7 +2590,7 @@ never as a bare `None`.
   is what an asynchronously instantiating VST/AU plugin looks like — the same
   convention `/live/browser/load_item` uses. The regular-track counterpart is
   `/live/track/insert_device`, which stays silent like every other
-  `/live/track/<method>`. ⚠️ Which `DeviceName` strings Live accepts, and what
+  `/live/track/<method>` bar `/live/track/create_audio_clip`. ⚠️ Which `DeviceName` strings Live accepts, and what
   a rejected one raises, are **unmeasured**; `position` maps to the LOM's
   `DeviceIndex` argument and defaults to `-1`.
 - **Setters keep the section's split.** An argument or bounds error is logged

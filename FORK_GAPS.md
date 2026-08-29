@@ -154,8 +154,11 @@ Remote-Script-only member does what its name suggests.
 - **LOM:** `DrumChain.in_note` get/set/observe (12.3; -1 = All Notes),
   `DrumChain.out_note`, `RackDevice.insert_chain(index)` (12.3),
   `Track.insert_device` / `Chain.insert_device` (12.3),
-  `SimplerDevice.replace_sample(path)` (12.2). Tier 2 (Live 12.2/12.3
-  release notes); names verified 2026-08-27.
+  `SimplerDevice.replace_sample(path)` (12.2 — now shipped for
+  *top-level* Simplers as `/live/device/replace_sample`; a Simpler
+  inside a drum pad's chain is still unreachable, which is what this
+  entry needs). Tier 2 (Live 12.2/12.3 release notes); names verified
+  2026-08-27.
 - **Fork today:** device addresses stop at top-level regular-track
   devices; no chain or drum-pad traversal at all.
 - **Shape to build:** `/live/device/get/drum_pads <track> <device>` →
