@@ -199,7 +199,7 @@ fork side has since landed are marked._
 | High | `Application.View.is_view_visible`, `hide_view` | Closes `show_view`'s blind loop; makes view smoke tests self-verifying | **Landed.** `focused_document_view` (Session vs Arranger, exact) still open and belongs in the same handler |
 | Medium–high | `DeviceParameter.value_items`, `is_enabled`, `automation_state`, `default_value`, `original_name` | Tools expose raw min/max but cannot name enum choices, tell whether a parameter is disabled, or warn that automation owns it | **Landed** as one unit, ahead of any device-specific API — see [Closed](#device-parameters--numeric-only--closed-2026-08-29) |
 | Medium–high | Extended note identity and modification (`note_id`, `apply_note_modifications`, selection/by-ID methods) | Safe single-note edits; keeps probability, deviation, release velocity the flattened reply discards | **Landed** as one unit — see [Closed](#notes--flattened-to-five-fields--closed-2026-08-29). `/live/clip/get/notes_extended` carries `note_id`, probability, deviation and release velocity, and `apply_note_modifications` edits a note in place keeping its id, so Seshat's `edit_notes` no longer has to compose remove + add |
-| Medium | Count-in and automation state (`count_in_duration`, `is_counting_in`, `session_automation_record`, `re_enable_automation_enabled`) | Recording readiness and automation ownership are musically meaningful, exact, and invisible today | One focused transport/automation feature; the `re_enable_automation` action is already bridged |
+| Medium | Count-in and automation state (`count_in_duration`, `is_counting_in`, `session_automation_record`, `re_enable_automation_enabled`) | Recording readiness and automation ownership are musically meaningful, exact, and invisible today | **Landed** — see [Closed](#song-remainder--closed-2026-08-29). All four are addresses now, with listen pairs; the `re_enable_automation` action was already bridged. ⚠️ `count_in_duration`'s index→bars mapping is still unmeasured |
 | Medium | `Song.View.draw_mode`, `follow_song` | Readable absolute state instead of focus-routed toggle shortcuts | Fold into a concrete view/automation workflow; no value as isolated knobs |
 | Medium–low | Groove Pool enumeration and clip assignment | Makes `set_groove_amount` useful without a groove assigned by hand | Curated entry above; index-based serialisation in Python |
 | Conditional | Arrangement clips and take lanes | LOM support is substantial; Seshat is deliberately Session-first | Declined until an Arrangement/comping workflow is chosen |
@@ -236,7 +236,7 @@ not Python's._
 | Read Arrangement clip summary | `/live/track/get/arrangement_clips/{name,length,start_time}` | A full Arrangement workflow, not the three reads |
 | Scene tempo / time signature | `/live/scene/get|set/*` | Tool layer |
 | Link enable | `is_ableton_link_enabled` get/set/listen | Tool/docs layer |
-| Scale root / name | `root_note`, `scale_name` get/set/listen | Tool choices; `scale_mode`, `scale_intervals`, `tuning_system` remain true fork gaps |
+| Scale root / name | `root_note`, `scale_name` get/set/listen, and since C-1 `scale_mode` get/set/listen and `scale_intervals` get/listen — see [Closed](#song-remainder--closed-2026-08-29) | Tool choices; only `tuning_system` remains a true fork gap (D-5) |
 | Cue points | `/live/song/get/cue_points`, `cue_point/jump`, `cue_point/add_or_delete`, `jump_to_next/prev_cue` | Tool layer, plus the listen/guard members in the curated entry |
 | Dialog detection needs AX | `/live/application/get/open_dialog_count`, `current_dialog_message`, `current_dialog_button_count` (+ listen on the count) | False, and no longer a fork gap either: the addresses exist — see [Closed](#application-dialogs-and-versions--closed-2026-08-29) |
 | Drum Rack pad map unreadable | — | False: `DrumChain.in_note` is a fork gap (curated entry) |
@@ -534,6 +534,49 @@ Deliberately still open on this class:
 `Live.Application.Application.View` members (`focused_document_view`,
 `available_main_views`, …) were never part of this gap — they are their own
 row, and their own roadmap item.
+
+The generated inventory below still lists the closed members as gaps: it is
+regenerated only from a `/live/application/dump_lom` taken against a Live
+running the *installed* copy, and no dump has been taken since this landed.
+
+### `Song` remainder — closed 2026-08-29
+
+Was a plain addressing gap, and the largest single one left on a core class:
+`abletonosc/song.py` exposed transport, tempo, loop, quantization and undo, but
+25 scalar `Live.Song.Song` members had no address at all — a client could not
+ask whether Live was counting in, whether the Automation Arm button was lit,
+which tracks were visible, what scale intervals were in force, or where the Set
+lived on disk.
+
+Closed by roadmap item **C-1**, which adds fifty-eight addresses to
+`abletonosc/song.py`: six read/write and five read-only scalars appended to the
+generic property lists as contiguous fork-owned blocks, four get-only
+registrations for the members Live offers no listener for, hand-written reads
+for `scale_intervals` and `visible_tracks` (plus the derived
+`num_visible_tracks`), a second fork-owned methods loop, and five hand-written
+method queries — two of which, `move_device` and `find_device_position`, take
+their Device and target through A-4's `resolve_device` / `resolve_track`
+validators and reach **track-level targets only**. `API.md` § "Song Getters",
+§ "Song Setters" and § "Song: method queries" are the permanent record,
+including the ⚠️ markers on everything still unmeasured against a running Live.
+
+Members this closed: `can_capture_midi`, `count_in_duration`, `exclusive_arm`,
+`exclusive_solo`, `file_path`, `find_device_position`, `get_beats_loop_length`,
+`get_beats_loop_start`, `get_current_smpte_song_time`,
+`is_ableton_link_start_stop_sync_enabled`, `is_counting_in`, `last_event_time`,
+`move_device`, `overdub`, `play_selection`, `re_enable_automation_enabled`,
+`scale_intervals`, `scale_mode`, `scrub_by`, `select_on_launch`,
+`session_automation_record`, `start_time`, `sync_parameter_changes`,
+`tempo_follower_enabled`, `visible_tracks`.
+
+Deliberately still open on this class, each for a reason recorded elsewhere:
+`get_data` / `set_data` and `tuning_system` (D-5), `groove_pool` (D-2, and the
+curated `Clip.groove` entry), `can_jump_to_next_cue` / `can_jump_to_prev_cue` /
+`is_cue_point_selected` (B-3, and the curated cue-point entry), and the
+`Song.View` members (C-2). Chain and rack *targets* for the two device-position
+methods stay declined with A-1/D-1. `sync_parameter_changes` is registered but
+its behaviour is unknown — Remote-Script-only, absent from Max for Live's
+table, and Live's docstring is the signature alone.
 
 The generated inventory below still lists the closed members as gaps: it is
 regenerated only from a `/live/application/dump_lom` taken against a Live

@@ -1187,6 +1187,86 @@ so treat any merge that reverts one as a regression, not a preference.
   The Live-free tripwire is `tests_unit/test_clip_notes.py` (52 cases). See
   § Merge hazards.
 
+- **`song.py` — the `Song` remainder (roadmap C-1, 2026-08-29).** Fifty-eight
+  new addresses closing 25 `Live.Song.Song` member gaps: the long tail of
+  scalar `Song` state a client could not see or set at all — count-in and
+  automation state, scale mode and intervals, Link Start/Stop Sync, tempo
+  follower, set identity and time, the mixer preferences, track visibility,
+  and five methods. Nothing existing changes shape, so downstream needs a pin
+  bump and nothing else.
+
+  | Shape | Members |
+  |---|---|
+  | `properties_rw` (get/set/listen) | `is_ableton_link_start_stop_sync_enabled`, `overdub`, `scale_mode`, `session_automation_record`, `start_time`, `tempo_follower_enabled` |
+  | `properties_r` (get/listen) | `can_capture_midi`, `count_in_duration`, `exclusive_arm`, `is_counting_in`, `re_enable_automation_enabled` |
+  | get only, **no listen pair** | `exclusive_solo`, `file_path`, `last_event_time`, `select_on_launch` |
+  | hand-written reads | `scale_intervals`, `visible_tracks`, `num_visible_tracks` |
+  | fire-and-forget methods | `play_selection`, `scrub_by`, `sync_parameter_changes` |
+  | method queries (hand-written, they reply) | `get_beats_loop_start`, `get_beats_loop_length`, `get_current_smpte_song_time`, `move_device`, `find_device_position` |
+
+  Decisions worth keeping:
+
+  - **The list additions are appended as contiguous fork-owned blocks**
+    (`properties_rw = properties_rw + [...]`, and a second methods loop after
+    upstream's) rather than interleaved with upstream's strings. Those lists
+    are upstream's and upstream edits them, so every fork-owned string inside
+    one is dropped by a merge that takes upstream's version, silently — the
+    hazard § Merge hazards already has to name `swing_amount`,
+    `begin_undo_step` and `end_undo_step` for. Eleven more scattered strings
+    would multiply it; two commented blocks keep the divergence visible at
+    once. See § Merge hazards.
+  - **Four members are registered get-only, with no listen pair at all.**
+    `exclusive_solo`, `file_path`, `last_event_time` and `select_on_launch`
+    have no `add_<name>_listener` in Live 12.4.3, so registering them through
+    the loop would manufacture `start_listen` addresses that can only ever
+    answer `/live/error AttributeError`. Unregistered, the same send is an
+    unknown address: logged, unanswered, honest. This is `application.py`'s
+    split `properties_r` / `properties_listen` (C-3) inverted — there the
+    exception was the listen list, here the get-only one.
+  - **`scale_intervals` and `visible_tracks` are hand-written, and their
+    listen pairs go through `_start_listen`'s `getter=` hook** — without it
+    the push would carry the raw Boost vector, which the OSC builder cannot
+    encode. `scale_intervals` flattens to ints with no count prefix, like
+    `/live/application/get/unavailable_features`; `visible_tracks` answers
+    **indices into `song.tracks`**, the index space every `/live/track/*`
+    address already uses, resolved in one pass over `song.tracks` so the reply
+    keeps track order. Membership is tested with `in` (identity first, then
+    `==`), the same comparison upstream's own `song_get_track_data` relies on
+    to map a `Track` to its index — Live may hand back a distinct wrapper per
+    access, so `is` alone would be wrong.
+  - **The method queries keep the LOM method name verbatim in the address**
+    (`/live/song/get_beats_loop_start`, not `get/beats_loop_start`), so
+    `tools/lom_gaps.py`'s segment-equality matcher counts the members closed
+    with no `ALIASES` entry — the same convention the extended-notes block
+    uses. `_call_method` discards return values, which is why these five could
+    not ride the methods loop.
+  - **`move_device` / `find_device_position` take identities, not objects.**
+    The device arrives as the A-4 `(category, track_index, device_index)`
+    triple and the target as the `(category, index)` track identity, both
+    validated by `track_identity.resolve_device` / `resolve_track` rather than
+    used as subscripts, so `"none"`, an unknown category or an out-of-range
+    index is a `ValueError` on `/live/error` and never a negative-index
+    wrap-around. **Track-level targets only** — a chain has no address in this
+    fork until A-1, exactly as `resolve_device` reaches top-level devices only.
+    The reply echoes the target identity before Live's return value so several
+    can be in flight at once. `song.py` now imports `resolve_track` as well as
+    `resolve_device` (the `reload_imports` ordering hazard in § Merge hazards
+    already covers that import).
+
+  ⚠️ **Unmeasured**, because the environment denied both the installed-copy
+  writes and the UDP sends a measurement needs (Live 12.4.3 *was* running):
+  the `count_in_duration` index mapping, the `BeatTime`/`SmpteTime` attribute
+  names, the `Live.Song.TimeFormat` int mapping, what the two device-position
+  methods return and whether `find` is non-mutating, `overdub`'s relationship
+  to `session_record`, `file_path` on a never-saved set, and what
+  `sync_parameter_changes` does at all. `API.md` § "Song: method queries"
+  carries the same ⚠️ markers and the Live verification checks are in the
+  archived plan. A wrong struct attribute name fails loudly (`AttributeError`
+  on `/live/error`), never as a plausible wrong number. The Live-free tripwire
+  is `tests_unit/test_song_remainder.py` (103 cases: every registration, the
+  four absent listen pairs, reply shapes and OSC types, the flattened vector
+  reads and their pushes, the struct decodes, and every resolver rejection).
+
 ### Seshat's own handlers
 
 Three modules that upstream has no equivalent of. Each carries its own header
@@ -1470,14 +1550,31 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   *previous* edit's resolvers while `/live/api/reload` reports success — same
   silent failure mode, and the same missing test coverage.
 
-- **Anything touching `song.py`'s generic methods list or `properties_rw`.**
-  Three entries there are ours — `begin_undo_step`, `end_undo_step` and
-  `swing_amount` — and each is a single quoted string inside a list upstream
-  also edits, so a merge that takes upstream's version of the list drops them
-  without a conflict. Losing the two undo entries doesn't break anything
-  loudly: the sends still go out over UDP and nothing answers them either way,
-  and undo quietly reverts whole conversations again. Seshat's
-  `vendored_addresses_test` greps for all three names for exactly this reason.
+- **Anything touching `song.py`'s generic methods list, `properties_rw` or
+  `properties_r`.** Three entries *inside* upstream's lists are ours —
+  `begin_undo_step`, `end_undo_step` and `swing_amount` — and each is a single
+  quoted string inside a list upstream also edits, so a merge that takes
+  upstream's version of the list drops them without a conflict. Losing the two
+  undo entries doesn't break anything loudly: the sends still go out over UDP
+  and nothing answers them either way, and undo quietly reverts whole
+  conversations again. Seshat's `vendored_addresses_test` greps for all three
+  names for exactly this reason.
+
+  Since C-1 the same lists carry more fork-owned content, deliberately kept
+  *outside* upstream's literals so a resolver can see it whole: two appended
+  blocks (`properties_rw = properties_rw + [...]` with six members,
+  `properties_r = properties_r + [...]` with five) between the list literals
+  and the registration loops, and — after those loops — a `properties_r_no_listen`
+  get-only loop, the hand-written `scale_intervals` / `visible_tracks` /
+  `num_visible_tracks` handlers, a second fork-owned methods loop
+  (`play_selection`, `scrub_by`, `sync_parameter_changes`) and the five
+  hand-written method queries. A merge that takes upstream's `song.py` around
+  the lists wholesale drops **fifty-eight addresses at once**, and — as with
+  the three strings above — nothing fails loudly: the addresses simply stop
+  existing and queries time out. `tests_unit/test_song_remainder.py` is the
+  tripwire; run it on every merge. The addresses are loop-generated, so
+  Seshat's literal-address audit cannot see most of them — grep `song.py` for
+  the member names instead.
 
 - **Anything touching `track.py`'s generic `methods` list.** One entry there is
   ours — `insert_device`, added by A-3 so `Track.insert_device` is reachable on

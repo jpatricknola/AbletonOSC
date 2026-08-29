@@ -7,7 +7,7 @@ from functools import partial
 from typing import Optional, Tuple, Any
 
 from .handler import AbletonOSCHandler
-from .track_identity import device_identity, resolve_device
+from .track_identity import device_identity, resolve_device, resolve_track
 
 class SongHandler(AbletonOSCHandler):
     class_identifier = "song"
@@ -95,12 +95,252 @@ class SongHandler(AbletonOSCHandler):
             "session_record_status"
         ]
 
+        #--------------------------------------------------------------------------------
+        # Seshat extension (C-1, the `Song` remainder) — fork-owned additions to
+        # upstream's two property lists, appended as contiguous blocks rather
+        # than interleaved with upstream's strings.
+        #
+        # Why appended: both lists above are upstream's and upstream edits
+        # them, so a fork-owned string sitting inside one is dropped by a merge
+        # that takes upstream's version of the list, with no conflict and no
+        # symptom beyond the address quietly ceasing to exist. SESHAT.md
+        # § Merge hazards already has to name `swing_amount`,
+        # `begin_undo_step` and `end_undo_step` one by one for that reason;
+        # eleven more single strings would multiply the hazard, while two
+        # commented blocks keep the whole divergence visible at once.
+        #
+        # Only *observable* members belong here: every name below has an
+        # `add_<name>_listener` in Live 12.4.3 (the `obs` column of
+        # FORK_GAPS.md's generated inventory), so the listen pair these loops
+        # register is real. The four non-observable members are registered
+        # get-only further down.
+        #--------------------------------------------------------------------------------
+        properties_rw = properties_rw + [
+            "is_ableton_link_start_stop_sync_enabled",
+            "overdub",
+            "scale_mode",
+            "session_automation_record",
+            "start_time",
+            "tempo_follower_enabled"
+        ]
+        properties_r = properties_r + [
+            "can_capture_midi",
+            "count_in_duration",
+            "exclusive_arm",
+            "is_counting_in",
+            "re_enable_automation_enabled"
+        ]
+
         for prop in properties_r + properties_rw:
             self.osc_server.add_handler("/live/song/get/%s" % prop, partial(self._get_property, self.song, prop))
             self.osc_server.add_handler("/live/song/start_listen/%s" % prop, partial(self._start_listen, self.song, prop))
             self.osc_server.add_handler("/live/song/stop_listen/%s" % prop, partial(self._stop_listen, self.song, prop))
         for prop in properties_rw:
             self.osc_server.add_handler("/live/song/set/%s" % prop, partial(self._set_property, self.song, prop))
+
+        #--------------------------------------------------------------------------------
+        # Seshat extension (C-1) — the four `Song` members Live offers no
+        # `add_<name>_listener` for: get only, with no listen pair registered
+        # at all.
+        #
+        # Putting them in the loop above would manufacture
+        # /live/song/start_listen/file_path and three siblings that can only
+        # ever answer /live/error AttributeError. Unregistered, the same send
+        # is an unknown address: logged, unanswered, and honest. This is
+        # application.py's split `properties_r` / `properties_listen` (C-3),
+        # inverted — there the exception was the listen list, here it is the
+        # get-only one, because most of this batch *is* observable.
+        #--------------------------------------------------------------------------------
+        properties_r_no_listen = [
+            "exclusive_solo",
+            "file_path",
+            "last_event_time",
+            "select_on_launch"
+        ]
+        for prop in properties_r_no_listen:
+            self.osc_server.add_handler("/live/song/get/%s" % prop,
+                                        partial(self._get_property, self.song, prop))
+
+        #--------------------------------------------------------------------------------
+        # Seshat extension (C-1) — `Song.scale_intervals`, the current scale's
+        # intervals in halfsteps from the root (Major -> 0 2 4 5 7 9 11).
+        #
+        # A vector of ints, so the generic property loop could not carry it:
+        # the OSC builder has no encoding for the sequence itself. Flattened
+        # into one variable-arity reply with no count prefix, exactly like
+        # /live/application/get/unavailable_features and
+        # /live/track/get/available_input_routing_types. `int()` per element so
+        # the reply is well formed whether Live hands back ints or a Boost
+        # numeric type.
+        #
+        # Observable under its own name, so `getter=` is all the listen pair
+        # needs — without it the push would carry the raw vector and fail to
+        # encode (the `appointed_device` registration shape, above).
+        #--------------------------------------------------------------------------------
+        def song_get_scale_intervals(params: Optional[Tuple] = ()):
+            intervals = tuple(int(interval) for interval in self.song.scale_intervals)
+            self.logger.info("Getting property for song: scale_intervals = %s" % str(intervals))
+            return intervals
+
+        self.osc_server.add_handler("/live/song/get/scale_intervals", song_get_scale_intervals)
+        self.osc_server.add_handler("/live/song/start_listen/scale_intervals",
+                                    partial(self._start_listen, self.song, "scale_intervals",
+                                            getter=song_get_scale_intervals))
+        self.osc_server.add_handler("/live/song/stop_listen/scale_intervals",
+                                    partial(self._stop_listen, self.song, "scale_intervals"))
+
+        #--------------------------------------------------------------------------------
+        # Seshat extension (C-1) — `Song.visible_tracks`, the regular tracks not
+        # hidden inside a collapsed group.
+        #
+        # A list of Track objects, so it is answered as *indices into
+        # `song.tracks`* — the same index space /live/song/get/num_tracks,
+        # get/track_names and every /live/track/* address already use — in
+        # track order, flattened with no count prefix. num_tracks and
+        # track_names iterate `song.tracks` and cannot answer "which of these
+        # is on screen"; this can.
+        #
+        # Membership is tested with `in`, i.e. identity first and then `==`,
+        # rather than `is` alone: Live may hand back a distinct Boost wrapper
+        # for the same track on each access, and `==` across separately
+        # obtained wrappers is the comparison upstream's own
+        # song_get_track_data already relies on to map a Track to its index.
+        # One pass over `song.tracks`, so the answer keeps track order even if
+        # `visible_tracks` ever does not.
+        #--------------------------------------------------------------------------------
+        def song_get_visible_tracks(params: Optional[Tuple] = ()):
+            visible = list(self.song.visible_tracks)
+            indices = tuple(index for index, track in enumerate(self.song.tracks)
+                            if track in visible)
+            self.logger.info("Getting property for song: visible_tracks = %s" % str(indices))
+            return indices
+
+        self.osc_server.add_handler("/live/song/get/visible_tracks", song_get_visible_tracks)
+        self.osc_server.add_handler("/live/song/start_listen/visible_tracks",
+                                    partial(self._start_listen, self.song, "visible_tracks",
+                                            getter=song_get_visible_tracks))
+        self.osc_server.add_handler("/live/song/stop_listen/visible_tracks",
+                                    partial(self._stop_listen, self.song, "visible_tracks"))
+
+        #--------------------------------------------------------------------------------
+        # The count is Live's own len(), not the arity of the reply above, so
+        # the two disagreeing is visible evidence that the index resolution
+        # missed a track rather than a silently short answer.
+        #--------------------------------------------------------------------------------
+        def song_get_num_visible_tracks(params: Optional[Tuple] = ()):
+            count = len(self.song.visible_tracks)
+            self.logger.info("Getting property for song: num_visible_tracks = %d" % count)
+            return (count,)
+
+        self.osc_server.add_handler("/live/song/get/num_visible_tracks", song_get_num_visible_tracks)
+
+        #--------------------------------------------------------------------------------
+        # Seshat extension (C-1) — a second, fork-owned methods loop, kept
+        # separate from upstream's list above for the merge reason given with
+        # the property blocks. Fire-and-forget, like every other
+        # /live/song/<method> address: silent on success, structured
+        # /live/error on failure.
+        #--------------------------------------------------------------------------------
+        for method in [
+            "play_selection",
+            "scrub_by",
+            "sync_parameter_changes"
+        ]:
+            self.osc_server.add_handler("/live/song/%s" % method,
+                                        partial(self._call_method, self.song, method))
+
+        #--------------------------------------------------------------------------------
+        # Seshat extension (C-1) — the three `Song` methods that return a value.
+        #
+        # `_call_method` discards return values, and these return Boost structs
+        # (BeatTime, SmpteTime) that could not go on the wire whole anyway, so
+        # each gets a hand-written handler that decodes the struct into ints.
+        # The address is the LOM method name verbatim
+        # (/live/song/get_beats_loop_start, not get/beats_loop_start), the
+        # convention the extended-notes block already uses, so the inventory
+        # matcher in tools/lom_gaps.py counts the member covered with no alias
+        # entry.
+        #
+        # ⚠️ The struct attribute names are documented, not measured:
+        # `bars`/`beats`/`sub_division` appear as attribute names in Live
+        # 12.4.3's own shipped scripts, `ticks` and the four SMPTE fields are
+        # Max-for-Live-derived. A wrong name is an AttributeError arriving on
+        # /live/error — loud, never a wrong value. See API.md.
+        #--------------------------------------------------------------------------------
+        def song_get_beat_time(method: str, params: Optional[Tuple] = ()):
+            beat_time = getattr(self.song, method)()
+            rv = (int(beat_time.bars), int(beat_time.beats),
+                  int(beat_time.sub_division), int(beat_time.ticks))
+            self.logger.info("Calling method for song: %s = %s" % (method, str(rv)))
+            return rv
+
+        self.osc_server.add_handler("/live/song/get_beats_loop_start",
+                                    partial(song_get_beat_time, "get_beats_loop_start"))
+        self.osc_server.add_handler("/live/song/get_beats_loop_length",
+                                    partial(song_get_beat_time, "get_beats_loop_length"))
+
+        #--------------------------------------------------------------------------------
+        # The time format is handed to Live unmodified as the
+        # Live.Song.TimeFormat int its signature declares, and echoed back
+        # first so a client firing several formats can correlate the replies —
+        # the /live/application/get/has_option precedent. No-args is
+        # deliberately an error rather than a default: params[0] raises
+        # IndexError and _dispatch turns it into the structured envelope.
+        #--------------------------------------------------------------------------------
+        def song_get_current_smpte_song_time(params: Tuple[Any] = ()):
+            time_format = int(params[0])
+            smpte_time = self.song.get_current_smpte_song_time(time_format)
+            rv = (time_format, int(smpte_time.hours), int(smpte_time.minutes),
+                  int(smpte_time.seconds), int(smpte_time.frames))
+            self.logger.info("Calling method for song: get_current_smpte_song_time = %s" % str(rv))
+            return rv
+
+        self.osc_server.add_handler("/live/song/get_current_smpte_song_time",
+                                    song_get_current_smpte_song_time)
+
+        #--------------------------------------------------------------------------------
+        # Seshat extension (C-1) — `Song.move_device` and
+        # `Song.find_device_position`.
+        #
+        # Both take a Device and a target LomObject, so they need the A-4
+        # resolvers rather than the generic loops: the device arrives as the
+        # (category, track_index, device_index) triple every object-valued read
+        # already replies, the target as the (category, track_index) track
+        # identity. Track-level targets only — a chain has no address in this
+        # fork until A-1, exactly as `resolve_device` reaches top-level devices
+        # only.
+        #
+        # Every argument is validated by the resolvers rather than used as a
+        # subscript ("-1 is an answer, never an argument"), so "none", an
+        # unknown category, or an out-of-range index is a ValueError on
+        # /live/error and never a Python negative-index wrap-around.
+        #
+        # The reply echoes the target identity before the int Live returns,
+        # so a burst of these can be correlated. ⚠️ What that int means
+        # (assumed: the device's resulting index in the target's devices list)
+        # and whether `find_device_position` is truly non-mutating are
+        # documented, not measured — see API.md.
+        #--------------------------------------------------------------------------------
+        def song_device_position(method: str, params: Tuple[Any] = ()):
+            device_category, device_track_index, device_index = \
+                str(params[0]), int(params[1]), int(params[2])
+            target_category, target_track_index, target_position = \
+                str(params[3]), int(params[4]), int(params[5])
+            device = resolve_device(self.song, device_category, device_track_index, device_index)
+            target = resolve_track(self.song, target_category, target_track_index)
+            self.logger.info("Calling method for song: %s (device %s, target %s, position %d)"
+                             % (method,
+                                str((device_category, device_track_index, device_index)),
+                                str((target_category, target_track_index)),
+                                target_position))
+            result = getattr(self.song, method)(device, target, target_position)
+            self.logger.info("Called method for song: %s -> %s" % (method, str(result)))
+            return (target_category, target_track_index, int(result))
+
+        self.osc_server.add_handler("/live/song/move_device",
+                                    partial(song_device_position, "move_device"))
+        self.osc_server.add_handler("/live/song/find_device_position",
+                                    partial(song_device_position, "find_device_position"))
 
         #--------------------------------------------------------------------------------
         # Callbacks for Song: appointed_device.
