@@ -43,6 +43,8 @@ work; add to it when rejecting a proposal.
 
 ## #1 · B-1 · Notes extended
 
+**Plan:** [docs/PLAN_notes_extended.md](docs/PLAN_notes_extended.md)
+
 **Goal:** `/live/clip/get/notes_extended` and `/live/clip/add/notes_extended`
 carrying `note_id`, `probability`, `velocity_deviation`, `release_velocity`,
 old five-field addresses unchanged; then the ID-keyed members
