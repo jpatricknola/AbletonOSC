@@ -78,6 +78,15 @@ Because pushes and query replies share a shape, a client that correlates
 replies by address will also receive listener pushes as if they were replies
 — a consumer's decode path has to expect both.
 
+**One family breaks that shape deliberately.** The return-track and master
+getters added by this fork answer a *query* with an `ok`/`error` envelope,
+while their listener pushes carry the bare value (§ "Return Track & Master:
+`Track` parity"). A push has no failure path to report, and the differing
+arity is what lets a consumer tell the two apart on one address — so a decoder
+written for `/live/return_track/*` and `/live/master/*` must branch on arity
+rather than assume the shapes match. Everywhere else in this document the
+paragraph above holds.
+
 Two gotchas that don't show in the address tables:
 
 - **An index-keyed listener must be unbound from the object it was registered
@@ -2282,7 +2291,9 @@ device surface is repeated here — once indexed by return, once for the master.
   `/live/track/get|set/send [track_id, send_id, ...]` in the Track API above.
   A return's **own** sends (Live 12's return-to-return section) are a separate
   thing and live here, on `/live/return_track/get|set/send`.
-- **The listeners push the bare value**, not the ok/error envelope — a push has
+- **The listeners push the bare value**, not the ok/error envelope — the one
+  documented exception to the general listener rule in § "Listener pattern",
+  which is cross-referenced there. A push has
   no failure path to report, and the differing arity is what lets
   `Seshat.Session.State` accept a push and a query reply on the same address
   without confusing them. Like upstream's listeners, each sends once immediately
