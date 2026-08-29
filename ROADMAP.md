@@ -271,6 +271,13 @@ could the nit-triage pass that declined fixing it inline.
   `set/parameter/*`'s effective family, or extend `_is_wildcard_skip` to
   recognise the Boost `ArgumentError` case) or in how Seshat builds the
   address.
+- The device family gained one more pattern match since this item was
+  written: `/live/device/replace_sample` is the only address a bare
+  `/live/device/* <track> <device>` pattern matches, and on a non-Simpler it
+  is a silent `_is_wildcard_skip` by design (the handler binds the Simpler
+  method before it resolves the file name — `API.md` § "Handlers that name a
+  file to read"). Include it in the audit rather than assuming the family is
+  still only the parameter addresses.
 - No dependencies; verification-only, and may resolve to "no action" without
   ever becoming a Python change here.
 

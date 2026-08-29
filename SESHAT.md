@@ -1399,6 +1399,97 @@ so treat any merge that reverts one as a regression, not a preference.
   checks are in the archived plan. The Live-free tripwire is
   `tests_unit/test_groove.py`.
 
+- **`clip_slot.py` + `track.py` + `device.py` + new `path_safety.py` — three
+  addresses that name a file for Live to read, and one rule for all of them.**
+  Upstream exposes no way to import an audio file at all: `Track.create_audio_clip`,
+  `ClipSlot.create_audio_clip` and `SimplerDevice.replace_sample` are all
+  unreachable in stock AbletonOSC, and it has no equivalent of the rule below.
+  This fork adds:
+
+      /live/clip_slot/create_audio_clip [track_index, clip_index, name]
+        -> [track_index, clip_index, "ok", length]
+        -> [track_index, clip_index, "error", message]
+
+      /live/track/create_audio_clip [track_id, name, position]
+        -> [track_index, "ok", position, length]
+        -> [track_index, "error", message]
+
+      /live/device/replace_sample [track_index, device_index, name]
+        -> [track_index, device_index, "ok", file_path]
+        -> [track_index, device_index, "error", message]
+
+  Full contract in `API.md` § "Handlers that name a file to read" and the three
+  address tables.
+
+  **The wire never carries a path.** `name` is a name *relative to one fixed
+  root* — `~/.seshat/generated` — and the handler builds the absolute path
+  itself, resolving both sides with `realpath` and requiring the result to be a
+  regular file strictly under the resolved root. Nothing is opened and no Live
+  method is called on a refused name. Given a fixed root, an absolute argument
+  could only name files the relative form already names, so accepting one would
+  buy the caller nothing while keeping the "caller-supplied path opened with
+  Live's privileges" shape the rule exists to remove.
+
+  This is the fork's **read**-side answer, and it is deliberately not
+  `/live/browser/export`'s. `export` is the **write**-side rule: take no
+  destination from the wire at all, choose one inside a private root, reply with
+  what was written. A read has to name *which* existing file; a write does not.
+  `EXPORT_ROOT` is `abspath` + `expanduser` and explicitly **not** `realpath`
+  because Seshat re-derives that exact string in Elixir with `Path.expand/1`;
+  `IMPORT_ROOT`'s resolved form never leaves the handler, so it can and must
+  resolve both sides. One address still violates the write-side rule and is not
+  covered here: `/live/application/dump_lom` still writes an arbitrary wire path
+  (`issues.md`, Low).
+
+  All three **always reply**, including on every refusal — the `browser.py`
+  convention, not the silent-on-success convention of the generic
+  `/live/track/<method>` and `/live/clip_slot/<method>` loops they sit beside.
+  The `"ok"`/`"error"` discriminator is at a fixed index (2, 1, 2); arity is
+  **not** the invariant, and the track address's refusal is three fields against
+  its four-field success on purpose. Index errors stay on the structured
+  `/live/error` envelope (they raise in the wrapper, before the worker runs);
+  everything the worker decides is an `"error"` reply on the request address.
+
+  Structural consequences:
+
+  - **New module `abletonosc/path_safety.py`** (`IMPORT_ROOT`,
+    `ImportPathError`, `resolve_import_path`) holds the whole rule, importing
+    only `os` and `typing`, on the `track_callback.py` / `track_identity.py`
+    model: `browser.py`, the obvious place for it, does `import Live` at module
+    scope and has no `tests_unit/` loader, so a rule living there could never be
+    tested. `tests_unit/test_path_safety.py` drives the shipped rule directly;
+    `tests_unit/test_audio_clip_import.py` drives all three addresses end to end.
+    `IMPORT_ROOT` is one constant on one line because Seshat's
+    `vendored_addresses_test` asserts that literal, as it does `EXPORT_ROOT`.
+  - **`manager.py` reloads `abletonosc.path_safety` before `clip_slot`,
+    `device` and `track`**, for the same reason it reloads `track_identity`
+    before `view` and `track_callback` before `track`: all three do a `from`
+    import of the resolver, so reloading them first would leave the previous
+    edit's rule deciding which files Live opens, while the reload logged success.
+  - **`tools/lom_gaps.py` gains one `ALIASES` entry**,
+    `Live.SimplerDevice.SimplerDevice.replace_sample -> /live/device/replace_sample`:
+    the `device` prefix's class list does not include `SimplerDevice`, so
+    without it the shipped member would keep being counted a gap. The two
+    `create_audio_clip` members need no alias.
+
+  ⚠️ **Unmeasured, and marked so in `API.md`:** what Live raises for a
+  non-audio or unreadable file, for a MIDI track's slot, or for an occupied slot
+  (the fork refuses an occupied slot itself, on `has_clip`, rather than finding
+  out); whether the returned `Clip` is readable synchronously (the reply carries
+  `-1.0` for `length` if not); `position`'s units for the Arrangement form
+  (assumed beats, passed to Live unmodified, so a wrong assumption is a
+  documentation error rather than a code one); and whether
+  `device.sample.file_path` reflects the new sample immediately (the reply
+  carries `""` if it cannot be read). The Live verification checks are in the
+  plan.
+
+  **Merge hazard** — also listed under § Merge hazards: `clip_slot.py`,
+  `track.py`, `device.py` and `manager.py` are upstream files this fork now
+  edits. A merge that takes upstream's `init_api` for any of the three handlers
+  wholesale drops both the registration *and* the path rule with it, and the
+  address simply stops existing — which over fire-and-forget UDP looks like
+  nothing at all. `tests_unit/` is the tripwire.
+
 ### Seshat's own handlers
 
 Three modules that upstream has no equivalent of. Each carries its own header
@@ -1568,6 +1659,23 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   those PRs, either keep an alias registration or update Seshat in the same
   change. Seshat's `audit-osc` workflow is the verifier: it checks every
   `/live/` address in Seshat's `lib/` against the API docs.
+
+- **`clip_slot.py`, `track.py` and `device.py`'s `init_api`, and
+  `manager.py`'s reload list — the three file-reading addresses.**
+  `/live/clip_slot/create_audio_clip`, `/live/track/create_audio_clip` and
+  `/live/device/replace_sample` are hand-written registrations inside otherwise
+  upstream `init_api` bodies, and each one resolves its argument through
+  `abletonosc/path_safety.py`. A merge that takes any of those three upstream
+  files wholesale drops the registration *and* the path rule together: the
+  address stops existing, which over fire-and-forget UDP looks like nothing at
+  all, and the consumer's import just silently never happens. A merge that
+  reorders `manager.py`'s reload list so `path_safety` no longer precedes those
+  three is worse than silent — `/live/api/reload` would log success while the
+  previous edit's rule kept deciding which files Live opens.
+  `tests_unit/test_audio_clip_import.py` and
+  `tests_unit/test_path_safety.py` are the tripwires for the registrations and
+  the rule; nothing Live-free can catch the reload ordering, so read the
+  comments in `manager.py`.
 
 - **Anything touching `OSCServer.__init__`'s defaults or `process()`.** The
   loopback bind and the removed reply retargeting are both one-liners against

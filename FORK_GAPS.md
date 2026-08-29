@@ -12,8 +12,12 @@ Seshat's `vendored_addresses_test`._
 aim upstream's README states, carried on here. Every row in this file is
 work to be done, and the only surface deliberately left unaddressed is what
 a **safety** argument keeps out (rule 5 in
-[CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md), and the path-safety rule for
-handlers taking a filesystem path). No gap is out of scope for want of a
+[CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md)). The path-safety rule for
+handlers naming a file to read is **no longer** on that list: it was settled
+and shipped with the three `create_audio_clip` / `replace_sample` addresses —
+see `API.md` § "Handlers that name a file to read" and
+`abletonosc/path_safety.py`. It is a rule handlers follow, not an exclusion.
+No gap is out of scope for want of a
 consumer asking for it; a gap not yet worth doing is a gap ranked low, and
 it says so here.
 
@@ -150,8 +154,11 @@ Remote-Script-only member does what its name suggests.
 - **LOM:** `DrumChain.in_note` get/set/observe (12.3; -1 = All Notes),
   `DrumChain.out_note`, `RackDevice.insert_chain(index)` (12.3),
   `Track.insert_device` / `Chain.insert_device` (12.3),
-  `SimplerDevice.replace_sample(path)` (12.2). Tier 2 (Live 12.2/12.3
-  release notes); names verified 2026-08-27.
+  `SimplerDevice.replace_sample(path)` (12.2 — now shipped for
+  *top-level* Simplers as `/live/device/replace_sample`; a Simpler
+  inside a drum pad's chain is still unreachable, which is what this
+  entry needs). Tier 2 (Live 12.2/12.3 release notes); names verified
+  2026-08-27.
 - **Fork today:** device addresses stop at top-level regular-track
   devices; no chain or drum-pad traversal at all.
 - **Shape to build:** `/live/device/get/drum_pads <track> <device>` →
@@ -165,17 +172,23 @@ Remote-Script-only member does what its name suggests.
 ### `SimplerDevice` slicing — slice a loaded sample from the bridge
 
 - **LOM:** `SimplerDevice.playback_mode` (2 = Slicing),
-  `slicing_playback_mode`, `slices` (list of times), `insert_slice`,
-  `remove_slice`, `clear_slices`, `reset_slices`, `move_slice`,
-  `selected_slice`, `sample`, `replace_sample`. **Tier 1 for the slice
-  members** — present in 12.4.3 `LomTypes.pyc`; the apiref page lists only
-  `playback_mode`, `slicing_playback_mode` and `sample`. Verify each
-  member's owner and signature in Live's shipped Python before building.
-- **Fork today:** no Simpler-specific addresses.
-- **Shape to build:** `replace_sample`, `playback_mode` setter, `slices`
-  getter; Seshat would write the trigger clip itself from the slice times
-  via `write_midi_notes`, standing in for Live's UI-only *Slice to New MIDI
-  Track*.
+  `slicing_playback_mode`, `sample`, `replace_sample`; and on the `Sample`
+  the last of those returns, `slices` (list of times), `insert_slice`,
+  `remove_slice`, `clear_slices`, `reset_slices`, `move_slice`.
+  `selected_slice` is a `SimplerDevice.View` member. **The ownership
+  question this entry used to raise is answered by the generated inventory
+  below: the slice API belongs to `Sample`, not `SimplerDevice`** — which
+  is why they are separate buckets in CLOSING_THE_GAPS.md and why `Sample`
+  must ship first. **Tier 1 for the slice members** — present in 12.4.3
+  `LomTypes.pyc`; the apiref page lists only `playback_mode`,
+  `slicing_playback_mode` and `sample`. Signatures still want checking
+  against Live's shipped Python before building.
+- **Fork today:** `/live/device/replace_sample` only — shipped with the
+  read-side path rule (`API.md` § "Handlers that name a file to read"), for
+  a top-level Simpler on a regular track. No other Simpler-specific address.
+- **Shape to build:** `playback_mode` setter, `slices` getter; Seshat would
+  write the trigger clip itself from the slice times via `write_midi_notes`,
+  standing in for Live's UI-only *Slice to New MIDI Track*.
 - **Consumers:** "generate audio, keep it editable" output shape
   (`docs/evaluating/generative features/live-native-options.md` §2.4).
 
@@ -190,20 +203,30 @@ address docs are the record._
 
 | Priority | Missing bridge surface | Why it matters | Disposition |
 |---|---|---|---|
-| High | `Application.View.focused_document_view` | `/live/view` can show, hide and test a view but cannot say which document view has focus — Session vs Arranger, exact | Belongs in the same handler as the existing view addresses — the view bucket in [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md) |
-| Medium | `Song.View.draw_mode`, `follow_song` | Readable absolute state instead of focus-routed toggle shortcuts | Members of the *View classes* bucket, which is where they land — the per-object view resolver is the real work and these ride it. Little use as isolated knobs, so don't split them out into a PR of their own |
+| High | `Application.View.focused_document_view` | `/live/view` can show, hide and test a view but cannot say which document view has focus — Session vs Arranger, exact | Belongs in the same handler as the existing view addresses — the *Object view classes* bucket in [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md) |
+| Medium | `Song.View.draw_mode`, `follow_song` | Readable absolute state instead of focus-routed toggle shortcuts | Members of the *Object view classes* bucket, which is where they land — the per-object view resolver is the real work and these ride it. Little use as isolated knobs, so don't split them out into a PR of their own |
 | Declined | `Application.press_current_dialog_button` | Would let a client dismiss a blocking Live dialog rather than only describe it | Stays out unless a separately reviewed, non-file use case proves it safe: a dialog on screen may be guarding unsaved work, and pressing its buttons blind is not recoverable. The same decision is why the two `show_*` addresses raise **OK-only** dialogs, passing Live the text and nothing else so `buttons` keeps its default |
-| High | Rack chains, Drum Pads, macros, variations | Racks are how real sets are built — a Drum Rack is the standard way to hold a kit — and nothing inside one is addressable today. `ChainMixerDevice` is what keeps rack chains silent even once their devices are reachable | The largest bucket in the plan (87 gaps) and the one the device path resolver exists to unlock; the resolver lands first and alone. The pad-map read is a curated entry above |
+| High | Rack chains, Drum Pads, macros, variations | Racks are how real sets are built — a Drum Rack is the standard way to hold a kit — and nothing inside one is addressable today. `ChainMixerDevice` is what keeps rack chains silent even once their devices are reachable | The largest surface in the plan (87 gaps) and the one the device path resolver exists to unlock; the resolver lands first and alone. Too large for one PR, so it is three buckets in CLOSING_THE_GAPS.md — *Rack chains and chain mixer*, *Drum racks* and *Rack macros and variations*. The pad-map read is a curated entry above |
 | High | Arrangement clips and take lanes | The Arrangement is where a project is finished, and none of the 86 `Clip` members reach a clip there — only three read-only `arrangement_clips/*` fields do | The cheapest high-leverage change here: one resolver keyed `(track, arrangement_index)` reaches every `Clip` member at two further locations. Sequenced behind the device path resolver, which unblocks more |
-| Low | Device-specific APIs (Simpler, Wavetable, Looper, Drift, Roar, …) | Large surface, uneven value; generic parameters already cover much | Tail work — one PR per class, after the shared buckets, which close the 15 inherited `Device` members once for all of them. *Simpler and Sample* sets the pattern |
+| Low | Device-specific APIs (Simpler, Wavetable, Looper, Drift, Roar, …) | Large surface, uneven value; generic parameters already cover much | Tail work, after the shared buckets, which close the 15 inherited `Device` members once for all of them. Not one PR per class: the seven classes with four members or fewer batch into one, per the tail table in CLOSING_THE_GAPS.md |
 
 Cautions the audit attached to individual members, kept because the
 inventory's one-line docstrings do not carry them:
 
 - `ClipSlot.create_audio_clip`, `Track.create_audio_clip`,
-  `SimplerDevice.replace_sample` take absolute file paths. Any handler
-  must follow the fork's path-safety rule: the model must not hand
-  arbitrary paths to code running with Live's privileges.
+  `SimplerDevice.replace_sample` take absolute file paths, and **all three
+  now ship** — `/live/clip_slot/create_audio_clip`,
+  `/live/track/create_audio_clip`, `/live/device/replace_sample`. They
+  settled the fork's read-side path rule, which is now written down rather
+  than pending: the wire carries a name relative to one fixed root
+  (`~/.seshat/generated`) and the handler builds the absolute path itself.
+  See `API.md` § "Handlers that name a file to read" and
+  `abletonosc/path_safety.py`; any further handler naming a file to read
+  follows the same rule, and `/live/browser/export` remains the separate
+  write-side one. No member of the LOM is left waiting on this caution.
+  (The generated rows below still count these three as gaps: the inventory
+  has not been regenerated since they shipped — that needs a
+  `/live/application/dump_lom` from a Live running the new code.)
 - `Application.View.focus_view` overlaps `show_view` and `toggle_browse` is
   a relative toggle where absolute show/hide already exists. Both are still
   coverage; document the overlap on the row so a caller reaching for one is
