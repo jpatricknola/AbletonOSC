@@ -18,6 +18,7 @@ from .midimap import MidiMapHandler
 # Seshat extensions — see SESHAT.md.
 #--------------------------------------------------------------------------------
 from .browser import BrowserHandler
+from .groove import GrooveHandler
 from .return_track import ReturnTrackHandler
 from .song_structure import SongStructureHandler
 

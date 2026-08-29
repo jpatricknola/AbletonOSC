@@ -69,11 +69,12 @@ shapes, and each has its own section below:
   Sequencing into PR-sized buckets lives in
   [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md); what is scheduled, and in
   what order, is [ROADMAP.md](ROADMAP.md).
-- **Object-valued members** (`Clip.groove`, `Song.cue_points`, `slices`)
+- **Object-valued members** (`Song.cue_points`, `slices`, `Device.view`)
   are the usual reason a member was skipped: the generic `properties_r/rw`
   machinery serialises scalars only. Closing such a gap means a
   hand-written handler that takes or returns an index, a name, or a
-  flattened tuple — say which in the entry.
+  flattened tuple — say which in the entry. `Clip.groove` is the worked
+  example: see the Groove Pool entry under [Closed](#closed).
 - **History.** Seshat's former `docs/evaluating/lom-to-fork-gap-audit.md`
   (2026-07-31, deleted 2026-08-27 once folded in here; hand-written from `strings` on `LomTypes.pyc` and the
   apiref) was the first pass and has been folded into this file: its
@@ -100,36 +101,13 @@ State which one each entry rests on; only the last means "works."
 
 Every curated entry below as of 2026-08-27 is tier 1 or 2; the generated
 inventory is tier 1 by construction. **None has been run.** A member being
-present does not mean the generic setter accepts it (`Clip.groove` is
-listed rw and still fails with "Infered arg_value type is not supported")
-or that a `†` Remote-Script-only member does what its name suggests.
+present does not mean the generic setter accepts it (`Clip.groove` is listed
+rw and still fails through the generic setter with "Infered arg_value type is
+not supported" — it took a hand-written handler to reach, see the Groove Pool
+entry under [Closed](#closed)) or that a `†` Remote-Script-only member does
+what its name suggests.
 
 ## Curated entries
-
-### `Clip.groove` — assign a Groove Pool groove to a clip
-
-- **LOM:** `Clip.groove` get/set/observe (Live 11+); `Clip.has_groove`;
-  `Song.groove_pool.grooves` (list, observable); `Groove.base`,
-  `timing_amount`, `random_amount`, `velocity_amount`,
-  `quantization_amount`. Tier 2 (apiref Clip, GroovePool); names verified in
-  12.4.3 `LomTypes.pyc`, 2026-08-27.
-- **Fork today:** `abletonosc/clip.py` lists `has_groove` and comments
-  `groove` out (`## if other than None, says "Error handling OSC message:
-  Infered arg_value type is not supported"`) — the object can't ride the
-  generic setter. `song.py` exposes only the scalar `groove_amount`.
-- **Shape to build:** `/live/song/get/groove_pool` → indexed names and
-  amounts; `/live/clip/set/groove <track> <clip> <pool_index | -1>`;
-  `/live/clip/get/groove` → index or -1. Whether a `.agr` browser item can
-  be loaded *into the pool* through `browser.load_item` is unmeasured and
-  decides whether ~3,000 shipped grooves are reachable without the user
-  dragging one in.
-- **Consumers:** Seshat's generation epic — feel transfer and
-  existing-context timing (`docs/evaluating/generative features/live-native-options.md`
-  §2.5); makes `set_groove_amount` meaningful on plain MIDI (Seshat's
-  CLAUDE.md currently says it can't assign — that sentence goes when this
-  closes).
-- **Also in:** [Dispositions](#dispositions-from-the-july-2026-audit),
-  medium–low.
 
 ### `Song.cue_points` — the remaining locator members
 
@@ -201,7 +179,7 @@ fork side has since landed are marked._
 | Medium–high | Extended note identity and modification (`note_id`, `apply_note_modifications`, selection/by-ID methods) | Safe single-note edits; keeps probability, deviation, release velocity the flattened reply discards | **Landed** as one unit — see [Closed](#notes--flattened-to-five-fields--closed-2026-08-29). `/live/clip/get/notes_extended` carries `note_id`, probability, deviation and release velocity, and `apply_note_modifications` edits a note in place keeping its id, so Seshat's `edit_notes` no longer has to compose remove + add |
 | Medium | Count-in and automation state (`count_in_duration`, `is_counting_in`, `session_automation_record`, `re_enable_automation_enabled`) | Recording readiness and automation ownership are musically meaningful, exact, and invisible today | **Landed** — see [Closed](#song-remainder--closed-2026-08-29). All four are addresses now, with listen pairs; the `re_enable_automation` action was already bridged. ⚠️ `count_in_duration`'s index→bars mapping is still unmeasured |
 | Medium | `Song.View.draw_mode`, `follow_song` | Readable absolute state instead of focus-routed toggle shortcuts | Fold into a concrete view/automation workflow; no value as isolated knobs |
-| Medium–low | Groove Pool enumeration and clip assignment | Makes `set_groove_amount` useful without a groove assigned by hand | Curated entry above; index-based serialisation in Python |
+| Medium–low | Groove Pool enumeration and clip assignment | Makes `set_groove_amount` useful without a groove assigned by hand | **Landed** as one unit — see [Closed](#groove-pool--closed-2026-08-29). `/live/song/get/groove_pool` enumerates, `/live/groove/*` reads and writes each groove's amounts, and `/live/clip/set/groove` assigns by pool index or clears with `-1`. ⚠️ Whether an `.agr` file can be loaded into the pool through the browser is still unmeasured, and is the one part of the curated entry that did not close |
 | Conditional | Arrangement clips and take lanes | LOM support is substantial; Seshat is deliberately Session-first | Declined until an Arrangement/comping workflow is chosen |
 | Conditional | Rack chains, Drum Pads, macros, variations | Deep sound design, but needs recursive addressing and a much larger tool contract | Declined until a named workflow needs inside-the-Rack control; the pad-map read is a curated entry above |
 | Conditional | Device-specific APIs (Simpler, Wavetable, Looper, Drift, Roar, …) | Large surface, uneven value; generic parameters already cover much | Only from a concrete feature, never as blanket parity work |
@@ -349,6 +327,57 @@ shifts when one is deleted. An ID or name-keyed form is the shape fix.
 Move entries here only in the same commit that lands the address, then
 delete them at the next tidy — the address docs are the permanent record.
 
+### Groove Pool — closed 2026-08-29
+
+Was a shape gap and an addressing gap at once: `Clip.groove` holds a
+`Live.Groove.Groove`, so the generic property loop could not put it on the wire
+(upstream commented it out in place with the failure it observed, "Infered arg
+value type is not supported"), and there was no address for the pool it indexes
+into either. `Song.groove_amount` was therefore a dial with nothing to scale on
+any set where a human had not dragged a groove onto a clip by hand.
+
+Closed by roadmap item **D-2**, which adds a new `abletonosc/groove.py`
+(`GrooveHandler`, `/live/groove/*`), the hand-written
+`/live/song/get/groove_pool` dump and its listen pair in `song.py`, and the
+hand-written `/live/clip/get|set/groove` pair and its listen pair in `clip.py`.
+A groove is named by its **index into `song.groove_pool.grooves`**, the A-4
+object-read pattern applied to a single flat collection; `-1` means "no groove
+assigned", and `/live/clip/set/groove -1` is the one sanctioned place in this
+fork where `-1` is an argument rather than an answer (it clears the
+assignment). `API.md` § "Groove API" is the permanent record, with
+§ "Object-valued reads" carrying the reasoning for that exception.
+
+Members this closed: `Song.groove_pool`, `GroovePool.grooves`, `Clip.groove`,
+and all six of `Live.Groove.Groove` — `name`, `base`, `quantization_amount`,
+`timing_amount`, `random_amount`, `velocity_amount`.
+
+Deliberately still open, each recorded in `API.md` rather than shipped as dead
+wire surface: **a listen pair for `Groove.base`** (Live offers no
+`add_base_listener` — it is the one non-observable member of the class), and
+`base` in the **pool dump** (its wire type is unverified and the OSC builder
+drops an entire reply it cannot encode, so it is reachable through its own
+address instead, where an encoding surprise costs one address rather than the
+whole pool read).
+
+**Carried forward as still open:** whether an `.agr` groove file can be loaded
+*into the pool* through `browser.load_item` — the measurement the curated entry
+named. The LOM has no `Browser.grooves` root and `packs` is not one of
+`browser.py`'s exposed categories, so `.agr` files may not be reachable through
+this bridge at all today; that decides whether the ~3,000 grooves shipped with
+Live can be used without a human dragging one in. The measurement is in the
+archived plan's Live verification section, and a "no" is a candidate roadmap
+item (exposing `packs`), not a widening of this one.
+
+⚠️ Nothing in this family has been exercised against a running Live. Whether
+`clip.groove = None` clears, what `Groove.base` encodes to and how it maps to
+the 1/4…1/32 grids, the four amount ranges (especially `velocity_amount`'s
+sign), and whether the `GroovePool.grooves` observer fires on membership
+changes only are all unmeasured; `API.md` marks each with a ⚠️.
+
+The generated inventory below still lists the closed members as gaps: it is
+regenerated only from a `/live/application/dump_lom` taken against a Live
+running the *installed* copy, and no dump has been taken since this landed.
+
 ### Return/master `Track` parity — closed 2026-08-29
 
 Was an addressing gap: a return track and the master are `Live.Track.Track`
@@ -403,9 +432,10 @@ Members this closed: `Song.appointed_device` (get/set/listen),
 `selected_parameter`, `mod_mapping_device` and `mod_mapping_parameter`.
 `Song.master_track` was never a gap row — it is reached under `/live/master/*`.
 
-Still object-valued and still unreached, now as ordinary addressing gaps
-rather than a shape gap: `Device.view`, and `Clip.groove` (which has its own
-curated entry, and is the first consumer of this pattern). The generated
+Still object-valued and still unreached, now as an ordinary addressing gap
+rather than a shape gap: `Device.view`. `Clip.groove` was the other one, and
+became this pattern's first consumer outside `track_identity.py` — see the
+Groove Pool entry below. The generated
 inventory below still lists the closed members as gaps: it is regenerated only
 from a `/live/application/dump_lom` taken against a Live running the *installed*
 copy, and no dump has been taken since this landed.
@@ -570,10 +600,10 @@ Members this closed: `can_capture_midi`, `count_in_duration`, `exclusive_arm`,
 `tempo_follower_enabled`, `visible_tracks`.
 
 Deliberately still open on this class, each for a reason recorded elsewhere:
-`get_data` / `set_data` and `tuning_system` (D-5), `groove_pool` (D-2, and the
-curated `Clip.groove` entry), `can_jump_to_next_cue` / `can_jump_to_prev_cue` /
-`is_cue_point_selected` (B-3, and the curated cue-point entry), and the
-`Song.View` members (C-2). Chain and rack *targets* for the two device-position
+`get_data` / `set_data` and `tuning_system` (D-5), `can_jump_to_next_cue` /
+`can_jump_to_prev_cue` / `is_cue_point_selected` (B-3, and the curated
+cue-point entry), and the `Song.View` members (C-2). `groove_pool` was on this
+list too and has since closed — see the Groove Pool entry below. Chain and rack *targets* for the two device-position
 methods stay declined with A-1/D-1. `sync_parameter_changes` is registered but
 its behaviour is unknown — Remote-Script-only, absent from Max for Live's
 table, and Live's docstring is the signature alone.

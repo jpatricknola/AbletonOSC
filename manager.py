@@ -127,6 +127,7 @@ class Manager(ControlSurface):
                 # not load-bearing.
                 #--------------------------------------------------------------------------------
                 abletonosc.BrowserHandler(self),
+                abletonosc.GrooveHandler(self),
                 abletonosc.ReturnTrackHandler(self),
                 abletonosc.SongStructureHandler(self),
             ]
@@ -181,6 +182,14 @@ class Manager(ControlSurface):
             # track_callback below, and no Live-free test can catch it.
             #--------------------------------------------------------------------------------
             importlib.reload(abletonosc.track_identity)
+            #--------------------------------------------------------------------------------
+            # groove before clip and song, for the same `from`-import reason as
+            # track_identity above: both of them `from .groove import ...` the
+            # pool resolvers, so a groove.py edit reloaded *after* them would
+            # log success while the previous edit's functions went on answering
+            # /live/clip/get/groove and /live/song/get/groove_pool.
+            #--------------------------------------------------------------------------------
+            importlib.reload(abletonosc.groove)
             importlib.reload(abletonosc.application)
             importlib.reload(abletonosc.clip)
             importlib.reload(abletonosc.clip_slot)

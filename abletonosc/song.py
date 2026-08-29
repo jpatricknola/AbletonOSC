@@ -8,6 +8,7 @@ from typing import Optional, Tuple, Any
 
 from .handler import AbletonOSCHandler
 from .track_identity import device_identity, resolve_device, resolve_track
+from .groove import groove_pool_dump
 
 class SongHandler(AbletonOSCHandler):
     class_identifier = "song"
@@ -390,6 +391,66 @@ class SongHandler(AbletonOSCHandler):
                                             getter=song_get_appointed_device))
         self.osc_server.add_handler("/live/song/stop_listen/appointed_device",
                                     partial(self._stop_listen, self.song, "appointed_device"))
+
+        #--------------------------------------------------------------------------------
+        # Callbacks for Song: groove_pool.
+        #
+        # Seshat extension (D-2, the Groove Pool family). `Song.groove_pool` is
+        # a `Live.GroovePool.GroovePool` object whose one member, `grooves`, is
+        # a collection of `Live.Groove.Groove` objects — two levels of
+        # unencodable, so this could never enter the generic property loops
+        # above, and it is kept out of them deliberately (FORK_GAPS.md's
+        # cautions list names `groove_pool` among the members that must never
+        # go in one). It is hand-written here beside `appointed_device` so the
+        # object-valued handlers stay together.
+        #
+        # The reply is the whole pool flattened, five fields per groove in
+        # `groove.GROOVE_FIELDS` order with no count prefix — the
+        # `scale_intervals` / `visible_tracks` shape. An empty pool answers with
+        # no arguments at all: that is "the pool is empty", not an error. Each
+        # groove is then addressable by its index under /live/groove/*, and
+        # assignable to a clip through /live/clip/set/groove. See API.md
+        # § "Groove API".
+        #--------------------------------------------------------------------------------
+        def song_get_groove_pool(params: Optional[Tuple] = ()):
+            dump = groove_pool_dump(self.song)
+            self.logger.info("Getting property for song: groove_pool = %s" % str(dump))
+            return dump
+
+        self.osc_server.add_handler("/live/song/get/groove_pool", song_get_groove_pool)
+        #--------------------------------------------------------------------------------
+        # The observable is `grooves` on the pool object, not `groove_pool` on
+        # the song — `Song.groove_pool` is observable too, but it fires when the
+        # pool *object* is replaced, which is not what a client watching the
+        # pool means. So the listener subscribes the pool and pushes under this
+        # address's own name, through the `lom_property` alias built for
+        # `selected_track_identity` (see AbletonOSCHandler._start_listen), with
+        # `getter=` supplying the flattened dump the raw collection could never
+        # encode into.
+        #
+        # It therefore fires on pool *membership* changes only: editing a
+        # groove's timing amount does not fire it. Subscribe
+        # /live/groove/start_listen/<prop> per groove for that.
+        #
+        # The pool object is dereferenced at *call* time rather than bound into
+        # a partial() at registration, unlike the appointed_device pair above
+        # (which subscribes the song itself, an object that cannot be replaced).
+        # `Song.groove_pool` is its own observable property precisely because
+        # Live can hand back a different pool object — loading a set is the
+        # obvious case — and a partial() bound during init_api() would go on
+        # subscribing the pool that existed when the script loaded. Unbinding
+        # stays correct either way: _stop_listen unbinds from the object stored
+        # in `listener_objects`, not the one it is handed.
+        #--------------------------------------------------------------------------------
+        def song_start_listen_groove_pool(params: Optional[Tuple] = ()):
+            self._start_listen(self.song.groove_pool, "groove_pool", (),
+                               getter=song_get_groove_pool, lom_property="grooves")
+
+        def song_stop_listen_groove_pool(params: Optional[Tuple] = ()):
+            self._stop_listen(self.song.groove_pool, "groove_pool", ())
+
+        self.osc_server.add_handler("/live/song/start_listen/groove_pool", song_start_listen_groove_pool)
+        self.osc_server.add_handler("/live/song/stop_listen/groove_pool", song_stop_listen_groove_pool)
 
         #--------------------------------------------------------------------------------
         # Callbacks for Song: Track properties

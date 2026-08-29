@@ -1,6 +1,8 @@
 import re
+from functools import partial
 from typing import Tuple, Callable, Any, Optional
 from .handler import AbletonOSCHandler
+from .groove import groove_index, resolve_groove, NO_INDEX
 import Live
 
 def note_name_to_midi(name):
@@ -253,7 +255,10 @@ class ClipHandler(AbletonOSCHandler):
             "start_time",
             "will_record_on_start"
             ## TODO list:
-            ##"groove", ## if other than None, says "Error handling OSC message: Infered arg_value type is not supported"
+            ## "groove" is no longer here: it is an object-valued member and is
+            ## registered by hand below (Seshat extension D-2), because the
+            ## generic loops cannot encode a Live.Groove.Groove — which is what
+            ## upstream's "Infered arg_value type is not supported" was.
             ## is_arrangement_clip            
             ##"warp_markers", ## "Infered arg_value type is not supported"
             ##"view", ##"Infered arg_value type is not supported"
@@ -456,6 +461,68 @@ class ClipHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/clip/select_notes_by_id", create_clip_callback(clip_select_notes_by_id))
         self.osc_server.add_handler("/live/clip/replace_selected_notes", create_clip_callback(clip_replace_selected_notes))
         self.osc_server.add_handler("/live/clip/set_notes", create_clip_callback(clip_set_notes))
+
+        #--------------------------------------------------------------------------------
+        # Clip: groove — a Seshat extension (D-2), and the first consumer of the
+        # object-valued read pattern outside track_identity.py.
+        #
+        # `Clip.groove` holds a `Live.Groove.Groove`, so it can never enter the
+        # generic property loops above: the OSC builder has no encoding for the
+        # object, which is exactly upstream's commented-out "Infered arg_value
+        # type is not supported". It is answered instead as an **index into
+        # `song.groove_pool.grooves`** — the same index space /live/groove/* and
+        # /live/song/get/groove_pool use — with -1 for "no groove assigned".
+        #
+        # The setter takes that same index, and is the one address in this fork
+        # where -1 is an *argument*: exactly -1 clears the assignment
+        # (`clip.groove = None`), which makes the get/set round trip
+        # semantically correct rather than a wrap-around. -2 and below, and any
+        # index past the end of the pool, are a ValueError → /live/error naming
+        # the pool's real size, never a Python negative-index wrap-around. See
+        # API.md § "Object-valued reads", which names this exception, and
+        # § "Groove API".
+        #--------------------------------------------------------------------------------
+        def clip_get_groove(clip, params: Tuple[Any] = ()):
+            index = groove_index(self.song, clip.groove)
+            self.logger.info("Getting property for clip: groove = %d" % index)
+            return (index,)
+
+        def clip_set_groove(clip, params: Tuple[Any] = ()):
+            index = int(params[0])
+            if index == NO_INDEX:
+                self.logger.info("Setting property for clip: groove = %d (clearing)" % index)
+                clip.groove = None
+                return
+            #--------------------------------------------------------------------------------
+            # resolve_groove validates before it indexes, so this line is the
+            # whole rejection path for -2, for a non-integral negative float and
+            # for an index past the end of the pool.
+            #--------------------------------------------------------------------------------
+            groove = resolve_groove(self.song, index)
+            self.logger.info("Setting property for clip: groove = %d" % index)
+            clip.groove = groove
+
+        def clip_groove_listener_value(params: Tuple[Any]):
+            #--------------------------------------------------------------------------------
+            # `getter=` on _start_listen: without it the push would carry the raw
+            # Groove object and fail to encode, dropping the datagram silently.
+            # The clip is re-resolved from the pushed identity because a Clip
+            # cannot report its own indices, and the identity is what the push
+            # echoes — the appointed_device / scale_intervals precedent.
+            #--------------------------------------------------------------------------------
+            track_index, clip_index = params
+            clip = self.song.tracks[track_index].clip_slots[clip_index].clip
+            return groove_index(self.song, clip.groove)
+
+        self.osc_server.add_handler("/live/clip/get/groove", create_clip_callback(clip_get_groove))
+        self.osc_server.add_handler("/live/clip/set/groove", create_clip_callback(clip_set_groove))
+        self.osc_server.add_handler("/live/clip/start_listen/groove",
+                                    create_clip_callback(partial(self._start_listen,
+                                                                 getter=clip_groove_listener_value),
+                                                         "groove", pass_clip_index=True))
+        self.osc_server.add_handler("/live/clip/stop_listen/groove",
+                                    create_clip_callback(self._stop_listen, "groove",
+                                                         pass_clip_index=True))
 
         def clips_filter_handler(params: Tuple):
             # TODO: Pre-cache clip notes
