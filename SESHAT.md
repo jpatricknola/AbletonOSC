@@ -612,9 +612,11 @@ so treat any merge that reverts one as a regression, not a preference.
   interchangeable: `Song.groove_amount` (LOM, 0.0–1.3 in practice — Ableton's
   own Move script clamps it to `GROOVE_AMOUNT_MAX = 1.3125` and renders it as
   `round(min(x, 1.3) * 100)`%) only *scales* grooves already assigned to clips
-  from the Groove Pool, and nothing in this bridge can assign one
-  (`Clip.groove` is an unserializable LOM object — see the `clip.py` TODO). So
-  on a set with no grooves assigned, upstream's knob does nothing at all.
+  from the Groove Pool. Until D-2 nothing in this bridge could assign one
+  (`Clip.groove` is an unserializable LOM object, commented out in `clip.py`'s
+  TODO list with upstream's observed failure), so on a set with no grooves
+  assigned upstream's knob did nothing at all; `/live/clip/set/groove` is what
+  makes it mean something now — see the groove-family entry below.
   `Song.swing_amount` (LOM: float, get/set/observe, 0.0–1.0, "affects MIDI
   Recording Quantization and all direct calls to `Clip.quantize`") is the
   property that makes plain MIDI swing, and it is what Seshat's
@@ -1267,11 +1269,103 @@ so treat any merge that reverts one as a regression, not a preference.
   four absent listen pairs, reply shapes and OSC types, the flattened vector
   reads and their pushes, the struct decodes, and every resolver rejection).
 
+- **The Groove Pool family (D-2)** — one new module, two upstream files gaining
+  fork-owned addresses, and the wire-in. Upstream has no groove surface at all
+  beyond `Song.groove_amount` in its generic property loop, and that dial only
+  *scales* grooves already assigned to clips: `Clip.groove` holds a
+  `Live.Groove.Groove`, so it could never ride the generic loops and upstream
+  left it commented out in `clip.py`'s `properties_r` TODO list with the
+  failure it observed ("Infered arg_value type is not supported"). On a set
+  where no human has dragged a groove onto a clip, the knob therefore does
+  nothing at all.
+
+  | File | What it gains |
+  |---|---|
+  | `abletonosc/groove.py` (**new**) | `GrooveHandler` (`class_identifier = "groove"`) — get/set for `name`, `base` and the four amounts, listen pairs for the five observable ones — plus the Live-free pool helpers `GROOVE_FIELDS`, `GROOVE_FIELD_COERCIONS`, `NO_INDEX`, `resolve_groove`, `groove_index`, `groove_pool_dump` |
+  | `abletonosc/song.py` | `/live/song/get/groove_pool` and its listen pair, hand-written beside the `appointed_device` block |
+  | `abletonosc/clip.py` | `/live/clip/get|set/groove` and its listen pair, hand-written after the extended-notes block; the `##"groove"` TODO line replaced by a pointer to it |
+  | `abletonosc/__init__.py`, `manager.py` | the export, the handler-list entry, and a `reload_imports` entry ordered *before* `clip` and `song` |
+  | `tests_unit/` | `test_groove.py` (73 cases), a `load_groove_module()` loader, and the `groove.py` row in the subclass-identifier map |
+
+  Decisions worth keeping:
+
+  - **A handler class of its own, not a block in `song.py`.** Listener pushes
+    go out on `/live/<class_identifier>/get/<prop>`, so a `/live/groove/*`
+    family structurally requires its own `class_identifier`; folding it into
+    `SongHandler` would either mangle the push addresses or mean hand-rolling
+    the push path inside an upstream file. Six properties × get/set with five
+    listen pairs over one flat indexed collection is exactly `scene.py`'s
+    shape, and the handler is written against it.
+  - **The resolution lives at module scope**, parameterised on `song` — the
+    `track_identity.py` pattern — so `song.py` and `clip.py` can
+    `from .groove import ...` (no cycle: `groove.py` imports only `logging`,
+    `typing` and `.handler`) and `tests_unit/` can drive the resolvers as plain
+    functions. `groove_index` deliberately does **not** import
+    `track_identity._index_of`: that helper is private to that module's
+    contract, and the `==` scan is three lines.
+  - **`-1` is an argument on exactly one address.** `/live/clip/set/groove -1`
+    clears the assignment. That is a documented exception to "`-1` is an answer,
+    never an argument", not a relaxation of it: the setter never uses the value
+    as a subscript, `-1` is intercepted first and maps to `clip.groove = None`,
+    `-2` and below and anything past the end of the pool are a `ValueError` on
+    `/live/error` naming the pool's real size, and only a validated `>= 0`
+    reaches the collection — so the `get → set` round trip is *correct* rather
+    than merely tolerated. `API.md` § "Object-valued reads" carries the reasoning
+    and is the permanent record.
+  - **`/live/groove/stop_listen/*` resolves nothing.** Every other address in
+    the family goes through `resolve_groove`, which validates the index against
+    the current pool. Stop deliberately does not: the base `_stop_listen`
+    unbinds from the object in `listener_objects`, ignoring whatever target it
+    is handed, so resolving first buys nothing and loses the case that matters
+    — a groove removed from the pool renumbers it, and an index that has fallen
+    out of range would raise, answer `/live/error`, and strand a live listener
+    bound to a groove the pool no longer holds until `clear_api`. Stop keys
+    straight off the normalised index instead; an index carrying no
+    subscription is silent, the way every other handler's stop is. Nothing is
+    indexed on that path, so the negative-index wrap `resolve_groove` exists to
+    prevent is unreachable there by construction.
+  - **`Groove.base` is excluded from the pool dump and has no listen pair.** Its
+    wire type is unverified, and the OSC builder drops an entire reply it cannot
+    encode — so keeping it out of the five-field dump means an encoding surprise
+    breaks one address instead of the whole pool read. It is also the one
+    `Live.Groove.Groove` member with no `add_<name>_listener`, so its listen
+    addresses are simply not registered (the `properties_r_no_listen` split in
+    `song.py`, applied to a rw member).
+  - **The pool listener rides the `lom_property` alias.**
+    `/live/song/start_listen/groove_pool` subscribes `grooves` on
+    `song.groove_pool` while keying and pushing under `groove_pool`, so it fires
+    on pool **membership** changes and not on amount edits — subscribe
+    `/live/groove/start_listen/<prop>` per groove for those. The alias is the
+    mechanism built for `selected_track_identity`; `getter=` is what makes the
+    push carry the flattened dump rather than the unencodable collection.
+    The pool object is dereferenced at *call* time, not bound into a partial at
+    registration, because `Song.groove_pool` is itself observable — Live can
+    hand back a different pool object, and a bound partial would go on
+    subscribing the one that existed when the script loaded.
+  - **Coercion on the way out.** `groove_pool_dump` applies `str` to the name
+    and `float` to the four amounts, the same defence `flatten_notes_extended`
+    applies: pythonosc infers an OSC type from the Python type and silently
+    drops a whole reply it cannot type.
+
+  ⚠️ **Unmeasured**, because this environment denied both the installed-copy
+  writes and the UDP sends a measurement needs (Live 12.4.3 *was* running):
+  whether `clip.groove = None` is accepted as a clear, what `Groove.base`
+  encodes to and how its values map to the 1/4…1/32 grids, the four amount
+  ranges (especially `velocity_amount`'s sign), whether an `.agr` file is
+  reachable through `/live/browser/*` at all, and whether the `Clip.groove`
+  observer fires when the pool *renumbers* around an unchanged assignment.
+  `API.md` § "Groove API" carries the same ⚠️ markers and the Live verification
+  checks are in the archived plan. The Live-free tripwire is
+  `tests_unit/test_groove.py`.
+
 ### Seshat's own handlers
 
 Three modules that upstream has no equivalent of. Each carries its own header
 comment explaining what it adds and why. They are registered at the end of
-`manager.py`'s handler list; position is not load-bearing.
+`manager.py`'s handler list; position is not load-bearing. (`groove.py` is a
+fourth fork-owned handler module, documented in the Groove Pool entry above
+instead of here because it is inseparable from the `song.py` and `clip.py`
+edits it serves.)
 
 - **`abletonosc/browser.py`** — `/live/browser/*`. Upstream exposes no browser
   API at all. Indexing, search, load-onto-track, bulk export to JSON, and
@@ -1514,6 +1608,15 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   note contracts, not adding a missing one. `tests_unit/test_clip_notes.py` is
   that block's tripwire.
 
+  Since D-2 the same file also carries the hand-written **groove block** —
+  `/live/clip/get|set/groove` and its listen pair, plus the
+  `from .groove import ...` at the top and the replaced `##"groove"` TODO line
+  inside upstream's `properties_r` literal. A merge that restores that TODO
+  line is the dangerous half: it is a *comment*, so nothing conflicts and
+  nothing fails, but the file then documents an address as impossible while the
+  block below it registers that same address. `tests_unit/test_groove.py` is
+  the tripwire for the block itself.
+
 - **Anything touching `track.py`'s `create_track_callback`, or
   `manager.py`'s `reload_imports` list.** In this fork `create_track_callback`
   is a small local helper delegating to `abletonosc/track_callback.py`; a
@@ -1548,7 +1651,10 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   resolvers in song.py and track.py since A-4). A `from` import binds function
   objects at import time, so any of the three reloaded first keeps calling the
   *previous* edit's resolvers while `/live/api/reload` reports success — same
-  silent failure mode, and the same missing test coverage.
+  silent failure mode, and the same missing test coverage. Since D-2 there is a
+  third such line, `abletonosc.groove`, which must stay before
+  `abletonosc.clip` and `abletonosc.song`: both `from`-import its pool
+  resolvers, and the failure mode is identical.
 
 - **Anything touching `song.py`'s generic methods list, `properties_rw` or
   `properties_r`.** Three entries *inside* upstream's lists are ours —
@@ -1575,6 +1681,13 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   tripwire; run it on every merge. The addresses are loop-generated, so
   Seshat's literal-address audit cannot see most of them — grep `song.py` for
   the member names instead.
+
+  D-2 adds one more fork-owned block after those: the `groove_pool` getter and
+  its listen pair, beside `appointed_device`. It is hand-written for the reason
+  FORK_GAPS.md's cautions list already gives — `groove_pool` must never enter
+  the generic property loops — so a merge that "tidied" it into one of the
+  lists would not drop the address but would change its reply from a flattened
+  dump to an encode failure. `tests_unit/test_groove.py` is the tripwire.
 
 - **Anything touching `track.py`'s generic `methods` list.** One entry there is
   ours — `insert_device`, added by A-3 so `Track.insert_device` is reachable on

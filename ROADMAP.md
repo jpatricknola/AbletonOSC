@@ -41,30 +41,7 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · D-2 · Groove
-
-**Goal:** `/live/song/get/groove_pool` (indexed names and amounts), `Groove.*`
-amounts get/set, `/live/clip/get|set/groove` by pool index or `-1`.
-
-**Why:** named consumer — Seshat's generation work — and the curated
-`Clip.groove` entry in FORK_GAPS is the one gap that keeps
-`groove_amount` from having an effect on plain MIDI.
-
-**Planner notes:**
-- Source: `CLOSING_THE_GAPS.md`, row **D-2**.
-- `Clip.groove` is already known to be unreachable through the generic
-  property loop and is commented out in place with the reason
-  (`clip.py:123`: "Infered arg_value type is not supported") — that
-  commented line is the concrete thing this item replaces. The object-read
-  pattern it needs (index-or-`-1`, resolvers in `track_identity.py`) has
-  shipped and is available to use directly — see `API.md` § "Object-valued
-  reads".
-  `song.groove_amount` (`song.py:65`) and `clip.has_groove`
-  (`clip.py:110`) already work and stay as they are.
-- Measure whether `browser.load_item` can load an `.agr` into the pool.
-- No dependencies.
-
-## #2 · One `/live/song/undo` does not revert an OSC-created scene
+## #1 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -103,7 +80,7 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #3 · Make a failed live code reload safe and reported
+## #2 · Make a failed live code reload safe and reported
 
 **Goal:** a reload that raises does not activate a partially reloaded module
 graph — `/live/api/reload` either preserves a usable previous API or fails in a
@@ -132,11 +109,13 @@ is told nothing went wrong.
   because `midimap`'s `init_api()` reads neither `class_identifier` nor a
   listener dict — decide in this item whether to close it or record it as
   accepted, since the code comment currently points here for the answer.
-- Every gap PR uses reload during development; move this up if it bites
-  during #1.
+- Every gap-closing PR (see `CLOSING_THE_GAPS.md`) uses reload during
+  development; move this up if a future one hits it. The fork-gaps series
+  that motivated this note is finished — `CLOSING_THE_GAPS.md`'s Tiers A–D
+  still have open rows, but none is currently ranked in this file.
 - No dependencies.
 
-## #4 · Stop masking Remote Script import failures
+## #3 · Stop masking Remote Script import failures
 
 **Goal:** a failed import of `Manager` inside Live surfaces the original
 exception at startup, and the Live-free test layer imports what it needs
@@ -155,7 +134,7 @@ above is debugged through that startup path.
   before choosing the guard's replacement.
 - No dependencies.
 
-## #5 · Remove the process-global and shared-file risks from song structure export
+## #4 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -177,7 +156,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #6 · Add bounded log retention
+## #5 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -194,7 +173,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #7 · Document `song` in the handler constructor contract
+## #6 · Document `song` in the handler constructor contract
 
 **Goal:** `abletonosc/handler.py`'s `AbletonOSCHandler` "Constructor
 contract" docstring lists `song` alongside the other invariants (`logger`,
@@ -219,7 +198,7 @@ Comment-only; no behaviour changes.
   no non-comment line, same as the A-4 `track_identity.py` precedent.
 - No dependencies.
 
-## #8 · Verify wildcard fan-out against Seshat's `/live/device/` usage
+## #7 · Verify wildcard fan-out against Seshat's `/live/device/` usage
 
 **Goal:** confirm whether Seshat ever sends an OSC address *pattern* (not a
 literal address) under `/live/device/`, and if so, record what changes for
@@ -253,6 +232,42 @@ could the nit-triage pass that declined fixing it inline.
   address.
 - No dependencies; verification-only, and may resolve to "no action" without
   ever becoming a Python change here.
+
+## #8 · `stop_listen` can leave a listener stranded when its collection shrinks
+
+**Goal:** stopping a listen on an indexed family (`/live/groove/stop_listen/*`,
+`/live/scene/stop_listen/*`, and any future one built the same way) always
+unbinds the actually-subscribed listener, even when the index named in the
+`stop_listen` call has since moved past the end of a collection that shrank
+after `start_listen` — instead of raising `/live/error` before unbinding runs
+and leaving the listener registered with no address left able to remove it.
+
+**Why:** flagged in pr-review of `feat/groove` (2026-08-29). Every one of
+these handlers resolves-then-unbinds: the index is validated against the
+collection's current size first, and only then does `_stop_listen` look up
+the real subscribed object in `listener_objects` (which is index-independent
+once bound). If the collection has shrunk below the subscribed index in the
+meantime, validation raises before `_stop_listen` ever runs, so the listener
+that started when the index was valid can never be stopped through that
+address again — a subscription leak. Confirmed present in `groove.py` and
+`scene.py`; not a groove-specific regression, so out of scope for the D-2
+Groove PR that surfaced it.
+
+**Planner notes:**
+- Source: pr-review nit on `feat/groove` (2026-08-29), non-blocking, declined
+  for that PR as fork-wide and beyond a single item's scope — recorded here
+  rather than fixed blind in one family.
+- Reproduce Live-free first: `/live/groove/start_listen/name <index>`, pop
+  grooves from the pool until `<index>` is past the end, then
+  `/live/groove/stop_listen/name <index>` — expect `/live/error` and the
+  listener still bound. Check `scene.py`'s equivalent for the same shape
+  before concluding it's one bug rather than two independent copies.
+- Likely fix is an order-of-operations change in the shared `_stop_listen`
+  path (or its callers): attempt the unbind by identity first, and only
+  surface a validation error if there is nothing registered to unbind under
+  that key. Verify this doesn't change behaviour for the legitimate
+  never-started case, which should still be a no-op or an error as today.
+- No dependencies.
 
 ---
 

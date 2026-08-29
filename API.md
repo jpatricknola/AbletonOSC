@@ -107,12 +107,13 @@ Two gotchas that don't show in the address tables:
 ### Object-valued reads
 
 Some LOM members hold another LOM object rather than a number or a string —
-`Song.appointed_device`, `Track.group_track`, `ClipSlot.clip`, and
-`Song.View`'s `selected_chain`, `selected_parameter`, `mod_mapping_device` and
-`mod_mapping_parameter`. The generic property loops cannot put one of those on
-the wire (the value is unencodable, so it becomes an error or a `None`), so
-each has a hand-written handler that answers with **indices into the
-collections the existing address families already accept**. The rules, which
+`Song.appointed_device`, `Track.group_track`, `ClipSlot.clip`, `Clip.groove`,
+`Song.groove_pool` (a collection of them), and `Song.View`'s `selected_chain`,
+`selected_parameter`, `mod_mapping_device` and `mod_mapping_parameter`. The
+generic property loops cannot put one of those on the wire (the value is
+unencodable, so it becomes an error or a `None`), so each has a hand-written
+handler that answers with **indices into the collections the existing address
+families already accept**. The rules, which
 every later object-valued read follows:
 
 1. An object-valued member never enters the generic property loop.
@@ -124,6 +125,7 @@ every later object-valued read follows:
    |---|---|---|
    | Track-valued, regular tracks only | `track_index` | `/live/track/get/group_track` |
    | Clip-valued, in a slot the request already names | `clip_index` | `/live/clip_slot/get/clip` |
+   | Groove-valued | `groove_index` (into `/live/song/get/groove_pool`) | `/live/clip/get/groove` |
    | Device-valued | `category, track_index, device_index` | `/live/song/get/appointed_device` |
    | Parameter-valued | `category, track_index, device_index, parameter_index` | `/live/view/get/selected_parameter` |
    | Chain-valued | `category, track_index, device_index, chain_index` | `/live/view/get/selected_chain` |
@@ -166,17 +168,36 @@ exercised against a running Live from this fork, and neither has cross-class
 levels) and fails loudly, so a wrong assumption surfaces as a structured
 `/live/error` naming the object rather than a wrong index or a hung UI thread.
 
-The setter side is deliberately narrow: `/live/song/set/appointed_device` is
-the only one, it takes the same triple its getter replies, and it *validates*
-every argument — an unknown category (`"none"` included), a negative or
-out-of-range index, and a master index other than `0` are each a `ValueError`
-arriving as a structured `/live/error`, never a Python negative-index
-wrap-around. It reaches top-level devices only, and cannot un-appoint.
+The setter side is deliberately narrow. `/live/song/set/appointed_device` takes
+the same triple its getter replies and *validates* every argument — an unknown
+category (`"none"` included), a negative or out-of-range index, and a master
+index other than `0` are each a `ValueError` arriving as a structured
+`/live/error`, never a Python negative-index wrap-around. It reaches top-level
+devices only, and cannot un-appoint.
 
-⚠️ **Seshat extension.** All nine object-valued reads (`track/get/group_track`,
-`clip_slot/get/clip`, the `song/…/appointed_device` trio and the four
-`view/get/…` rows) are added by this fork; none exists in stock AbletonOSC.
-`Track.group_track` is the only one of the seven members that is not
+**`/live/clip/set/groove` is the one sanctioned exception to "`-1` is an
+answer, never an argument"**, and it is worth being precise about why, because
+the rule is not being relaxed:
+
+- The hazard the rule guards against is Python's silent negative indexing —
+  sending back a `-1` read from a getter and having it resolve to *the last
+  element* instead of "none". That hazard is absent here: this setter never
+  uses its argument as a subscript. Exactly `-1` is intercepted first and maps
+  to an explicit `clip.groove = None`; `-2` and below, and anything past the
+  end of the pool, are a `ValueError` on `/live/error`; only a validated
+  `>= 0` ever reaches the collection.
+- The round trip is therefore *correct* rather than merely accepted:
+  `get/groove` → `-1` → `set/groove -1` restores "no groove", which is what the
+  read said. On `set/appointed_device` the same value could not mean anything
+  honest, because un-appointing has no Live-side spelling this fork has
+  measured — which is why that setter stays narrow, and why the exception is
+  one address wide rather than a general relaxation.
+
+⚠️ **Seshat extension.** Every object-valued read is added by this fork; none
+exists in stock AbletonOSC — `track/get/group_track`, `clip_slot/get/clip`, the
+`song/…/appointed_device` trio, the four `view/get/…` rows, and the groove
+family (`clip/…/groove`, `song/…/groove_pool`, and `/live/groove/*`; see the
+**Groove API**). `Track.group_track` is the only member of the set that is not
 observable, so it is the only one that could not have a listen pair even if a
 consumer asked. Without the install they are unknown addresses: the getters
 never reply and the setter silently does nothing.
@@ -684,7 +705,8 @@ Listen via `/live/song/start_listen/<property>`, stop via
 | `/live/song/get/exclusive_arm` | `exclusive_arm` | ⚠️ **Seshat extension** — the Exclusive Arm preference — arming one track disarms the others. Observable |
 | `/live/song/get/exclusive_solo` | `exclusive_solo` | ⚠️ **Seshat extension** — the Exclusive Solo preference. **Not** observable — no listen pair exists (see the note below the table) |
 | `/live/song/get/file_path` | `file_path` | ⚠️ **Seshat extension** — the open Live Set's path on disk. **Not** observable. ⚠️ What a never-saved set answers is unmeasured — assumed the empty string; if Live raises `RuntimeError` there, `_get_property` answers OSC nil instead |
-| `/live/song/get/groove_amount` | `groove_amount` | Groove Pool amount (0.0-1.3; 1.0 = the dial's 100%, 1.3 = its 130% maximum); scales how strongly each clip's *assigned* groove applies — no effect on clips without one |
+| `/live/song/get/groove_amount` | `groove_amount` | Groove Pool amount (0.0-1.3; 1.0 = the dial's 100%, 1.3 = its 130% maximum); scales how strongly each clip's *assigned* groove applies — no effect on clips without one. Assign one with `/live/clip/set/groove` |
+| `/live/song/get/groove_pool` | `name, quantization_amount, timing_amount, random_amount, velocity_amount, ...` | ⚠️ **Seshat extension** — the whole Groove Pool, flattened with **no count prefix**: five fields per groove, in pool order, in the canonical order given in the **Groove API** section (`base` is excluded — read it per groove). An empty pool replies with **no arguments at all**, which is an answer, not an error. Each groove is then addressable by its position in this reply under `/live/groove/*`. Observable — but what the listen pair actually subscribes is `GroovePool.grooves`, so it pushes the full dump on **membership** changes (a groove added, removed or reordered) and **not** when an amount or a name is edited; subscribe `/live/groove/start_listen/<property>` per groove for that |
 | `/live/song/get/is_ableton_link_enabled` | `is_ableton_link_enabled` | Ableton Link on? (1=on, 0=off) |
 | `/live/song/get/is_ableton_link_start_stop_sync_enabled` | `is_ableton_link_start_stop_sync_enabled` | ⚠️ **Seshat extension** — Link Start/Stop Sync. A separate switch from `is_ableton_link_enabled`, which is Link itself. Observable |
 | `/live/song/get/is_counting_in` | `is_counting_in` | ⚠️ **Seshat extension** — true while the count-in runs. Observable, so this is the honest "wait for recording to actually start" subscription |
@@ -741,7 +763,7 @@ observable; subscribe to that.
 | `/live/song/set/back_to_arranger` | `back_to_arranger` | Set back to arranger (1=on, 0=off) |
 | `/live/song/set/clip_trigger_quantization` | `clip_trigger_quantization` | Set clip trigger quantization |
 | `/live/song/set/current_song_time` | `current_song_time` | Set song time (beats) |
-| `/live/song/set/groove_amount` | `groove_amount` | Set Groove Pool amount (0.0-1.3); 0 = assigned grooves off |
+| `/live/song/set/groove_amount` | `groove_amount` | Set Groove Pool amount (0.0-1.3); 0 = assigned grooves off. It scales *assigned* grooves only — assign one with `/live/clip/set/groove` |
 | `/live/song/set/is_ableton_link_enabled` | `is_ableton_link_enabled` | Enable/disable Ableton Link (1=on, 0=off) |
 | `/live/song/set/is_ableton_link_start_stop_sync_enabled` | `enabled` | ⚠️ **Seshat extension** — enable/disable Link Start/Stop Sync (1=on, 0=off). Distinct from `is_ableton_link_enabled` |
 | `/live/song/set/loop` | `loop` | Set looping (1=on, 0=off) |
@@ -1445,6 +1467,10 @@ ignored**. Sending fewer than two is a malformed request and answers on
 | `/live/clip/get/warp_mode` | `track_id, clip_id` | `track_id, clip_id, warp_mode` | Warp mode (0=Beats, 1=Tones, 2=Texture, 3=Re-Pitch, 4=Complex, 6=Pro) |
 | `/live/clip/set/warp_mode` | `track_id, clip_id, warp_mode` | | Set warp mode |
 | `/live/clip/get/has_groove` | `track_id, clip_id` | `track_id, clip_id, has_groove` | Has groove? |
+| `/live/clip/get/groove` | `track_id, clip_id` | `track_id, clip_id, groove_index` | ⚠️ **Seshat extension** — which Groove Pool groove is assigned to this clip, as its **index into `/live/song/get/groove_pool`**, or `-1` when none is assigned (also `-1` if the assigned groove is somehow not in the pool — absence is an answer, not an error). See **Object-valued reads** and the **Groove API** |
+| `/live/clip/set/groove` | `track_id, clip_id, groove_index` | | ⚠️ **Seshat extension** — assign the groove at `groove_index` in the pool, or **exactly `-1` to clear the assignment** (`clip.groove = None`). This is the one address in this fork where `-1` is an argument rather than an answer, so a `get → set` round trip restores what was read; see **Object-valued reads**. `-2` and below, and an index past the end of the pool, answer on `/live/error` naming the pool's real size and change nothing. ⚠️ Whether Live accepts the clear is unmeasured |
+| `/live/clip/start_listen/groove` | `track_id, clip_id` | | ⚠️ **Seshat extension** — `Clip.groove` is observable; pushes arrive on `/live/clip/get/groove` as `track_id, clip_id, groove_index`. ⚠️ Whether a push fires when the *pool* renumbers (a groove removed above the assigned one changes the index but not the object) is unmeasured — `get/groove` stays correct either way, so treat the getter, not the push, as the source of truth. Unlike every other clip listener, the push value is re-resolved from `(track_id, clip_id)` at push time rather than from the originally-subscribed clip: if *track or clip* indices renumber between subscribe and push, the push reports the groove of whatever clip now sits at that identity, not the clip that was subscribed |
+| `/live/clip/stop_listen/groove` | `track_id, clip_id` | | ⚠️ **Seshat extension** — stop listening |
 | `/live/clip/get/legato` | `track_id, clip_id` | `track_id, clip_id, legato` | Legato (0=False, 1=True) |
 | `/live/clip/set/legato` | `track_id, clip_id, legato` | | Set legato |
 | `/live/clip/get/position` | `track_id, clip_id` | `track_id, clip_id, position` | Position (LoopStart) |
@@ -1759,6 +1785,98 @@ index is a malformed request and answers on `/live/error`.
 | `/live/scene/set/time_signature_numerator` | `scene_id, numerator` | Set time sig numerator |
 | `/live/scene/set/time_signature_denominator` | `scene_id, denominator` | Set time sig denominator |
 | `/live/scene/set/time_signature_enabled` | `scene_id, enabled` | Set time sig enabled |
+
+---
+
+## Groove API (Seshat extension — not in upstream AbletonOSC)
+
+The Groove Pool: the grooves loaded into the open Set, their four amounts, and
+the assignment of one to a clip. Upstream AbletonOSC has none of this — only
+`/live/song/get|set/groove_amount`, the master dial that *scales* grooves
+already assigned. Without an assignment that dial does nothing at all, which
+is the gap this family closes.
+
+Three address families, all keyed on one flat collection,
+`song.groove_pool.grooves`:
+
+| What | Address family |
+|---|---|
+| Enumerate the pool | `/live/song/get/groove_pool` (above, under Song Getters) |
+| Read/write one groove | `/live/groove/*` (this section) |
+| Assign one to a clip | `/live/clip/get|set/groove` (Clip API) |
+
+**A groove is named by its index in the pool.** The index is positional and
+**renumbers when a groove is removed from the pool**, exactly as track, scene
+and clip indices renumber — the same caveat, with the same remedy: re-read
+`/live/song/get/groove_pool` (or subscribe to it) rather than caching an index
+across an edit. Listener bookkeeping survives renumbering the way every
+indexed family's does: `_stop_listen` unbinds from the object actually
+subscribed, not from whatever the index now names. `/live/groove/stop_listen/*`
+therefore resolves nothing — it keys straight off the normalised index — so a
+subscription still stops cleanly after the groove it named has been removed
+from the pool and the index has fallen out of range. An index that carries no
+subscription is silent rather than an error, on that address only; the getters
+and setters still answer `/live/error` for an out-of-range index.
+
+**The canonical field order**, shared by the pool dump and this section, is
+Live's own Groove Pool column order (`GROOVE_FIELDS` in `abletonosc/groove.py`;
+do not reorder without changing this document):
+
+    name, quantization_amount, timing_amount, random_amount, velocity_amount
+
+`base` is deliberately **not** in that tuple. Its wire type is unverified, and
+the OSC builder drops an entire reply it cannot encode — so keeping `base` out
+of the dump means an encoding surprise breaks one address instead of the whole
+pool read. It has its own get/set pair below.
+
+**A subscription's identity is one int** — `groove_index` is normalised to an
+int at the callback boundary and that int is the pool lookup, the
+subscription's key and the value echoed in every push, so pushes carry
+`groove_index, value` in exactly the query-reply shape whatever number type the
+client sent. Float-sending clients (TouchOSC; upstream issue #33) can start and
+stop interchangeably with int-sending ones, non-integral floats truncate toward
+zero, and **arguments past the index are not part of the identity and are
+ignored**. Sending no index at all is a malformed request and answers on
+`/live/error`.
+
+**Every index is validated, never used as a subscript.** A negative index or
+one past the end of the pool is a `ValueError` arriving as a structured
+`/live/error` that names the pool's real size — never a Python negative-index
+wrap-around, which would make `-1` mean "the last groove" (see
+**Object-valued reads**).
+
+Listen via `/live/groove/start_listen/<property> <groove_index>`, stop via
+`/live/groove/stop_listen/<property> <groove_index>`, and receive pushes on
+`/live/groove/get/<property>`.
+
+| Address | Query Params | Response Params | Description |
+|---|---|---|---|
+| `/live/groove/get/name` | `groove_index` | `groove_index, name` | The groove's name, as it reads in the Groove Pool. Observable |
+| `/live/groove/set/name` | `groove_index, name` | | Rename the groove |
+| `/live/groove/get/quantization_amount` | `groove_index` | `groove_index, quantization_amount` | How strongly the groove quantizes toward its grid. Observable. ⚠️ Range unmeasured — assumed `0.0`–`1.0` for the UI's 0–100% |
+| `/live/groove/set/quantization_amount` | `groove_index, amount` | | Set it. Passed through **unclamped**: Live is the authority on the range, so read back after setting |
+| `/live/groove/get/timing_amount` | `groove_index` | `groove_index, timing_amount` | How strongly the groove's timing offsets apply. Observable. ⚠️ Range unmeasured — assumed `0.0`–`1.0` |
+| `/live/groove/set/timing_amount` | `groove_index, amount` | | Set it, unclamped |
+| `/live/groove/get/random_amount` | `groove_index` | `groove_index, random_amount` | The groove's randomness. Observable. ⚠️ Range unmeasured — assumed `0.0`–`1.0` |
+| `/live/groove/set/random_amount` | `groove_index, amount` | | Set it, unclamped |
+| `/live/groove/get/velocity_amount` | `groove_index` | `groove_index, velocity_amount` | How strongly the groove's velocity offsets apply. Observable. ⚠️ Range unmeasured — Live's UI shows this column as −100…100%, so `-1.0`–`1.0` is assumed, **including the sign** |
+| `/live/groove/set/velocity_amount` | `groove_index, amount` | | Set it, unclamped |
+| `/live/groove/get/base` | `groove_index` | `groove_index, base` | The groove's base grid. ⚠️ **Wire type unverified** — assumed an int-encodable enum like `warp_mode`, and the value↔grid mapping (1/4, 1/8, 1/16, 1/32) is unmeasured. **Not** observable, so there is no listen pair |
+| `/live/groove/set/base` | `groove_index, base` | | Set the base grid. ⚠️ Same caveat |
+
+**`base` has no listen pair at all.** It is the one `Live.Groove.Groove` member
+Live offers no `add_<name>_listener` for, so `/live/groove/start_listen/base` is
+**not registered**: a send to it is an unknown address — dropped with a log
+line, **no `/live/error` comes back**. This is the same shape as the four
+`/live/song/get/*` reads with no listen pair, for the same reason.
+
+⚠️ **Nothing in this section has been exercised against a running Live.** The
+handlers are covered Live-free by `tests_unit/test_groove.py`, which proves the
+registrations, the reply shapes, the validation and the listener bookkeeping —
+not what a real `Live.Groove.Groove` does. Whether `.agr` groove files can be
+loaded into the pool through `/live/browser/load_item` at all is a separate
+open question: the LOM has no groove browser root and `packs` is not an exposed
+category, so a groove may still have to be dragged in by hand.
 
 ---
 

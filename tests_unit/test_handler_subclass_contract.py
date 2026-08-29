@@ -10,12 +10,12 @@ routes, and deleted every subclass __init__ so the base's documented order
 constructor that runs.
 
 test_handler_lifecycle.py pins the base half of that by construction, but
-not every production subclass is within the behavioural layer's reach: nine
-of the twelve are loaded and driven end to end today (device, scene,
-clip_slot, track, return_track, clip, song, view, application — see
+not every production subclass is within the behavioural layer's reach: ten
+of the thirteen are loaded and driven end to end today (device, scene,
+clip_slot, track, return_track, groove, clip, song, view, application — see
 test_device_listeners.py, test_listener_identity.py, test_object_reads.py,
-test_return_track.py, test_song_object_reads.py, test_view_object_reads.py
-and test_application.py), while browser.py, midimap.py and
+test_return_track.py, test_song_object_reads.py, test_view_object_reads.py,
+test_groove.py and test_application.py), while browser.py, midimap.py and
 song_structure.py have no conftest loader yet. So a
 typo'd identifier in one of those three, or a merge that restores
 upstream's `self.class_identifier = ...` inside a subclass __init__ - which
@@ -70,6 +70,7 @@ EXPECTED_IDENTIFIERS = {
     ("clip.py", "ClipHandler"): "clip",
     ("clip_slot.py", "ClipSlotHandler"): "clip_slot",
     ("device.py", "DeviceHandler"): "device",
+    ("groove.py", "GrooveHandler"): "groove",
     ("midimap.py", "MidiMapHandler"): "midimap",
     ("return_track.py", "ReturnTrackHandler"): "return_track",
     ("scene.py", "SceneHandler"): "scene",

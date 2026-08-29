@@ -60,14 +60,15 @@ that pretend to no Live *behaviour* whatsoever:
 Nothing else stubs anything: osc_server.py and track_callback.py are
 imported exactly as they ship, and each stub is only installed when a test
 actually calls the loader that needs it. device.py, scene.py, clip_slot.py,
-track.py and return_track.py import only typing/functools/.handler and the
-Live-free .track_callback / .track_identity, so load_device_module(),
-load_scene_module(), load_clip_slot_module(), load_track_module() and
-load_return_track_module() construct the real handlers on top of the
+track.py, return_track.py and groove.py import only
+logging/typing/functools/.handler and the Live-free .track_callback /
+.track_identity, so load_device_module(), load_scene_module(),
+load_clip_slot_module(), load_track_module(), load_return_track_module() and
+load_groove_module() construct the real handlers on top of the
 Component stub alone; load_clip_module(), load_song_module(),
 load_view_module() and load_application_module() add the empty Live stub.
-Nine of the twelve production handlers are therefore driven end to end
-(device, scene, clip_slot, track, return_track, clip, song, view,
+Ten of the thirteen production handlers are therefore driven end to end
+(device, scene, clip_slot, track, return_track, groove, clip, song, view,
 application); browser.py, midimap.py and song_structure.py have no loader
 yet, because nothing has needed one.
 
@@ -208,6 +209,21 @@ def load_scene_module():
     """
     load_handler_module()
     return load_module("abletonosc.scene")
+
+
+def load_groove_module():
+    """
+    Import the real `abletonosc.groove` beneath the synthetic root. Like
+    scene.py it imports nothing from Live — only logging, typing and .handler
+    — so no stub beyond Component is needed.
+
+    The module also carries the Live-free pool resolvers (`resolve_groove`,
+    `groove_index`, `groove_pool_dump`, `GROOVE_FIELDS`) that song.py and
+    clip.py `from`-import, so this loader is what test_groove.py drives them
+    through as plain functions as well as through the handler.
+    """
+    load_handler_module()
+    return load_module("abletonosc.groove")
 
 
 def load_clip_slot_module():

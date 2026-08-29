@@ -41,6 +41,7 @@ PREFIX_CLASSES = {
              "Live.Track.Track.View", "Live.Clip.Clip.View"],
     "application": ["Live.Application.Application"],
     "browser": ["Live.Browser.Browser", "Live.Browser.BrowserItem"],
+    "groove": ["Live.Groove.Groove"],
 }
 VERBS = {"get", "set", "start_listen", "stop_listen"}
 
@@ -97,6 +98,16 @@ ALIASES = {
         "output_sub_routings": "/live/track/get/available_output_routing_channels",
     },
     "Live.MixerDevice.MixerDevice": {"sends": "/live/track/get/send"},
+    #--------------------------------------------------------------------------------
+    # The pool's one member is reached under the *song* prefix, flattened, and
+    # then per groove under /live/groove/* — neither of which is a segment
+    # equal to "grooves", so without this alias the tool would keep counting it
+    # a gap. (`Song.groove_pool` and `Clip.groove` need no alias: both are
+    # segments of their own addresses already.)
+    #--------------------------------------------------------------------------------
+    "Live.GroovePool.GroovePool": {
+        "grooves": "/live/song/get/groove_pool, /live/groove/*",
+    },
     "Live.Scene.Scene": {"clip_slots": "/live/clip_slot/*"},
     "Live.ClipSlot.ClipSlot": {"clip": "/live/clip/*"},
     "Live.Clip.Clip": {
