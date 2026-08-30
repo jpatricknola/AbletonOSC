@@ -512,7 +512,17 @@ so treat any merge that reverts one as a regression, not a preference.
   server's registered addresses to one JSON file (default
   `logs/lom_dump.json`). `tools/lom_gaps.py` diffs the two sides into the
   generated inventory in `FORK_GAPS.md`. `manager.reload_imports` reloads
-  `introspection` so the walker is hot-reloadable like the handlers.
+  `introspection` so the walker is hot-reloadable like the handlers, and
+  `abletonosc/__init__.py` imports it eagerly so that line has an attribute
+  to reload — it must never go back to being imported inside the `dump_lom`
+  callback, which made the whole reload abort on any session where that
+  address had not been fired. The walk records members registered directly on
+  a module (Boost.Python free functions such as
+  `Live.Conversions.audio_to_midi_clip`) under the module's qualname with
+  `"kind": "module"`, alongside the classes; see `BLIND_SPOTS.md` for what
+  dropping them used to hide. `tests_unit/test_lom_gaps.py` pins the report's
+  module tables and signatures, constant rendering, enum/vector exclusions,
+  Markdown escaping and separate totals.
 
 - **`application.py` — the application-level address table, and the
   `get_application()` seam.** Upstream registers three addresses out of a
@@ -1885,12 +1895,31 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   without noticing. `tests_unit/test_track_callback.py` and
   `tests_unit/test_track_listener_identity.py` are the tripwires.
 
-  `reload_imports` is a separate hazard on the same list, and no Live-free
-  test catches it: nothing outside Live calls `reload_imports`, so it is
-  covered only by this file and the in-code comments. The list is one
-  upstream also edits, and dropping its `abletonosc.track_callback` line is
-  invisible until someone edits the wrapper and `/live/api/reload` appears
-  not to take. The same list carries a second fork-owned line,
+  `reload_imports` is a separate hazard on the same list. It is **no longer
+  uncovered**: `tests_unit/test_reload_list.py` reads `manager.py` with `ast`
+  and fails if a module in `abletonosc/` is named in neither the reload
+  sequence nor `RELOAD_EXEMPT`, if the sequence names a module that does not
+  exist, or if any reloaded module is reloaded before something it
+  `from`-imports — the last derived from the sources themselves, so it covers
+  the `track_callback`, `track_identity`, `path_safety` and `groove` ordering
+  rules without restating them. `constants` is deliberately in
+  `RELOAD_EXEMPT`: the running `OSCServer` has already copied both ports and
+  bound its socket, so a port edit requires a Remote Script restart rather
+  than a reload that falsely reports the old ports as changed. Nothing outside
+  Live can *call* `reload_imports`, so the test proves the shape of the list,
+  not that a reload works; the in-code comments remain the record of why each
+  position is what it is. The list is one upstream also edits, and dropping its
+  `abletonosc.track_callback` line is invisible until someone edits the
+  wrapper and `/live/api/reload` appears not to take.
+
+  The list also names its modules as **strings**, passed to a local
+  `_reload()` helper, rather than as `importlib.reload(abletonosc.x)`
+  attribute expressions. That is deliberate and load-bearing: it lets the
+  failure name the module it stopped at even when the failure is the
+  attribute lookup itself, which is how `abletonosc.introspection` used to
+  abort the whole sequence on a fresh session while the log still reported
+  success. A merge that restores the attribute form loses both the naming and
+  the test's parser. The same list carries a second fork-owned line,
   `abletonosc.track_identity`, which must stay *before* `abletonosc.song`,
   `abletonosc.track` **and** `abletonosc.view` — all three `from`-import its
   resolvers (the selection resolvers in view.py, the object-valued read

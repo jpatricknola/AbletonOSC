@@ -539,7 +539,7 @@ Consequences, all of them load-bearing:
 | `/live/application/show_message` | `text` | `result` | Seshat extension. Raises a Live dialog carrying `text`. **OK-only**: every other Live parameter keeps its default, including `buttons` — see the note below. ⚠️ Whether the call blocks, and what the returned int means, are unmeasured; it is passed through opaquely |
 | `/live/application/show_on_the_fly_message` | `text` | `result` | Seshat extension. The transient variant, same shape and same OK-only rule. ⚠️ Where it appears with no Push connected is unmeasured |
 | `/live/application/dump_lom` | `[path]` | `path, num_classes, num_addresses` | Seshat extension. Walks the installed Live API (every class and member reachable from the `Live` module, plus the Max-for-Live device tables) and this server's registered addresses, and writes both to a JSON file — `path` if given, else `logs/lom_dump.json` next to the Remote Script. `tools/lom_gaps.py` diffs the two; `FORK_GAPS.md` is maintained from that diff. ⚠️ Takes an arbitrary path from the wire and writes it with Live's privileges — the opposite of `browser/export`'s policy; see `issues.md`, "Bound `/live/application/dump_lom`'s output path" |
-| `/live/api/reload` | | | Live reload of AbletonOSC server code (dev only — see the warning below) |
+| `/live/api/reload` | | | Live reload of AbletonOSC server code (dev only — see the warning below). Sends no reply on success. A reload that **fails part-way** logs at `error` level and therefore arrives as `/live/error` `"log", ...` naming the module it stopped at — the only signal the caller gets, and the reason a silent success is no longer evidence the edit is live |
 | `/live/api/get/log_level` | | `log_level` | Current log level (default: `info`) |
 | `/live/api/set/log_level` | `log_level` | | Set log level: `debug`, `info`, `warning`, `error`, `critical` |
 | `/live/api/show_message` | `message` | | Show message in Live's status bar |
@@ -646,7 +646,10 @@ unrelated reason noted in its own row above.
    Python in this repository does nothing until it is copied into Live's
    Remote Scripts (Seshat's `mix abletonosc.install` does that), and a reload won't pick up a *new* module either — that
    needs Live restarted, or AbletonOSC toggled off and back on under
-   Preferences > Link/Tempo/MIDI > Control Surface.
+   Preferences > Link/Tempo/MIDI > Control Surface. The two port constants are
+   restart-only too: `OSCServer` copies them into instance state and binds its
+   socket during startup, and a module reload does not replace that running
+   server.
 2. It can take the whole API down. `Manager.clear_api()` unregisters every
    address (`clear_handlers()`) as its first line, *then* tears down each
    handler's listeners. If anything in that teardown or in the re-import that
@@ -656,6 +659,18 @@ unrelated reason noted in its own row above.
    restarted or the control surface is toggled. (Observed once as a `KeyError`
    from a listener on a deleted track; the fork's `_stop_listen` now guards
    that path, so the current trigger is unknown — the failure mode isn't.)
+
+A third problem is **fixed**, and is recorded here because the probe rig above
+depended on it. `reload_imports` used to abort on `abletonosc.introspection` —
+imported only inside the `/live/application/dump_lom` callback, so on any
+session where that address had never been fired the attribute did not exist —
+and then log `Reloaded code` anyway. Every handler module after it was skipped,
+so a probe handler added to `return_track.py` never registered and its address
+answered `Unknown OSC address`. The reload now (a) imports `introspection`
+eagerly, (b) names the module it stopped at, and (c) logs a partial reload at
+`error`, which reaches the client as `/live/error` `"log", ...` rather than
+sitting in the log file above an unconditional success line. Step 2 of the
+probe rig works on a fresh session as written.
 
 ### Status Messages (sent automatically)
 
@@ -1936,6 +1951,81 @@ until its comment was corrected to the measured one):
   lands two same-pitch notes on one point **merges** them (later velocity
   wins) and a move that creates a same-pitch overlap **trims** the earlier
   note. `amount` is linear: `new = old + amount × (target − old)`.
+
+### Conversions — audio to MIDI, Simpler and Drum Rack
+
+⚠️ **Seshat extension.** None of these exists in stock AbletonOSC. They wrap
+`Live.Conversions`, a Boost.Python module of module-level free functions —
+Live's *Create → Convert Harmony/Melody/Drums to New MIDI Track*, *Slice to New
+MIDI Track*, and the Simpler/Drum Rack conversions. It was invisible to this
+fork's own gap inventory until the LOM walker was taught to record
+module-level members; see `BLIND_SPOTS.md`.
+
+| Address | Params | Response | Description |
+|---|---|---|---|
+| `/live/clip/get/is_convertible_to_midi` | `track_id, clip_id` | `track_id, clip_id, convertible` | Whether the clip can be converted to MIDI. **Always answers**; see the divergence below |
+| `/live/clip/audio_to_midi` | `track_id, clip_id, type` | `track_id, clip_id, "ok", new_track_id` or `track_id, clip_id, "error", message` | Extract notes from an audio clip into a MIDI clip on a **new MIDI track**. `type` is a name: `harmony`, `melody` or `drums` |
+| `/live/clip/create_midi_track_with_simpler` | `track_id, clip_id` | `track_id, clip_id, "ok", new_track_id` / `"error", message` | New MIDI track carrying a Simpler loaded with the audio clip |
+| `/live/clip/create_drum_rack_from_audio_clip` | `track_id, clip_id` | `track_id, clip_id, "ok", new_track_id` / `"error", message` | New track with a Drum Rack, the audio clip on a Simpler on the first pad |
+| `/live/device/sliced_simpler_to_drum_rack` | `track_id, device_id` | `track_id, device_id, "ok", new_track_id` / `"error", message` | Live's *Slice to New MIDI Track*: converts a **sliced** Simpler into a Drum Rack, one slice per pad. Top-level devices on a regular track only, like every other `/live/device/*` address |
+
+**`type` is a name, never the enum integer.** Live's own signature declares
+`(int)`, so Live would accept a bare positional value — and Boost.Python enum
+values are positional, so a member added in a future Live would silently
+reassign them. `harmony_to_midi`, `melody_to_midi` and `drums_to_midi` (Live's
+own member names) are accepted too; matching is case-insensitive and
+surrounding whitespace is ignored. An unrecognised name, or a missing one, is
+refused with the `"error"` envelope and **Live is not called**.
+
+⚠️ **`is_convertible_to_midi` diverges from the LOM member deliberately.**
+Live's `Live.Conversions.is_convertible_to_midi` **raises** when handed a MIDI
+clip rather than answering false. That makes it useless as the predicate a
+client actually wants — "may I offer this conversion?" is asked *before*
+mutating, and an exception is not an answer. This fork pre-checks
+`Clip.is_audio_clip` and answers `false` for a MIDI clip, for an empty clip
+slot, and on a Live with no `Live.Conversions` module, **without calling
+Live**. It never raises and always replies.
+
+**`new_track_id` is read back, not returned by Live.** Every one of these
+members returns `None`, so the handler records the tracks before the call and
+reports the index of the one that appeared. `-1` means the conversion was
+accepted but **no new track had appeared by the time the handler returned** —
+`-1` is an answer, never an argument, and it is **not** a failure.
+
+⚠️ **`/live/clip/audio_to_midi` is asynchronous and therefore always answers
+`-1`.** Measured against Live 12.4.5 on 2026-08-30 by calling it: the reply
+came back `"ok", -1`, and the new track — named by Live, e.g.
+`3-Melody to MIDI`, carrying a MIDI clip of the extracted notes — appeared
+within about three seconds. **A client that treats `-1` as failure, or that
+reads back immediately, will report a successful conversion as a failed one.**
+The two Simpler/Drum Rack conversions are *not* asynchronous and do return the
+index:
+
+| Address | Behaviour | `new_track_id` |
+|---|---|---|
+| `/live/clip/audio_to_midi` | **asynchronous** | always `-1` |
+| `/live/clip/create_midi_track_with_simpler` | synchronous | the new track's index |
+| `/live/clip/create_drum_rack_from_audio_clip` | synchronous | the new track's index |
+| `/live/device/sliced_simpler_to_drum_rack` | ⚠️ unmeasured | unmeasured |
+
+**The pattern for the asynchronous one** is the fork's existing structure
+listener, not polling: subscribe with `/live/song/start_listen/tracks`, fire
+`/live/clip/audio_to_midi`, and take the new track from the push. Polling
+`/live/song/get/num_tracks` also works and is what a client without a listener
+should do; either way the answer is "wait for it", not "it failed".
+
+New tracks were appended **last** in all three measured cases. That is one
+observation each, on a set whose source clip was on the last track — treat the
+returned index as "which track appeared", never as a promise about ordering.
+
+**Every member takes the Song as its first argument** —
+`audio_to_midi_clip( (Song)song, (Clip)audio_clip, (int)audio_to_midi_type)`.
+Recorded here because it is not visible in Live's binary and was assumed
+otherwise when these addresses were designed; the handlers pass `self.song`.
+
+**On an older Live with no `Live.Conversions`**, the module still imports and
+every address still answers: the mutations reply with the `"error"` envelope
+naming the missing module, and the getter answers `false`.
 
 ---
 

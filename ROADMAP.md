@@ -89,37 +89,48 @@ that a documented usage pattern rather than a hypothetical one.
 
 ## #2 · Make a failed live code reload safe and reported
 
-**Goal:** a reload that raises does not activate a partially reloaded module
-graph — `/live/api/reload` either preserves a usable previous API or fails in a
-clearly reported, recoverable state, and the failure reaches the client rather
-than only the log file.
+**Mostly shipped.** The reporting half landed with the `introspection` reload
+abort fix; what remains is narrow and is recorded below rather than deleted.
 
-**Why:** `Manager.reload_imports` wraps the whole reload sequence in one
-`try`, logs the traceback at warning level, and then falls through to
-`clear_api()` / `init_api()` regardless (`manager.py:196-202`). A module that
-failed to reload stays at its previous definition while its siblings advance,
-that mixture becomes the live API, and the caller who sent `/live/api/reload`
-is told nothing went wrong.
+**What shipped:** `reload_imports` names its modules as strings through a local
+`_reload()` helper and tracks the one in flight, so a failure is logged at
+`error` level naming the module it stopped at, and a partial reload is reported
+as partial instead of as `Reloaded code`. Because `start_logging()` attaches
+`LiveOSCErrorLogHandler` to the `abletonosc` logger at `ERROR` level, that log
+line is also what carries the failure to the client, as `/live/error`
+`"log", ...` — the "reaches the client rather than only the log file" half of
+the original goal, with no change to `/live/api/reload`'s wire contract.
+`tests_unit/test_reload_list.py` is the Live-free tripwire for the list's
+shape.
+
+**The exempt-module question is answered:** `abletonosc.midimap` stays
+unreloaded for the class-identity reason recorded beside `RELOAD_EXEMPT` in
+`manager.py`. `abletonosc.constants` is also explicitly restart-only:
+`OSCServer` copies the listen and response ports into instance state and binds
+its socket in `Manager.__init__`, and `reload_imports()` never replaces that
+server. Reloading `constants` before `osc_server` would update class defaults
+but leave both ports of the running instance unchanged while reporting
+success. A port edit therefore requires a Remote Script restart.
+
+**What remains:** the original goal's first clause — "a reload that raises does
+not activate a partially reloaded module graph". It is **not achievable as
+written** and should be re-scoped or closed rather than planned: `importlib.reload`
+mutates module objects in place, so once the sequence has run part-way there is
+no previous graph left to preserve; `clear_api()` / `init_api()` still run,
+deliberately, because a server with no handlers registered is strictly worse
+than one built from a mixture (see the second problem under `API.md`'s
+`/live/api/reload` warning — a teardown that raises leaves zero addresses and
+no way to re-register them). A genuine fix would have to reload into a scratch
+namespace and swap on success, which is a much larger change than this item
+describes. Decide whether that is worth doing; if not, close the item.
 
 **Planner notes:**
 - Source: `issues.md`, "Make live code reload ordered and failure-safe"
-  (Medium-high). **The ordering half of that entry has shipped** with "Fix
-  base handler initialization order": `reload_imports` now reloads
-  `osc_server` and `handler` before every subclass module, `track_callback`
-  before `track`, and `track_identity` before `view`, with the reasoning
-  written into the code (`manager.py:152-195`). Only failure-safety remains —
-  narrow that `issues.md` entry to the remainder at ship time rather than
-  deleting it.
-- `abletonosc.midimap` is deliberately absent from the reload list, so
-  `MidiMapHandler` keeps subclassing whatever `AbletonOSCHandler` was current
-  at Live startup, across every reload (`manager.py:163-169`). Harmless today
-  because `midimap`'s `init_api()` reads neither `class_identifier` nor a
-  listener dict — decide in this item whether to close it or record it as
-  accepted, since the code comment currently points here for the answer.
+  (Medium-high). Both the ordering half and the reporting half have now
+  shipped; narrow that `issues.md` entry to the scratch-namespace question
+  above at ship time rather than deleting it.
 - Every gap-closing PR (see `CLOSING_THE_GAPS.md`) uses reload during
-  development; move this up if a future one hits it. The fork-gaps series
-  that motivated this note is finished — `CLOSING_THE_GAPS.md`'s Tiers A–D
-  still have open rows, but none is currently ranked in this file.
+  development; move this up if a future one hits it.
 - No dependencies.
 
 ## #3 · Stop masking Remote Script import failures

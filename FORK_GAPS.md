@@ -62,6 +62,16 @@ shapes, and each has its own section below:
    flattens away part of what Live offers (e.g. note IDs). Also counted as
    covered by the inventory; see [Shape gaps](#shape-gaps).
 
+**Know the inventory's boundary before trusting a silence.** This file is a
+diff, and its left-hand side is what `abletonosc/introspection.py` walks and
+what `tools/lom_gaps.py` renders. Surfaces that pipeline cannot reach are
+recorded in [BLIND_SPOTS.md](BLIND_SPOTS.md) — read it before concluding from
+this file that Live does not offer something. The generated section *Walked but
+not diffed* exists because of it: entries in neither the tool's `CORE` list nor
+Max for Live's `LomTypes` table used to be dropped with no row and no note that
+they had been seen, which is how a whole device class (`CcControlDevice`), the
+`Envelope` verbs and `ControlSurfaceProxy` stayed invisible here.
+
 ## How to use this file
 
 - **Regenerate the inventory** after every Live upgrade and after every
@@ -186,11 +196,50 @@ Remote-Script-only member does what its name suggests.
 - **Fork today:** `/live/device/replace_sample` only — shipped with the
   read-side path rule (`API.md` § "Handlers that name a file to read"), for
   a top-level Simpler on a regular track. No other Simpler-specific address.
-- **Shape to build:** `playback_mode` setter, `slices` getter; Seshat would
-  write the trigger clip itself from the slice times via `write_midi_notes`,
-  standing in for Live's UI-only *Slice to New MIDI Track*.
+- **Shape to build:** `playback_mode` setter, `slices` getter. **Corrected:**
+  this entry used to say Seshat would write the trigger clip itself from the
+  slice times, "standing in for Live's UI-only *Slice to New MIDI Track*".
+  That operation is **not UI-only** — it is
+  `Live.Conversions.sliced_simpler_to_drum_rack(song, simpler)`, a
+  module-level free function that was invisible to the generated inventory
+  until the walker was fixed (see [BLIND_SPOTS.md](BLIND_SPOTS.md)). It has
+  shipped as `/live/device/sliced_simpler_to_drum_rack`, so the client-side
+  reconstruction is unnecessary and the remaining slice work is the
+  `Sample`-side members alone.
 - **Consumers:** "generate audio, keep it editable" output shape
   (`docs/evaluating/generative features/live-native-options.md` §2.4).
+
+### `Live.Conversions` — shipped
+
+Audio-to-MIDI and the Simpler/Drum Rack conversions. Recorded here only to
+close it: the module had **no entry in this file at all** until the LOM walker
+was taught to record module-level members, because nothing in the generated
+inventory could see a Boost.Python free function. Five of its seven members now
+have addresses — `/live/clip/get/is_convertible_to_midi`,
+`/live/clip/audio_to_midi`, `/live/clip/create_midi_track_with_simpler`,
+`/live/clip/create_drum_rack_from_audio_clip` and
+`/live/device/sliced_simpler_to_drum_rack` (see `API.md` § "Conversions").
+
+**Two members remain unexposed**, both for want of a resolver rather than a
+decision:
+
+- `create_midi_track_from_drum_pad( (Song)song, (DrumPad)drum_pad)` — the fork
+  has no drum-pad addressing; it waits on the device path resolver, with the
+  rest of the `DrumPad` surface.
+- `move_devices_on_track_to_new_drum_rack_pad( (Song)song, (int)track_index)`
+  — track-keyed rather than clip- or device-keyed, and the only member of the
+  seven that **returns** anything (`LomObject`), so it wants a reply shape of
+  its own rather than being folded into this batch.
+
+**Measured 2026-08-30 by calling them** against Live 12.4.5:
+`audio_to_midi_clip` is **asynchronous** — the track does not exist when the
+call returns, so that address always answers `-1` and a client must wait for
+the structure change — while `create_midi_track_with_simpler` and
+`create_drum_rack_from_audio_clip` are synchronous and do report the index.
+New tracks were appended last in all three cases, on one sample each.
+`sliced_simpler_to_drum_rack` remains unmeasured: it needs a Simpler already in
+Slicing mode, which is exactly the `playback_mode` setter this file lists as
+still to build.
 
 ## Dispositions (from the July 2026 audit)
 
@@ -441,6 +490,16 @@ envelope data is known to reach a clip, and `has_envelopes` is the only way to
 see that it did — it answers "something is there" and nothing about what or
 where.
 
+**What you get once you hold one** is now in the generated inventory, under
+*Walked but not diffed*: `Live.Envelope.Envelope` carries `value_at_time`,
+`events_in_range`, `create_event`, `insert_step` and `delete_events_in_range`,
+with `EnvelopeEvent` (`time`, `value`, `control_coefficients`) and
+`EnvelopeEventControlCoefficients` (`x1`, `y1`, `x2`, `y2`) beside it — i.e.
+breakpoint-level automation editing including curve shape. It was absent from
+this file until the report filter was widened, so anything sized against the
+`Clip`-side members alone was sized against half the work. Still tier 1:
+nothing here has been called.
+
 (The generated table below still counts `has_envelopes` as a gap: the inventory
 is a `dump_lom` artifact and is not hand-edited. This prose is the record until
 the next dump.)
@@ -496,11 +555,11 @@ a measurement owed before any consumer relies on it.
 ## Generated inventory
 
 <!-- lom-gaps:begin -->
-_Generated by `tools/lom_gaps.py` from a `/live/application/dump_lom` taken against Live 12.4.5. Do not edit by hand; rerun the tool. 134 Live classes walked, 774 fork addresses registered._
+_Generated by `tools/lom_gaps.py` from a `/live/application/dump_lom` taken against Live 12.4.5. Do not edit by hand; rerun the tool. 134 Live classes and 7 Live modules walked, 786 fork addresses registered._
 
-**Totals:** 280 members exposed, 419 gaps across 44 classes.
+**Totals:** 287 members exposed, 412 gaps across 44 classes, plus 198 members across 38 entries in *Walked but not diffed* below.
 
-Legend: **rw**/**ro** property, **method**; **obs** = Live offers an `add_<name>_listener` (a `start_listen` address is possible); **M4L** = also in Max for Live's `LomTypes` exposure table (members absent there are Remote-Script-only and undocumented in the apiref). Every row is tier 1 evidence (name and kind read from the running Live); nothing here has been called.
+Legend: **rw**/**ro** property, **method**, **const** (a fixed value; its repr is shown in place of a docstring); **obs** = Live offers an `add_<name>_listener` (a `start_listen` address is possible); **M4L** = also in Max for Live's `LomTypes` exposure table (members absent there are Remote-Script-only and undocumented in the apiref). Every row is tier 1 evidence (name and kind read from the running Live); nothing here has been called.
 
 ## Core classes
 
@@ -517,13 +576,12 @@ _Reached under another address:_ `get_current_beats_song_time` → /live/song/ge
 | `set_data` | method |  |  | set_data( (Song)arg1, (object)key, (object)value) -> None : |
 | `tuning_system` | ro | yes | yes | Access the currently active tuning system. |
 
-### `Live.Song.Song.View` — 11 members, 7 exposed, 4 gaps
+### `Live.Song.Song.View` — 11 members, 8 exposed, 3 gaps
 
 | member | kind | obs | M4L | Live docstring |
 |---|---|---|---|---|
 | `draw_mode` | rw | yes | yes | Get/Set if the Envelope/Note draw mode is enabled. |
 | `follow_song` | rw | yes | yes | Get/Set if the Arrangerview should scroll to show the playmarker. |
-| `highlighted_clip_slot` | rw |  | yes | Get/Set the clip slot, defined via the selected track and scene in the Session.Will be None for Main- and Sendtracks. |
 | `select_device` | method |  | yes | select_device( (View)arg1, (Device)arg2 [, (bool)ShouldAppointDevice=True]) -> None : |
 
 ### `Live.Song.CuePoint` — 3 members, 0 exposed, 3 gaps
@@ -544,19 +602,17 @@ _Reached under another address:_ `browser` → /live/browser/*; `get_bugfix_vers
 | `get_document` | method |  | yes | get_document( (Application)arg1) -> Song : |
 | `press_current_dialog_button` | method |  | yes | press_current_dialog_button( (Application)arg1, (int)arg2) -> None : |
 
-### `Live.Application.Application.View` — 10 members, 3 exposed, 7 gaps
+### `Live.Application.Application.View` — 10 members, 5 exposed, 5 gaps
 
 | member | kind | obs | M4L | Live docstring |
 |---|---|---|---|---|
 | `available_main_views` | method |  | yes | available_main_views( (View)arg1) -> StringVector : |
 | `browse_mode` | ro | yes | yes | Return true if HotSwap mode is active for any target. |
-| `focus_view` | method |  | yes | focus_view( (View)arg1, (object)arg2) -> None : |
-| `focused_document_view` | ro | yes | yes | Return the name of the document view ('Session' or 'Arranger') |
 | `scroll_view` | method |  | yes | scroll_view( (View)arg1, (int)arg2, (object)arg3, (bool)arg4) -> None : |
 | `toggle_browse` | method |  | yes | toggle_browse( (View)arg1) -> None : |
 | `zoom_view` | method |  | yes | zoom_view( (View)arg1, (int)arg2, (object)arg3, (bool)arg4) -> None : |
 
-### `Live.Track.Track` — 69 members, 43 exposed, 26 gaps
+### `Live.Track.Track` — 69 members, 44 exposed, 25 gaps
 
 _Reached under another address:_ `clip_slots` → /live/clip_slot/*; `input_routings` → /live/track/get/available_input_routing_types (legacy string API superseded); `input_sub_routings` → /live/track/get/available_input_routing_channels; `mixer_device` → /live/track/get/volume, panning, send; `output_routings` → /live/track/get/available_output_routing_types; `output_sub_routings` → /live/track/get/available_output_routing_channels; `view` → /live/view/*
 
@@ -565,7 +621,6 @@ _Reached under another address:_ `clip_slots` → /live/clip_slot/*; `input_rout
 | `back_to_arranger` | rw | yes | yes | Indicates if it's possible to go back to playing back the clips in the Arranger.Setting a value 0 will go back to the Arranger playback. Setting on grouptracks will go back to the Arranger on all grouped tracks. |
 | `can_be_frozen` | ro |  | yes | return True, if this Track can be frozen. |
 | `can_show_chains` | ro |  | yes | return True, if this Track contains a rack instrument device that is capable of showing its chains in session view. |
-| `create_audio_clip` | method |  | yes | create_audio_clip( (Track)arg1, (object)arg2, (float)arg3) -> Clip : |
 | `create_midi_clip` | method |  | yes | create_midi_clip( (Track)arg1, (float)arg2, (float)arg3) -> Clip : |
 | `create_take_lane` | method |  | yes | create_take_lane( (Track)arg1) -> LomObject : |
 | `current_input_routing` | rw | yes | yes | Get/Set the name of the current active input routing. |
@@ -611,7 +666,7 @@ _Reached under another address:_ `sends` → /live/track/get/send
 | `song_tempo` | ro |  | yes | MainTrack only: Const access to the Song's Tempo. |
 | `track_activator` | ro |  | yes | Const access to the Tracks Activator Device Parameter. |
 
-### `Live.Clip.Clip` — 86 members, 57 exposed, 29 gaps
+### `Live.Clip.Clip` — 86 members, 58 exposed, 28 gaps
 
 _Reached under another address:_ `add_new_notes` → /live/clip/add/notes, /live/clip/add/notes_extended; `get_all_notes_extended` → /live/clip/get/notes, /live/clip/get/notes_extended (no args); `get_notes` → /live/clip/get/notes (this is the deprecated tuple form); `get_notes_extended` → /live/clip/get/notes, /live/clip/get/notes_extended; `get_selected_notes` → /live/clip/get/selected_notes; `get_selected_notes_extended` → /live/clip/get/selected_notes_extended; `remove_notes` → /live/clip/remove/notes (deprecated form); `remove_notes_extended` → /live/clip/remove/notes
 
@@ -627,7 +682,6 @@ _Reached under another address:_ `add_new_notes` → /live/clip/add/notes, /live
 | `create_automation_envelope` | method |  |  | create_automation_envelope( (Clip)arg1, (DeviceParameter)arg2) -> Envelope : |
 | `crop` | method |  | yes | crop( (Clip)arg1) -> None : |
 | `duplicate_region` | method |  | yes | duplicate_region( (Clip)self, (float)region_start, (float)region_length, (float)destination_time [, (int)pitch=-1 [, (int)transposition_amount=0]]) -> None : |
-| `has_envelopes` | ro | yes | yes | Will notify if the clip gets his first envelope or the last envelope is removed. |
 | `is_arrangement_clip` | ro |  | yes | return true if this Clip is an Arrangement Clip. |
 | `is_session_clip` | ro |  |  | return true if this Clip is a Session Clip. |
 | `is_take_lane_clip` | ro |  |  | return true if this Clip is a Take Lane Clip. |
@@ -655,13 +709,12 @@ _Whole class unexposed._
 
 _`*` observable, `†` not in M4L table._
 
-### `Live.ClipSlot.ClipSlot` — 19 members, 14 exposed, 5 gaps
+### `Live.ClipSlot.ClipSlot` — 19 members, 15 exposed, 4 gaps
 
 | member | kind | obs | M4L | Live docstring |
 |---|---|---|---|---|
 | `color` | ro | yes | yes | Returns the canonical color for the clip slot or None if it does not exist. |
 | `color_index` | ro | yes | yes | Returns the canonical color index for the clip slot or None if it does not exist. |
-| `create_audio_clip` | method |  | yes | create_audio_clip( (ClipSlot)arg1, (object)arg2) -> Clip : |
 | `is_recording` | ro |  | yes | Returns whether the clip associated with the slot is recording. |
 | `set_fire_button_state` | method |  | yes | set_fire_button_state( (ClipSlot)arg1, (bool)arg2) -> None : |
 
@@ -918,12 +971,13 @@ _Whole class unexposed._
 
 _`*` observable, `†` not in M4L table._
 
-### `Live.SimplerDevice.SimplerDevice` — 21 members, 0 exposed, 21 gaps (+15 inherited from `Device`, see above)
+### `Live.SimplerDevice.SimplerDevice` — 21 members, 1 exposed, 20 gaps (+15 inherited from `Device`, see above)
 
-_Whole class unexposed._ 
+_Reached under another address:_ `replace_sample` → /live/device/replace_sample
+
 - **rw:** `note_pitch_bend_range*†`, `pad_slicing*`, `pitch_bend_range*†`, `playback_mode*`, `retrigger*`, `slicing_playback_mode*`, `voices*`
 - **ro:** `can_warp_as*`, `can_warp_double*`, `can_warp_half*`, `multi_sample_mode*`, `playing_position*`, `playing_position_enabled*`, `sample*`
-- **method:** `crop`, `guess_playback_length`, `replace_sample`, `reverse`, `warp_as`, `warp_double`, `warp_half`
+- **method:** `crop`, `guess_playback_length`, `reverse`, `warp_as`, `warp_double`, `warp_half`
 
 _`*` observable, `†` not in M4L table._
 
@@ -951,5 +1005,276 @@ _Whole class unexposed._
 - **method:** `add_parameter_to_modulation_matrix`, `get_modulation_target_parameter_name`, `get_modulation_value`, `is_parameter_modulatable`, `set_modulation_value`
 
 _`*` observable, `†` not in M4L table._
+
+## Walked but not diffed
+
+_Entries in neither the `CORE` list nor Max for Live's `LomTypes` table, so no address prefix reaches them and every member below is a gap. Boost.Python enums and `*Vector` shims are excluded by name — see the exclusion rule in `tools/lom_gaps.py`. Counted separately from the totals above. Some of this is deliberately out of scope (`Live.Licensing` is the safety exclusion, rule 5 in CLOSING_THE_GAPS.md); the point of the section is that the choice is visible._
+
+### `Live.CcControlDevice.CcControlDevice` — 42 members (class)
+
+_This class represents a CcControl device._
+
+- **rw:** `custom_bool_target*`, `custom_float_target_0*`, `custom_float_target_1*`, `custom_float_target_10*`, `custom_float_target_11*`, `custom_float_target_2*`, `custom_float_target_3*`, `custom_float_target_4*`, `custom_float_target_5*`, `custom_float_target_6*`, `custom_float_target_7*`, `custom_float_target_8*`, `custom_float_target_9*`, `is_using_compare_preset_b*`, `name*`
+- **ro:** `can_compare_ab`, `can_have_chains`, `can_have_drum_pads`, `class_display_name`, `class_name`, `custom_bool_target_list`, `custom_float_target_0_list`, `custom_float_target_10_list`, `custom_float_target_11_list`, `custom_float_target_1_list`, `custom_float_target_2_list`, `custom_float_target_3_list`, `custom_float_target_4_list`, `custom_float_target_5_list`, `custom_float_target_6_list`, `custom_float_target_7_list`, `custom_float_target_8_list`, `custom_float_target_9_list`, `is_active*`, `latency_in_ms*`, `latency_in_samples*`, `parameters*`, `type`, `view`
+- **method:** `resend`, `save_preset_to_compare_ab_slot`, `store_chosen_bank`
+
+_`*` observable._
+
+### `Live.Licensing.PythonLicensingBridge` — 21 members (class)
+
+_Interface to the internal licensing services._
+
+- **ro:** `base_product_id`, `in_sassafras_mode`, `license_must_match_variant`, `random_number_for_trial_authorization`, `set_has_unsaved_changes`
+- **method:** `authorize_with_sassafras`, `create_new_live_set`, `deauthenticate_user`, `get_progress_dialog`, `get_session_id`, `get_startup_dialog`, `get_trial_time_left`, `invoke_pack_installation_callback`, `invoke_promotions_callback`, `load_and_convert_legacy_unlock_cfg`, `process_license_response`, `process_trial_response`, `request_exit`, `save_current_set`, `set_network_timer`, `store_session_identifiers`
+
+### `Live.Application.ControlSurfaceProxy` — 12 members (class)
+
+_Represents a control surface running in a different process. For use by M4L_
+
+- **ro:** `control_descriptions`, `pad_layout*`, `type_name`
+- **method:** `enable_receive_midi`, `fetch_received_midi_messages`, `fetch_received_values`, `grab_control`, `release_control`, `send_midi`, `send_value`, `subscribe_to_control`, `unsubscribe_from_control`
+
+_`*` observable._
+
+### `Live.MidiMap` — 10 members (module)
+
+| member | kind | Live docstring |
+|---|---|---|
+| `forward_midi_cc` | method | forward_midi_cc( (int)arg1, (int)arg2, (int)arg3, (int)arg4 [, (bool)ShouldConsumeEvent=True]) -> bool : |
+| `forward_midi_note` | method | forward_midi_note( (int)arg1, (int)arg2, (int)arg3, (int)arg4 [, (bool)ShouldConsumeEvent=True]) -> bool : |
+| `forward_midi_pitchbend` | method | forward_midi_pitchbend( (int)arg1, (int)arg2, (int)arg3) -> bool : |
+| `map_midi_cc` | method | map_midi_cc( (int)midi_map_handle, (DeviceParameter)parameter, (int)midi_channel, (int)controller_number, (MapMode)map_mode, (bool)avoid_takeover [, (float)sensitivity=1.0]) -> bool : |
+| `map_midi_cc_with_feedback_map` | method | map_midi_cc_with_feedback_map( (int)midi_map_handle, (DeviceParameter)parameter, (int)midi_channel, (int)controller_number, (MapMode)map_mode, (CCFeedbackRule)feedback_rule, (bool)avoid_takeover [, (float)sensitivity=1.0]) -> bool : |
+| `map_midi_note` | method | map_midi_note( (int)arg1, (DeviceParameter)arg2, (int)arg3, (int)arg4) -> bool : |
+| `map_midi_note_with_feedback_map` | method | map_midi_note_with_feedback_map( (int)arg1, (DeviceParameter)arg2, (int)arg3, (int)arg4, (NoteFeedbackRule)arg5) -> bool : |
+| `map_midi_pitchbend` | method | map_midi_pitchbend( (int)arg1, (DeviceParameter)arg2, (int)arg3, (bool)arg4) -> bool : |
+| `map_midi_pitchbend_with_feedback_map` | method | map_midi_pitchbend_with_feedback_map( (int)arg1, (DeviceParameter)arg2, (int)arg3, (PitchBendFeedbackRule)arg4, (bool)arg5) -> bool : |
+| `send_feedback_for_parameter` | method | send_feedback_for_parameter( (int)arg1, (DeviceParameter)arg2) -> None : |
+
+### `Live.Clip.MidiNote` — 9 members (class)
+
+_An object representing a MIDI Note_
+
+- **rw:** `duration`, `mute`, `pitch`, `probability`, `release_velocity`, `start_time`, `velocity`, `velocity_deviation`
+- **ro:** `note_id`
+
+### `Live.Conversions` — 7 members (module)
+
+| member | kind | Live docstring |
+|---|---|---|
+| `audio_to_midi_clip` | method | audio_to_midi_clip( (Song)song, (Clip)audio_clip, (int)audio_to_midi_type) -> None : |
+| `create_drum_rack_from_audio_clip` | method | create_drum_rack_from_audio_clip( (Song)song, (Clip)audio_clip) -> None : |
+| `create_midi_track_from_drum_pad` | method | create_midi_track_from_drum_pad( (Song)song, (DrumPad)drum_pad) -> None : |
+| `create_midi_track_with_simpler` | method | create_midi_track_with_simpler( (Song)song, (Clip)audio_clip) -> None : |
+| `is_convertible_to_midi` | method | is_convertible_to_midi( (Song)song, (Clip)audio_clip) -> bool : |
+| `move_devices_on_track_to_new_drum_rack_pad` | method | move_devices_on_track_to_new_drum_rack_pad( (Song)song, (int)track_index) -> LomObject : |
+| `sliced_simpler_to_drum_rack` | method | sliced_simpler_to_drum_rack( (Song)song, (SimplerDevice)simpler) -> None : |
+
+### `Live.Licensing.UnlockStatus` — 7 members (class)
+
+_Returns relevant information after unlock_
+
+- **ro:** `authorization_deactivated`, `authorization_expired`, `has_max_unlock_products`, `temp_demo_mode`, `time_limited`, `unlock_error`, `unlocked`
+
+### `Live.Application.Variants` — 6 members (class)
+
+_Holds strings representing what type of Live is running._
+
+- **const:** `BETA` = `'Beta'`, `INTRO` = `'Intro'`, `LITE` = `'Lite'`, `STANDARD` = `'Standard'`, `SUITE` = `'Suite'`, `TRIAL` = `'Trial'`
+
+### `Live.Envelope.Envelope` — 6 members (class)
+
+_This class represents an automation or modulation envelope in Live._
+
+- **ro:** `parameter`
+- **method:** `create_event`, `delete_events_in_range`, `events_in_range`, `insert_step`, `value_at_time`
+
+### `Live.Licensing` — 6 members (module)
+
+| member | kind | Live docstring |
+|---|---|---|
+| `authorization_clock_days_ahead` | method | authorization_clock_days_ahead() -> int : |
+| `get_authorization_page_url` | method | get_authorization_page_url( (bool)reauthorize, (bool)is_trial) -> str : |
+| `get_purchase_live_url` | method | get_purchase_live_url() -> str : |
+| `get_services_url` | method | get_services_url() -> str : |
+| `get_unlock_dir` | method | get_unlock_dir() -> tuple : |
+| `launch_web_browser` | method | launch_web_browser( (str)url) -> None : |
+
+### `Live.Application` — 5 members (module)
+
+| member | kind | Live docstring |
+|---|---|---|
+| `combine_apcs` | method | combine_apcs() -> bool : |
+| `encrypt_challenge` | method | encrypt_challenge( (int)dongle1, (int)dongle2 [, (int)key_index=0]) -> tuple : |
+| `encrypt_challenge2` | method | encrypt_challenge2( (int)arg1) -> int : |
+| `get_application` | method | get_application() -> Application : |
+| `get_random_int` | method | get_random_int( (int)arg1, (int)arg2) -> int : |
+
+### `Live.MidiMap.CCFeedbackRule` — 5 members (class)
+
+_Structure to define feedback properties of MIDI mappings._
+
+- **rw:** `cc_no`, `cc_value_map`, `channel`, `delay_in_ms`, `enabled`
+
+### `Live.MidiMap.NoteFeedbackRule` — 5 members (class)
+
+_Structure to define feedback properties of MIDI mappings._
+
+- **rw:** `channel`, `delay_in_ms`, `enabled`, `note_no`, `vel_map`
+
+### `Live.Base.Timer` — 4 members (class)
+
+_A timer that will trigger a callback after a certain inverval. The timer can be repeated and will trigger the callback every interval. Errors in the callback will stop the timer._
+
+- **ro:** `running`
+- **method:** `restart`, `start`, `stop`
+
+### `Live.Envelope.EnvelopeEventControlCoefficients` — 4 members (class)
+
+_This class represents the control coefficients of an envelope event._
+
+- **rw:** `x1`, `x2`, `y1`, `y2`
+
+### `Live.Listener.ListenerHandle` — 4 members (class)
+
+_This class represents a Python listener when connected to a Live property._
+
+- **ro:** `listener_func`, `listener_self`, `name`
+- **method:** `disconnect`
+
+### `Live.MidiMap.PitchBendFeedbackRule` — 4 members (class)
+
+_Structure to define feedback properties of MIDI mappings._
+
+- **rw:** `channel`, `delay_in_ms`, `enabled`, `value_pair_map`
+
+### `Live.Song.BeatTime` — 4 members (class)
+
+_Represents a Time, splitted into Bars, Beats, SubDivision and Ticks._
+
+- **rw:** `bars`, `beats`, `sub_division`, `ticks`
+
+### `Live.Song.SmptTime` — 4 members (class)
+
+_Represents a Time, split into Hours, Minutes, Seconds and Frames._
+
+- **rw:** `frames`, `hours`, `minutes`, `seconds`
+
+### `Live.Base` — 3 members (module)
+
+| member | kind | Live docstring |
+|---|---|---|
+| `get_text` | method | get_text( (str)classname, (str)textname) -> Text : |
+| `log` | method | log( (str)arg1) -> None : |
+| `subst_args` | method | subst_args( (Text)text [, (str)arg1='' [, (str)arg2='' [, (str)arg3='' [, (str)arg4='' [, (str)arg5='']]]]]) -> str : |
+
+### `Live.Base.LimitationError` — 3 members (class)
+
+- **method:** `add_note`, `with_traceback`
+- **const:** `args` = `<attribute 'args' of 'BaseException' objects>`
+
+### `Live.Envelope.EnvelopeEvent` — 3 members (class)
+
+_This is a class that represents an envelope event._
+
+- **rw:** `control_coefficients`, `time`, `value`
+
+### `Live.Licensing.ProgressDialog` — 3 members (class)
+
+_A modal dialog showing a message and a progress animation._
+
+- **method:** `end_modal_loop`, `run_in_modal_loop`, `set_status_message`
+
+### `Live.Licensing.StartupDialogServes as an entry point for the user to authorize Live on first launch.` — 3 members (class)
+
+- **method:** `end_modal_loop`, `run_in_modal_loop`, `set_notification_message`
+
+### `Live.Track.RoutingType` — 3 members (class)
+
+_This class represents a routing type._
+
+- **ro:** `attached_object`, `category`, `display_name`
+
+### `Live.TuningSystem.ReferencePitch` — 3 members (class)
+
+_This class represents a ReferencePitch type._
+
+- **ro:** `frequency`, `index_in_octave`, `octave`
+
+### `Live.Application.ControlDescription` — 2 members (class)
+
+_Describes a control present in a control surface proxy_
+
+- **ro:** `id`, `name`
+
+### `Live.Clip.WarpMarker` — 2 members (class)
+
+_This class represents a WarpMarker type._
+
+- **ro:** `beat_time`, `sample_time`
+
+### `Live.Track.RoutingChannel` — 2 members (class)
+
+_This class represents a routing channel._
+
+- **ro:** `display_name`, `layout`
+
+### `Live.TuningSystem.PitchClassAndOctave` — 2 members (class)
+
+_This class represents a PitchClassAndOctave type._
+
+- **ro:** `index_in_octave`, `octave`
+
+### `Live.Base.Text` — 1 member (class)
+
+_A translatable, immutable string._
+
+- **ro:** `text`
+
+### `Live.CcControlDevice.CcControlDevice.View` — 1 member (class)
+
+_Representing the view aspects of a device._
+
+- **rw:** `is_collapsed*`
+
+_`*` observable._
+
+### `Live.SimplerDevice` — 1 member (module)
+
+| member | kind | Live docstring |
+|---|---|---|
+| `get_available_voice_numbers` | method | get_available_voice_numbers() -> IntVector : |
+
+### `Live.Song` — 1 member (module)
+
+| member | kind | Live docstring |
+|---|---|---|
+| `get_all_scales_ordered` | method | get_all_scales_ordered() -> tuple : |
+
+### `Live.Browser.BrowserItemIterator` — 0 members (class)
+
+_This class iterates over children of another BrowserItem._
+
+_No readable members on the object itself._
+
+### `Live.Clip.MidiNoteSpecification` — 0 members (class)
+
+_An object specifying the data for creating a MIDI note. To be used with the _
+
+_No readable members on the object itself._
+
+### `Live.LomObject.LomObject` — 0 members (class)
+
+_this is the base class for an object that is accessible via the LOM_
+
+_No readable members on the object itself._
+
+### `Live.Track.DeviceContainer` — 0 members (class)
+
+_This class is a common super class of Track and Chain_
+
+_No readable members on the object itself._
+
+_38 entries, 198 members, none reachable through any fork address._
 
 <!-- lom-gaps:end -->
