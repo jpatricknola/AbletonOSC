@@ -223,6 +223,48 @@ def group_track_index(song: Any, track: Any) -> int:
     return index
 
 
+def clip_slot_indices(song: Any, clip_slot: Any) -> Tuple[int, int]:
+    """
+    (track_index, scene_index) for a clip-slot-valued member, or
+    (NO_INDEX, NO_INDEX) when there is no slot to name.
+
+    Regular tracks only, so — unlike the device/parameter/chain shapes above
+    — the reply carries no category prefix: it is the ordinary (track, scene)
+    coordinate every `/live/clip_slot/*` and `/live/clip/*` address already
+    takes, and is directly actionable as one. `Song.View.highlighted_clip_slot`
+    is documented `None` for the Main and Send tracks, so a return/master slot
+    is not a state Live is expected to produce here.
+
+    Both halves of the none-pair follow API.md rule 3 — "-1 means none, or not
+    representable at top level":
+
+    - `clip_slot is None`            -> (-1, -1);
+    - a slot owned by a return track or the master, should Live ever answer
+      with one -> (-1, -1), because no (track, scene) coordinate reaches it;
+    - a slot whose owning track is resolvable but which is absent from that
+      track's `clip_slots` -> (track_index, -1), via `_index_of`.
+
+    Deliberately *not* a ValueError on the return/master case, unlike
+    `group_track_index`: that one raises because Live has no such state to
+    produce, whereas this one is only documented-not-expected, and a -1 pair
+    the caller already has to handle beats an error it does not.
+
+    Raises:
+        ValueError: `owning_track_identity` could not reach a track at all —
+                    the object is not a clip slot of this song. Loud, for the
+                    same reason it is loud there.
+    """
+    if clip_slot is None:
+        return (NO_INDEX, NO_INDEX)
+
+    category, track_index = owning_track_identity(song, clip_slot)
+    if category != CATEGORY_TRACK:
+        return (NO_INDEX, NO_INDEX)
+
+    track = resolve_track(song, category, track_index)
+    return (track_index, _index_of(track.clip_slots, clip_slot))
+
+
 def owning_track_identity(song: Any, obj: Any) -> Tuple[str, int]:
     """
     The (category, index) identity of the track that owns `obj`, found by

@@ -203,7 +203,6 @@ address docs are the record._
 
 | Priority | Missing bridge surface | Why it matters | Disposition |
 |---|---|---|---|
-| High | `Application.View.focused_document_view` | `/live/view` can show, hide and test a view but cannot say which document view has focus — Session vs Arranger, exact | Belongs in the same handler as the existing view addresses — the *Object view classes* bucket in [CLOSING_THE_GAPS.md](CLOSING_THE_GAPS.md) |
 | Medium | `Song.View.draw_mode`, `follow_song` | Readable absolute state instead of focus-routed toggle shortcuts | Members of the *Object view classes* bucket, which is where they land — the per-object view resolver is the real work and these ride it. Little use as isolated knobs, so don't split them out into a PR of their own |
 | Declined | `Application.press_current_dialog_button` | Would let a client dismiss a blocking Live dialog rather than only describe it | Stays out unless a separately reviewed, non-file use case proves it safe: a dialog on screen may be guarding unsaved work, and pressing its buttons blind is not recoverable. The same decision is why the two `show_*` addresses raise **OK-only** dialogs, passing Live the text and nothing else so `buttons` keeps its default |
 | High | Rack chains, Drum Pads, macros, variations | Racks are how real sets are built — a Drum Rack is the standard way to hold a kit — and nothing inside one is addressable today. `ChainMixerDevice` is what keeps rack chains silent even once their devices are reachable | The largest surface in the plan (87 gaps) and the one the device path resolver exists to unlock; the resolver lands first and alone. Too large for one PR, so it is three buckets in CLOSING_THE_GAPS.md — *Rack chains and chain mixer*, *Drum racks* and *Rack macros and variations*. The pad-map read is a curated entry above |
@@ -324,8 +323,23 @@ so do `crossfade_assign`, `panning_mode`, `track_activator`, `crossfader`,
 `/live/view/*` is a fixed set of `Song.View` and `Application.View` addresses
 with no per-object view resolver behind it, so `Track.View`, `Clip.View`,
 `Device.View`, `RackDevice.View` and `Eq8Device.View` members are not
-addressable at all. `Application.View`'s own remainder — `focused_document_view`,
-`available_main_views`, `browse_mode` — is a member gap on top of that.
+addressable at all. `Application.View`'s own remainder — `available_main_views`, `browse_mode` —
+is a member gap on top of that. `focused_document_view` has shipped, as
+`/live/view/get/focused_document_view` plus a listen pair; note what it does
+*not* close, because the row in API.md is the only place that says so: Live
+answers `Session` or `Arranger` and nothing else, so it cannot report that the
+Browser or a Detail pane holds focus. `focus_view("Browser")` disabled the
+Convert commands with this read unchanged (measured 2026-08-30). It proves
+focus is on the wrong document view; it cannot prove focus is right.
+
+`Song.View.highlighted_clip_slot` has shipped too, get and set, as the
+object-valued (track, scene) coordinate — a second, independent confirmation
+that a selection landed, alongside the `selected_clip` ring. The setter is
+expected to be redundant with `set/selected_clip` and is carried as insurance.
+
+(The generated member tables below still count all three as gaps, and still
+carry `focus_view`: the inventory is a `dump_lom` artifact and is not
+hand-edited. This prose is the record until the next dump.)
 
 ## Shape gaps
 

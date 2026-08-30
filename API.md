@@ -125,6 +125,7 @@ every later object-valued read follows:
    |---|---|---|
    | Track-valued, regular tracks only | `track_index` | `/live/track/get/group_track` |
    | Clip-valued, in a slot the request already names | `clip_index` | `/live/clip_slot/get/clip` |
+   | Clip-slot-valued, regular tracks only | `track_index, scene_index` | `/live/view/get/highlighted_clip_slot` |
    | Groove-valued | `groove_index` (into `/live/song/get/groove_pool`) | `/live/clip/get/groove` |
    | Device-valued | `category, track_index, device_index` | `/live/song/get/appointed_device` |
    | Parameter-valued | `category, track_index, device_index, parameter_index` | `/live/view/get/selected_parameter` |
@@ -673,7 +674,8 @@ reply with their own `"error"`-tagged envelopes, and the four fork-added
 `/live/view/...` setters (`show_view`, `focus_view`, `hide_view`, `set/detail_clip`) fail
 silently by design. Upstream's four `/live/view/set/selected_*` setters have no
 guard: a bad index raises and comes back as a `"request"` error like any other
-callback.
+callback, and the fork-added `set/highlighted_clip_slot` deliberately follows
+them rather than the silent setters — it is a selection write, not a steer.
 
 A handler's return value decides how many datagrams a request gets: `None`
 sends nothing, a tuple sends one reply, and a **list of tuples sends one reply
@@ -1105,6 +1107,11 @@ User interface control — selecting tracks, scenes, clips, devices.
 | `/live/view/get/selected_parameter` | | `category, track_index, device_index, parameter_index` | ⚠️ **Seshat extension** — the selected device parameter. A mixer/send parameter, or a parameter of a device nested in a rack chain, answers `category, track_index, -1, -1`. Nothing selected → `"none", -1, -1, -1` |
 | `/live/view/get/mod_mapping_device` | | `category, track_index, device_index` | ⚠️ **Seshat extension** — the device waiting for a Max-for-Live/macro mapping. Idle → `"none", -1, -1` |
 | `/live/view/get/mod_mapping_parameter` | | `category, track_index, device_index, parameter_index` | ⚠️ **Seshat extension** — the parameter waiting for that mapping. Idle → `"none", -1, -1, -1` |
+| `/live/view/get/focused_document_view` | | `"ok", view_name` or `"error", message` | ⚠️ **Seshat extension** — which document view has focus. `view_name` is `Session` or `Arranger`, the only two values Live returns. Always replies, so silence means the extension is not installed. ⚠️ **Partial verification only:** it cannot report that the Browser or a Detail pane holds focus — it still answers `Session`. Measured 2026-08-30: `focus_view("Browser")` disabled the Convert commands while this read was unchanged. Use it to prove focus is on the *wrong* document view; never to prove focus is where you need it |
+| `/live/view/start_listen/focused_document_view` | | `"ok", view_name` or `"error", message` | ⚠️ **Seshat extension** — listen for document-view focus changes; pushes the same envelope on the `get` address. The only pair in `/live/view` whose subject is `Application.View` rather than `Song.View` |
+| `/live/view/stop_listen/focused_document_view` | | | ⚠️ **Seshat extension** — stop listening for document-view focus changes |
+| `/live/view/get/highlighted_clip_slot` | | `track_index, scene_index` | ⚠️ **Seshat extension** — the highlighted Session clip slot, as the ordinary (track, scene) coordinate. **No listen pair** — `Song.View.highlighted_clip_slot` is not observable. Live returns `None` for the Main and Send tracks: that is `-1, -1`, not an error. A slot that resolves to a return track or the master answers `-1, -1` too — no coordinate reaches it. See **Object-valued reads** |
+| `/live/view/set/highlighted_clip_slot` | `track_index, scene_index` | | ⚠️ **Seshat extension** — set the highlighted Session clip slot. **Not** one of this file's silent setters: like upstream's `set/selected_*`, a bad index raises and comes back as a `"request"` error. Expected to be redundant with `set/selected_clip` — Live documents the slot as "defined via the selected track and scene" — and carried as insurance, not as a fix |
 
 ### Selected-track identity
 

@@ -6,10 +6,11 @@ import Live
 from .handler import AbletonOSCHandler
 from .track_identity import (selected_track_identity, selected_track_index,
                              selected_device_indices, chain_identity,
-                             device_identity, parameter_identity)
+                             device_identity, parameter_identity,
+                             clip_slot_indices)
 
 #--------------------------------------------------------------------------------
-# Twelve addresses in this file are Seshat extensions, added in this fork:
+# Seventeen addresses in this file are Seshat extensions, added in this fork:
 #
 #   /live/view/show_view          [view_name]                 (no reply)
 #   /live/view/hide_view          [view_name]                 (no reply)
@@ -24,6 +25,12 @@ from .track_identity import (selected_track_identity, selected_track_index,
 #   /live/view/get/selected_parameter  ()  -> [category, track, device, parameter]
 #   /live/view/get/mod_mapping_device  ()  -> [category, track, device]
 #   /live/view/get/mod_mapping_parameter () -> [category, track, device, parameter]
+#   /live/view/get/focused_document_view          () -> ["ok", name]
+#                                                    or ["error", message]
+#   /live/view/start_listen/focused_document_view ()  (pushes on the get address)
+#   /live/view/stop_listen/focused_document_view  ()  (no reply)
+#   /live/view/get/highlighted_clip_slot ()                       -> [track, scene]
+#   /live/view/set/highlighted_clip_slot [track_index, scene_index] (no reply)
 #
 # Upstream can select a track, scene, clip or device, but it cannot bring the
 # pane those live in into view, put one away, or say which panes are open at
@@ -85,6 +92,50 @@ from .track_identity import (selected_track_identity, selected_track_index,
 # None. See API.md § "Object-valued reads". Get-only in this item: all four are
 # observable and two are LOM-writable, but no consumer has named a setter or a
 # listener yet (C-2 / D-1).
+#
+# `get/focused_document_view` closes the High-priority `Application.View`
+# member in FORK_GAPS: it is the exact Session-vs-Arranger read the rest of
+# `/live/view` cannot give. It follows the fork's getter rule, not the silent
+# setter rule — it always replies, in the ok/error envelope, because a caller
+# waits on it. `focus_view` is fire-and-forget, so without this read a client
+# that steers focus has no way to learn whether the steer landed, and a Live
+# menu command that quietly refuses several steps later gets misattributed to
+# the clip rather than to focus.
+#
+# ⚠️ It is a *partial* verification, and API.md says so on the row. Live
+# answers only "Session" or "Arranger" — the two document views — so it cannot
+# report that the Browser or a Detail pane holds focus, and answers "Session"
+# regardless. Measured 2026-08-30: focus_view("Browser") disabled the Convert
+# commands while focused_document_view was unchanged. A caller can therefore
+# use it to prove focus is on the *wrong document view*, but never to prove
+# focus is where it needs to be.
+#
+# Its listen pair is the one pair in this file whose subject is
+# `Application.View` rather than `Song.View`. `_start_listen` takes the target
+# as a parameter and is subject-agnostic, so nothing bends to accommodate it —
+# but the target must be resolved *lazily*, inside the handler, rather than
+# bound into a `partial()` at registration time the way every `self.song.view`
+# pair above is. `Live.Application` is an empty stub under the Live-free suite
+# (see tests_unit/conftest.py), and this file's contract with that suite is
+# that its Live dereferences all happen at call time. Hence the two small
+# wrappers instead of two partials.
+#
+# `highlighted_clip_slot` is an object-valued read in the A-4 sense — the LOM
+# member is a `ClipSlot` — answered as the ordinary (track, scene) coordinate
+# via `clip_slot_indices`, with (-1, -1) for "none". Live documents the member
+# as None for the Main and Send tracks, which is that none-pair and not an
+# error. It is a *second, independent* confirmation that a selection landed:
+# `get/selected_clip` reports the ring, and if the ring and the highlighted
+# slot can ever disagree, a menu press acts on something other than what the
+# caller believes is selected.
+#
+# The setter is expected to be redundant — Live's docstring says the slot is
+# "defined via the selected track and scene", which is what
+# `set/selected_clip` already writes — and is carried as insurance and for
+# symmetry, not as a fix. It is *not* one of the silent setters: like
+# upstream's `set/selected_*`, a bad index raises and comes back as a
+# "request" error. No listen pair: the member is not observable (the
+# inventory's obs column is empty for it).
 #--------------------------------------------------------------------------------
 
 #--------------------------------------------------------------------------------
@@ -158,6 +209,12 @@ class ViewHandler(AbletonOSCHandler):
                              % (self.class_identifier, str(identity)))
             return identity
 
+        def get_highlighted_clip_slot(params: Optional[Tuple] = ()):
+            indices = clip_slot_indices(self.song, self.song.view.highlighted_clip_slot)
+            self.logger.info("Getting property for %s: highlighted_clip_slot = %s"
+                             % (self.class_identifier, str(indices)))
+            return indices
+
         def set_selected_scene(params: Optional[Tuple] = ()):
             self.song.view.selected_scene = self.song.scenes[params[0]]
 
@@ -167,6 +224,14 @@ class ViewHandler(AbletonOSCHandler):
         def set_selected_clip(params: Optional[Tuple] = ()):
             set_selected_track((params[0],))
             set_selected_scene((params[1],))
+
+        def set_highlighted_clip_slot(params: Optional[Tuple] = ()):
+            #--------------------------------------------------------------------------------
+            # Unguarded, like upstream's set/selected_* above: a bad index
+            # raises and comes back as a "request" error. Not one of this
+            # file's silent setters.
+            #--------------------------------------------------------------------------------
+            self.song.view.highlighted_clip_slot = self.song.tracks[params[0]].clip_slots[params[1]]
 
         def set_selected_device(params: Optional[Tuple] = ()):
             device = self.song.tracks[params[0]].devices[params[1]]
@@ -215,6 +280,34 @@ class ViewHandler(AbletonOSCHandler):
                 self.logger.error("View: could not focus view '%s' (%s). Valid names: %s"
                                   % (view_name, e, ", ".join(VIEW_NAMES)))
 
+        def get_focused_document_view(params: Optional[Tuple] = ()):
+            #--------------------------------------------------------------------------------
+            # Getter rule, not the silent-setter rule: a caller waits on this,
+            # so it always replies. Live answers "Session" or "Arranger" only —
+            # see the ⚠️ in the header and on the API.md row for what that
+            # cannot tell you.
+            #--------------------------------------------------------------------------------
+            try:
+                view_name = Live.Application.get_application().view.focused_document_view
+                return ("ok", str(view_name))
+            except Exception as e:
+                return ("error", "could not read focused_document_view: %s" % e)
+
+        def start_listen_focused_document_view(params: Optional[Tuple] = ()):
+            #--------------------------------------------------------------------------------
+            # The subject is Application.View, not Song.View, so the target is
+            # resolved here at call time rather than bound into a partial() at
+            # registration time — see the header. _start_listen itself is
+            # unchanged and unaware of the difference.
+            #--------------------------------------------------------------------------------
+            self._start_listen(Live.Application.get_application().view,
+                               "focused_document_view",
+                               getter=get_focused_document_view)
+
+        def stop_listen_focused_document_view(params: Optional[Tuple] = ()):
+            self._stop_listen(Live.Application.get_application().view,
+                              "focused_document_view")
+
         def set_detail_clip(params: Optional[Tuple] = ()):
             try:
                 clip = self.song.tracks[params[0]].clip_slots[params[1]].clip
@@ -245,15 +338,20 @@ class ViewHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/view/get/selected_parameter", get_selected_parameter)
         self.osc_server.add_handler("/live/view/get/mod_mapping_device", get_mod_mapping_device)
         self.osc_server.add_handler("/live/view/get/mod_mapping_parameter", get_mod_mapping_parameter)
+        self.osc_server.add_handler("/live/view/get/highlighted_clip_slot", get_highlighted_clip_slot)
         self.osc_server.add_handler("/live/view/set/selected_scene", set_selected_scene)
         self.osc_server.add_handler("/live/view/set/selected_track", set_selected_track)
         self.osc_server.add_handler("/live/view/set/selected_clip", set_selected_clip)
         self.osc_server.add_handler("/live/view/set/selected_device", set_selected_device)
+        self.osc_server.add_handler("/live/view/set/highlighted_clip_slot", set_highlighted_clip_slot)
         self.osc_server.add_handler("/live/view/show_view", show_view)
         self.osc_server.add_handler("/live/view/focus_view", focus_view)
         self.osc_server.add_handler("/live/view/get/is_view_visible", get_is_view_visible)
         self.osc_server.add_handler("/live/view/hide_view", hide_view)
         self.osc_server.add_handler("/live/view/set/detail_clip", set_detail_clip)
+        self.osc_server.add_handler("/live/view/get/focused_document_view", get_focused_document_view)
+        self.osc_server.add_handler("/live/view/start_listen/focused_document_view", start_listen_focused_document_view)
+        self.osc_server.add_handler("/live/view/stop_listen/focused_document_view", stop_listen_focused_document_view)
 
         self.osc_server.add_handler('/live/view/start_listen/selected_scene', partial(self._start_listen, self.song.view, "selected_scene", getter=get_selected_scene))
         self.osc_server.add_handler('/live/view/start_listen/selected_track', partial(self._start_listen, self.song.view, "selected_track", getter=get_selected_track))
