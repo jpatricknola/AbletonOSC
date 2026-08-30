@@ -227,12 +227,21 @@ inventory's one-line docstrings do not carry them:
   (The generated rows below still count these three as gaps: the inventory
   has not been regenerated since they shipped — that needs a
   `/live/application/dump_lom` from a Live running the new code.)
-- `Application.View.focus_view` overlaps `show_view` and `toggle_browse` is
-  a relative toggle where absolute show/hide already exists. Both are still
-  coverage; document the overlap on the row so a caller reaching for one is
-  pointed at the absolute address instead. `scroll_view`/`zoom_view` have no
-  such overlap — measure their arguments before writing the handler, since
-  the apiref carries only the signature.
+- `Application.View.focus_view` was previously dismissed here as overlapping
+  `show_view`. That claim is disproved and is what kept the member closed:
+  `show_view` makes a pane *visible*, `focus_view` gives it *keyboard focus*,
+  and Live's menu-command validation reads focus, not visibility. Measured
+  2026-08-30 — Create > Convert Melody to New MIDI Track stayed disabled after
+  `show_view("Session")` with a clip selected over OSC, and enabled only once
+  the Session grid was clicked. Shipped as `/live/view/focus_view`.
+  (Its generated row below still counts it as a gap, for the same reason
+  the three above are still counted: the inventory is a `dump_lom`
+  artifact and is not hand-edited.)
+- `Application.View.toggle_browse` is a relative toggle where absolute
+  show/hide already exists. Still coverage; document the overlap on the row so
+  a caller reaching for it is pointed at the absolute address instead.
+  `scroll_view`/`zoom_view` have no such overlap — measure their arguments
+  before writing the handler, since the apiref carries only the signature.
 - `Song.appointed_device`, `groove_pool`, `tuning_system`, `tracks`,
   `scenes`, `cue_points` are objects or collections — never put them in
   the generic property loop.

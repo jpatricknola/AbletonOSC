@@ -9,10 +9,11 @@ from .track_identity import (selected_track_identity, selected_track_index,
                              device_identity, parameter_identity)
 
 #--------------------------------------------------------------------------------
-# Eleven addresses in this file are Seshat extensions, added in this fork:
+# Twelve addresses in this file are Seshat extensions, added in this fork:
 #
 #   /live/view/show_view          [view_name]                 (no reply)
 #   /live/view/hide_view          [view_name]                 (no reply)
+#   /live/view/focus_view         [view_name]                 (no reply)
 #   /live/view/set/detail_clip    [track_index, scene_index]  (no reply)
 #   /live/view/get/is_view_visible [view_name]                -> [view_name, "ok", 1|0]
 #                                                             or [view_name, "error", message]
@@ -32,7 +33,7 @@ from .track_identity import (selected_track_identity, selected_track_index,
 # that anything happened — and its view *tools* need the rest, so the model can
 # answer "what am I looking at?" and act on the answer.
 #
-# The three setters are silent, like upstream's setters. Nothing waits on a
+# The four setters are silent, like upstream's setters. Nothing waits on a
 # steering send, and steering must never fail the tool it follows, so the
 # ok/error envelope the fork's *getters* use deliberately does not apply there:
 # a bad view name or an empty clip slot is logged to Live's Log.txt and nothing
@@ -197,6 +198,23 @@ class ViewHandler(AbletonOSCHandler):
                 self.logger.error("View: could not hide view '%s' (%s). Valid names: %s"
                                   % (view_name, e, ", ".join(VIEW_NAMES)))
 
+        def focus_view(params: Optional[Tuple] = ()):
+            #--------------------------------------------------------------------------------
+            # Seshat extension. Distinct from show_view: show_view makes a pane
+            # visible, focus_view gives it keyboard focus. Live's menu-command
+            # validation reads focus, not visibility — measured 2026-08-30, when
+            # Create > Convert Melody to New MIDI Track stayed disabled after
+            # show_view("Session") plus an OSC clip selection, and enabled only
+            # once the Session grid was clicked. FORK_GAPS previously dismissed
+            # this member as "overlaps show_view"; it does not.
+            #--------------------------------------------------------------------------------
+            view_name = str(params[0]) if len(params) > 0 else ""
+            try:
+                Live.Application.get_application().view.focus_view(view_name)
+            except Exception as e:
+                self.logger.error("View: could not focus view '%s' (%s). Valid names: %s"
+                                  % (view_name, e, ", ".join(VIEW_NAMES)))
+
         def set_detail_clip(params: Optional[Tuple] = ()):
             try:
                 clip = self.song.tracks[params[0]].clip_slots[params[1]].clip
@@ -232,6 +250,7 @@ class ViewHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/view/set/selected_clip", set_selected_clip)
         self.osc_server.add_handler("/live/view/set/selected_device", set_selected_device)
         self.osc_server.add_handler("/live/view/show_view", show_view)
+        self.osc_server.add_handler("/live/view/focus_view", focus_view)
         self.osc_server.add_handler("/live/view/get/is_view_visible", get_is_view_visible)
         self.osc_server.add_handler("/live/view/hide_view", hide_view)
         self.osc_server.add_handler("/live/view/set/detail_clip", set_detail_clip)

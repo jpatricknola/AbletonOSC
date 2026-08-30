@@ -669,8 +669,8 @@ generic `_call_method` path, an exception in the generic `_set_property` path,
 and a handler returning something that is neither a tuple, a list of tuples,
 nor `None`. It does not cover every rejection in the fork — the browser and
 return/master handlers
-reply with their own `"error"`-tagged envelopes, and the three fork-added
-`/live/view/...` setters (`show_view`, `hide_view`, `set/detail_clip`) fail
+reply with their own `"error"`-tagged envelopes, and the four fork-added
+`/live/view/...` setters (`show_view`, `focus_view`, `hide_view`, `set/detail_clip`) fail
 silently by design. Upstream's four `/live/view/set/selected_*` setters have no
 guard: a bad index raises and comes back as a `"request"` error like any other
 callback.
@@ -1094,6 +1094,7 @@ User interface control — selecting tracks, scenes, clips, devices.
 | `/live/view/stop_listen/selected_scene` | | | Stop listening for scene changes |
 | `/live/view/stop_listen/selected_track` | | | Stop listening for track changes |
 | `/live/view/show_view` | `view_name` | | ⚠️ **Seshat extension** — bring a pane into view |
+| `/live/view/focus_view` | `view_name` | | ⚠️ **Seshat extension** — give a pane keyboard focus. Distinct from `show_view`, which only makes it visible. Live's menu-command validation reads focus: measured 2026-08-30, Create → Convert Melody to New MIDI Track stayed disabled after `show_view("Session")` with a verified audio clip selected over OSC, and enabled only after the Session grid was clicked. Same names as `show_view`. No reply |
 | `/live/view/hide_view` | `view_name` | | ⚠️ **Seshat extension** — put a pane away |
 | `/live/view/get/is_view_visible` | `view_name` | `view_name, "ok", visible` or `view_name, "error", message` | ⚠️ **Seshat extension** — is a pane visible? `visible` is 1 or 0 |
 | `/live/view/set/detail_clip` | `track_index, scene_index` | | ⚠️ **Seshat extension** — put a clip in the Detail view |
@@ -1447,7 +1448,7 @@ query.** One request, one action per regular track.
 | `/live/track/get/can_be_armed` | `track_id` | `track_id, can_be_armed` | Can track be armed? |
 | `/live/track/get/color` | `track_id` | `track_id, color` | Track color |
 | `/live/track/get/color_index` | `track_id` | `track_id, color_index` | Track color index |
-| `/live/track/get/current_monitoring_state` | `track_id` | `track_id, state` | Monitoring state (1=on, 0=off) |
+| `/live/track/get/current_monitoring_state` | `track_id` | `track_id, state` | Monitoring state: `0` = In, `1` = Auto, `2` = Off (`Live.Track.Track.monitoring_states`). Measured 2026-08-30: track 0 answered `1`, and Auto is Live's default for a new track; the enum order is Live's own, from Push2 `routing.pyc`'s `_connect_monitoring_state_encoder` |
 | `/live/track/get/fired_slot_index` | `track_id` | `track_id, index` | Currently-fired slot |
 | `/live/track/get/fold_state` | `track_id` | `track_id, fold_state` | Group folded state |
 | `/live/track/get/group_track` | `track_id` | `track_id, group_track_index` | ⚠️ **Seshat extension** — the index in `song.tracks` of the group track this track is in, or `-1` when it is not grouped. `*` fans out like every other track getter. **No listen pair** — `Track.group_track` is not observable. See **Object-valued reads** |
@@ -1480,7 +1481,7 @@ query.** One request, one action per regular track.
 | `/live/track/set/arm` | `track_id, armed` | Set arm (1=on, 0=off) |
 | `/live/track/set/color` | `track_id, color` | Set color |
 | `/live/track/set/color_index` | `track_id, color_index` | Set color index |
-| `/live/track/set/current_monitoring_state` | `track_id, state` | Set monitoring |
+| `/live/track/set/current_monitoring_state` | `track_id, state` | Set monitoring state: `0` = In, `1` = Auto, `2` = Off (`Live.Track.Track.monitoring_states`) — *not* a boolean |
 | `/live/track/set/fold_state` | `track_id, fold_state` | Set group fold (1=on, 0=off) |
 | `/live/track/set/input_routing_channel` | `track_id, channel` | Set input routing channel |
 | `/live/track/set/input_routing_type` | `track_id, type` | Set input routing type |
