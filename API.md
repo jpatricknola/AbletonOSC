@@ -1668,7 +1668,7 @@ ignored**. Sending fewer than two is a malformed request and answers on
 | `/live/clip/set/ram_mode` | `track_id, clip_id, ram_mode` | | Set RAM mode |
 | `/live/clip/get/warp_mode` | `track_id, clip_id` | `track_id, clip_id, warp_mode` | Warp mode (0=Beats, 1=Tones, 2=Texture, 3=Re-Pitch, 4=Complex, 6=Pro) |
 | `/live/clip/set/warp_mode` | `track_id, clip_id, warp_mode` | | Set warp mode |
-| `/live/clip/get/has_envelopes` | `track_id, clip_id` | `track_id, clip_id, has_envelopes` | ⚠️ **Seshat extension** — does this clip carry **any** envelope? (0=False, 1=True). The only way a client can see envelope data at all: no address authors envelopes, and `Clip` exposes no envelope-writing member to the bridge at Live 12.4.5, so importing a file through `/live/browser/load_item` is the only route by which expression data reaches a clip — and notes read back through `/live/clip/get/notes_extended` carry no expression field, so without this the difference between an import that carried pitch bend and one that carried only notes is invisible on the wire. **It says nothing more than "something is there"**: not which parameter owns the envelope, and not its values. Reading or writing contents would need `automation_envelope` / `create_automation_envelope`, which are in the LOM and unexposed (`FORK_GAPS.md`) and take a `DeviceParameter` — device automation, not a MIDI clip's pitch-bend or CC lanes |
+| `/live/clip/get/has_envelopes` | `track_id, clip_id` | `track_id, clip_id, has_envelopes` | ⚠️ **Seshat extension** — does this clip carry **any** envelope? (0=False, 1=True). The only way a client can see envelope data at all: no address authors envelopes, so importing a file through `/live/browser/load_item` is the only route by which expression data reaches a clip — and notes read back through `/live/clip/get/notes_extended` carry no expression field, so without this the difference between an import that carried pitch bend and one that carried only notes is invisible on the wire. **It says nothing more than "something is there"**: not which parameter owns the envelope, and not its values. Reading or writing contents would need `automation_envelope` / `create_automation_envelope`, which are in the LOM and unexposed (`FORK_GAPS.md`). Both are keyed by a `DeviceParameter`, i.e. device automation; whether any spelling of them reaches a MIDI clip's pitch-bend or CC lanes is **unmeasured** |
 | `/live/clip/start_listen/has_envelopes` | `track_id, clip_id` | | ⚠️ **Seshat extension** — pushes on `/live/clip/get/has_envelopes`. Live's contract is that it notifies when the clip gains its first envelope or loses its last, not on every envelope edit |
 | `/live/clip/stop_listen/has_envelopes` | `track_id, clip_id` | | ⚠️ **Seshat extension** — stop listening |
 | `/live/clip/get/has_groove` | `track_id, clip_id` | `track_id, clip_id, has_groove` | Has groove? (0=False, 1=True). This is the flag `/live/clip/get/groove` is gated on — a clip whose `has_groove` is `0` reads `-1` there |
@@ -2351,30 +2351,6 @@ path — so a query resolves instead of hanging.
 | `/live/browser/get/items` | | `category, filter, 'error', message` | Unknown category, or indexing failed |
 | `/live/browser/load_item` | `track_id, uri` | `track_id, uri, 'ok', device_name, device_index` | Load a browser item onto a track |
 | `/live/browser/load_item` | | `track_id, uri, 'error', message` | Bad track index, unknown uri, or load failed. If `track_id` is missing or not a number the echo is `-1, ""`, not what was sent |
-
-⚠️ **A MIDI file is not loaded like a device.** Measured against Live 12.4.5
-Suite (build `2026-08-19_225ce5e356`) on 2026-08-30, with a `.mid` placed in the
-User Library — it appears in the browser immediately, with no rescan or restart,
-under an ordinary `query:UserLibrary#Clips:<name>.mid` uri:
-
-- **Live creates its own regular MIDI track** for the file, appended after the
-  existing tracks and named by position (`5-MIDI` on a five-track set). The
-  `track_id` argument, the selected track and the selected scene are all
-  ignored — the clip does **not** land in the selected clip slot, and the reply's
-  `device_index` describes nothing that was placed on `track_id`.
-- The clip takes the MIDI file's own internal track name (`Track 1`), not the
-  file name.
-- **Note timing is preserved exactly.** A file whose first note began at beat
-  `3.4818` produced a clip reading `start=3.4818`, with durations and velocities
-  matching field for field.
-- Clip length read `84.0` beats for a file whose last note ended at ~`81.7`.
-- **Pitch-bend data in the file survives as clip envelope(s)**, confirmed on
-  screen. This is currently the only route by which envelope data reaches a
-  clip — no address authors one — and `/live/clip/get/has_envelopes` is how a
-  client sees that it happened.
-
-A caller therefore resolves the created track by counting tracks either side of
-the load, the way it would for any Live command that makes its own track.
 | `/live/browser/load_item_on_return` | `return_index, uri` | `return_index, uri, 'ok', return_name, device_name, device_index` | Load a browser item onto a return track's chain |
 | `/live/browser/load_item_on_return` | | `return_index, uri, 'error', message` | Bad return index, unknown uri, load failed, or the load didn't land on the return. If `return_index` is missing or not a number the echo is `-1, ""` |
 | `/live/browser/load_item_on_master` | `uri` | `uri, 'ok', device_name, device_index` | Load a browser item onto the master track's chain |
@@ -2454,13 +2430,14 @@ the load, the way it would for any Live command that makes its own track.
   name** (`Track 1`), not the file name, so the reply's `device_name` and the
   clip's name are no guide to which file was loaded. Note timing is preserved
   exactly (a first note at beat `3.4818` reads back `start=3.4818`), as are
-  durations and velocities; clip length is rounded up to a bar boundary (84.0
-  beats for a file whose last note ended at ~81.7). **Pitch-bend data in the file
-  survives the import as clip envelope(s)** — read
-  `/live/clip/get/has_envelopes` to see that it arrived. This is the only way to
-  get expression data into a clip: no address authors envelopes. A caller that
-  needs the clip somewhere specific must find the new track (the set's track
-  count grows by one) and move the clip itself.
+  durations and velocities; clip length read `84.0` beats for a file whose last
+  note ended at ~`81.7` (one measurement — the rounding rule behind it is not
+  established). **Pitch-bend data in the file survives the import as clip
+  envelope(s)**, confirmed on screen — read `/live/clip/get/has_envelopes` to see
+  that it arrived. Importing a file is currently the only route by which envelope
+  data reaches a clip, since no address authors one. A caller that needs the clip
+  somewhere specific must find the new track (the set's track count grows by one)
+  and move the clip itself.
 
 ### `/live/browser/export`
 

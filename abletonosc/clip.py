@@ -245,10 +245,9 @@ class ClipHandler(AbletonOSCHandler):
             #--------------------------------------------------------------------------------
             # `has_envelopes` is a Seshat extension. It is a plain read-only bool
             # and needs no handler of its own, but what it is *for* is not obvious
-            # from the name: envelope data cannot be authored through any address —
-            # Live 12.4.5 exposes no envelope-writing member on `Clip` to the
-            # bridge at all — so importing a file through /live/browser/load_item is
-            # the only route by which expression data reaches a clip. This flag is
+            # from the name: no address in this fork authors envelope data, so
+            # importing a file through /live/browser/load_item is currently the
+            # only route by which expression data reaches a clip. This flag is
             # the only way a client can see that it arrived: notes read back through
             # get/notes_extended, but none of those nine fields is expression, so
             # without this the difference between an import that carried pitch bend
@@ -257,10 +256,11 @@ class ClipHandler(AbletonOSCHandler):
             # It answers only "does *some* envelope exist" — not which parameter
             # owns it, and not its values. Reading or writing an envelope's contents
             # needs `Clip.automation_envelope` / `create_automation_envelope`, which
-            # exist in the LOM (see FORK_GAPS.md) but are unexposed and take a
-            # DeviceParameter — so they reach device automation, not a MIDI clip's
-            # pitch-bend or CC lanes. Until one of them is exposed this flag is the
-            # whole of what a client can learn about envelopes.
+            # exist in the LOM (see FORK_GAPS.md) but are unexposed. Both are keyed
+            # by a DeviceParameter — device automation — and whether any spelling
+            # of them reaches a MIDI clip's pitch-bend or CC lanes is unmeasured.
+            # Until that is settled and one is exposed, this flag is the whole of
+            # what a client can learn about envelopes.
             #--------------------------------------------------------------------------------
             "has_envelopes",
             "has_groove",

@@ -427,16 +427,19 @@ resending the whole clip on every note edit is the naive answer.
 ### `Clip` envelopes — the flag ships, the contents do not
 
 `has_envelopes` has shipped, as `/live/clip/get/has_envelopes` plus a listen
-pair. It is the whole of the envelope surface, and deliberately so: the rest of
-the family — `automation_envelope`, `automation_envelopes`,
-`create_automation_envelope`, `clear_envelope`, `clear_all_envelopes` — has no
-address and cannot get one usefully. Every one of them is keyed by a
-`DeviceParameter` *object*, which no address can pass, and `automation_envelope`
-is absent from `_MxDCore/LomTypes.pyc` at 12.4.5 besides. So envelope data can
-be neither authored nor read through this bridge; importing a file through
-`/live/browser/load_item` is the only route by which any reaches a clip, and
-`has_envelopes` is the only way to see that it did. It answers "something is
-there" and nothing about what or where.
+pair. It is the whole of the envelope surface for now. The rest of the family —
+`automation_envelope`, `automation_envelopes`, `create_automation_envelope`,
+`clear_envelope`, `clear_all_envelopes` — is in the LOM and stays unexposed,
+listed in the generated table below like any other gap. They are not blocked,
+only unclaimed: each is keyed by a `DeviceParameter`, which the fork can already
+name as a `(track, device, parameter)` triple (see `track_identity.py`), so an
+address is buildable. What is missing is the measurement — a `DeviceParameter`
+addresses *device automation*, and **whether any spelling of these reaches a MIDI
+clip's pitch-bend or CC lanes is unmeasured**. Until someone measures it,
+importing a file through `/live/browser/load_item` is the only route by which
+envelope data is known to reach a clip, and `has_envelopes` is the only way to
+see that it did — it answers "something is there" and nothing about what or
+where.
 
 (The generated table below still counts `has_envelopes` as a gap: the inventory
 is a `dump_lom` artifact and is not hand-edited. This prose is the record until
