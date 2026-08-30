@@ -555,6 +555,101 @@ parameters, recording each object's actual type and members — run against a se
 containing one of every device. That needs Live and a curated set. Ranked in
 ROADMAP.md as "Walk a live instance graph, not only the class graph".
 
+### Measured 2026-08-30, Live 12.4.5 — how much of this is callable at all
+
+Planned as one item with the read-half sweep
+(`docs/PLAN_lom_instance_walk.md`). The sweep's method predicate — a method is
+read-shaped when its name starts `get_`/`is_`/`has_`/`can_` **and** its
+Boost.Python docstring parses to a signature taking only the receiver — was
+probed against a running Live before being planned:
+
+```
+PROBE2 totals methods=589 prefixed=44 selected=18 unparsed=0
+```
+
+**The read sweep's method half is 18 calls, not 589.** 44 methods carry one of
+the prefixes; 18 of those are zero-argument. So the surface an automated
+read-only pass can convert from tier 1 to tier 2 is **894 properties + 18
+methods**, and the other 571 methods remain tier 1 until something demands one
+of them individually. The arity parser met no docstring it could not parse.
+
+Three of the 18 are `Live.Licensing.PythonLicensingBridge` —
+`get_progress_dialog`, `get_session_id`, `get_trial_time_left` — which the
+"Reachable is not desirable" rule above shuts. They are denylisted in the
+sweep, which is the first case of this file's policy having to override a
+syntactic rule.
+
+This measures which methods are *selectable*, not that calling the remaining 15
+is harmless. That is what the first instance walk tests.
+
+### Run 1 of the instance walk — 2026-08-30, Live 12.4.5
+
+Shipped as `/live/application/dump_lom_instances` and run against the set that
+was open: **1 track, 0 return tracks, 8 scenes, no devices, never saved.** A
+thin set, and the numbers below are that set's, not Live's.
+
+```
+13 types, 42 objects, 647 reads, 11 calls, 43 errors, 0.018s
+cycle_hits 52 · depth_truncations 0 · listeners recorded-never-called 1143
+```
+
+**Does a class exist that is reachable only as a property's value?** On this
+set, **no** — every type the walk reached is already in `lom_dump.json`. An
+empty difference is a result and is recorded as one; it is not evidence for
+Live in general, because a set with no devices cannot produce device-only
+types. Three entries (`Live.Application.View`, `Live.Song.View`,
+`Live.Track.View`) *appear* to be new and are **not**: the class walk keys a
+nested class by its owner (`Live.Song.Song.View`) while Boost.Python's
+`__qualname__` for it is the bare `View`, so the two key sets need normalising
+before they can be compared. Writing those three up as a discovery would have
+repeated this file's `TestUtilities` mistake exactly.
+
+**What the run did produce is the first tier-2 evidence in this repository:**
+21 distinct measured failure contracts, none of which appears in any
+inventory here, because "what raises" is not a member-level fact. A sample:
+
+| member | what it raises |
+|---|---|
+| `Track.mute` | `RuntimeError: Main track has no 'mute' property!` |
+| `Track.arm` | `RuntimeError: Main and Return Tracks have no 'Arm' state!` |
+| `Track.input_meter_left` | `RuntimeError: MIDI tracks have no 'input_meter_left' property!` |
+| `MixerDevice.crossfader` | `RuntimeError: Only the main track has a crossfader!` |
+| `DeviceParameter.value_items` | `RuntimeError: Only quantized parameters have value items` |
+| `DeviceParameter.default_value` | `RuntimeError: There is no default value available for this type of parameter` |
+
+Each is a precondition on an address this fork already ships, stated by Live
+itself in a sentence no docstring carries.
+
+**Two defects the run found in the walker, both of which had passed the
+Live-free suite.** They are recorded here because each is a way a walk can
+report success while measuring nothing:
+
+1. **`__module__` is the leaf name.** `type(song).__module__` is `"Song"`, not
+   `"Live.Song"`. A `"Live."` prefix test therefore matched *nothing*, and run
+   1 walked 2 objects, reported 0 errors and finished in 4ms — a clean, empty,
+   entirely wrong result. The discriminator is now `LomObject` in the MRO,
+   which every walkable object has and no vector does.
+2. **`id()` is not identity for a LOM object.** Boost.Python returns a **fresh
+   Python wrapper on every property access**, so
+   `song.groove_pool.canonical_parent is song` is `False`. An `id()`-keyed
+   cycle guard never fires: the walk recorded one `Song` 11 times, spent its
+   entire depth budget on
+   `groove_pool.canonical_parent.groove_pool.canonical_parent…`, never reached
+   `Song.tracks`, and again reported 0 errors. Worse, the short-lived wrappers
+   are collected and their addresses reused, so 54 of the "cycle hits" that
+   run were false — an id-keyed guard *skips* objects it has never seen. The
+   guard now keys on `_live_ptr`, Live's own pointer to the underlying C++
+   object, which is a stable int on every LomObject.
+
+Both are pinned by `tests_unit/test_instance_walk.py`. Neither could have been
+caught there first: a synthetic Python object graph has honest `__module__`
+values and stable `id()`s, which is precisely why the Live-free suite went
+green on a walk that measured nothing.
+
+**Still open after this run:** whether a curated set holding one of every
+device produces types the class walk lacks. That is the same tool against a
+better set, and it needs no code.
+
 ## Blind spot 6 — the inbound contract is not a walkable surface
 
 Every blind spot above is about what a client can call on Live. The Remote
@@ -588,7 +683,9 @@ was learnt only by calling it. Argument domains, which enum values are legal in
 which context, what raises, and what a call does to the undo stack are all
 outside every inventory this repository generates. The probe rig in `API.md` §
 "Measuring the Live API without building the feature first" is the channel for
-that, and it is currently broken on a fresh session (issue #35).
+that, and it was exercised successfully on 2026-08-30 (Live 12.4.5):
+`/live/api/reload` worked repeatedly across a fresh session. Issue #35 is
+closed.
 
 **One build, one edition.** Every measurement in this file is Live 12.4.5
 Suite, macOS. Intro, Lite and Standard gate features; other Live versions add
@@ -616,8 +713,8 @@ and any claim in that form should be read as the first thing.
   binary's registration table. Argument order, return shapes and whether any
   of it raises are unmeasured. Use the probe rig in `API.md` §
   "Measuring the Live API without building the feature first" before
-  planning against any of it — and note that the rig itself is currently
-  broken on a fresh session (issue #35).
+  planning against any of it. The rig itself works: issue #35 is closed, and
+  it was exercised on 2026-08-30 against Live 12.4.5.
 
 ## What closes this file
 

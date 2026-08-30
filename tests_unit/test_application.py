@@ -249,6 +249,9 @@ REGISTERED_ADDRESSES = {
     "/live/application/get/version",
     "/live/application/get/average_process_usage",
     "/live/application/dump_lom",
+    # The instance walk (introspection.py's second half). Takes no wire path,
+    # deliberately unlike dump_lom above — see the handler comment.
+    "/live/application/dump_lom_instances",
     # Generic-loop scalar reads.
     "/live/application/get/open_dialog_count",
     "/live/application/get/current_dialog_message",
@@ -278,6 +281,59 @@ REGISTERED_ADDRESSES = {
 
 def test_registration_table_is_exactly_this(server, handler):
     assert set(server._callbacks) == REGISTERED_ADDRESSES
+
+
+def test_dump_lom_instances_dispatches_with_the_fixed_path_and_reply_shape(
+        server, receiver, monkeypatch, application):
+    module = load_application_module()
+    monkeypatch.setattr(module, "get_application", lambda: application)
+    observed = {}
+
+    def fake_dump(path, song):
+        observed["path"] = path
+        observed["song"] = song
+        return path, 13, 42, 3
+
+    monkeypatch.setattr(module.introspection, "dump_lom_instances", fake_dump)
+    handler = module.ApplicationHandler(FakeManager(server))
+    song = object()
+    handler.song = song
+    receiver.drain()
+
+    # The trailing value is deliberately ignored: the address has no wire path
+    # argument, even though every dispatcher callback receives a params tuple.
+    dispatch(server, "/live/application/dump_lom_instances", "/tmp/not-used")
+
+    assert observed["path"].endswith("/logs/lom_instances.json")
+    assert observed["song"] is song
+    assert receiver.drain() == [
+        ("/live/application/dump_lom_instances",
+         (observed["path"], 13, 42, 3)),
+    ]
+
+
+def test_dump_lom_instances_failure_is_a_structured_error(
+        server, receiver, monkeypatch, application):
+    module = load_application_module()
+    monkeypatch.setattr(module, "get_application", lambda: application)
+
+    def failed_dump(path, song):
+        raise OSError("instance dump is not writable")
+
+    monkeypatch.setattr(module.introspection, "dump_lom_instances", failed_dump)
+    module.ApplicationHandler(FakeManager(server))
+    receiver.drain()
+
+    dispatch(server, "/live/application/dump_lom_instances")
+
+    messages = receiver.drain()
+    assert len(messages) == 1
+    address, params = messages[0]
+    assert address == ERROR
+    assert params[0] == "request"
+    assert params[1] == "/live/application/dump_lom_instances"
+    assert "instance dump is not writable" in params[2]
+    assert params[3] == 0
 
 
 #--------------------------------------------------------------------------------
