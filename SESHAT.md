@@ -520,7 +520,9 @@ so treat any merge that reverts one as a regression, not a preference.
   a module (Boost.Python free functions such as
   `Live.Conversions.audio_to_midi_clip`) under the module's qualname with
   `"kind": "module"`, alongside the classes; see `BLIND_SPOTS.md` for what
-  dropping them used to hide.
+  dropping them used to hide. `tests_unit/test_lom_gaps.py` pins the report's
+  module tables and signatures, constant rendering, enum/vector exclusions,
+  Markdown escaping and separate totals.
 
 - **`application.py` — the application-level address table, and the
   `get_application()` seam.** Upstream registers three addresses out of a
@@ -1897,13 +1899,16 @@ submodule checkout `git submodule update --init` creates in Seshat) has only
   uncovered**: `tests_unit/test_reload_list.py` reads `manager.py` with `ast`
   and fails if a module in `abletonosc/` is named in neither the reload
   sequence nor `RELOAD_EXEMPT`, if the sequence names a module that does not
-  exist, or if any module is reloaded before something it `from`-imports —
-  the last derived from the sources themselves, so it covers the
-  `track_callback`, `track_identity`, `path_safety`, `groove` and `constants`
-  ordering rules without restating them. Nothing outside Live can *call*
-  `reload_imports`, so the test proves the shape of the list, not that a
-  reload works; the in-code comments remain the record of why each position
-  is what it is. The list is one upstream also edits, and dropping its
+  exist, or if any reloaded module is reloaded before something it
+  `from`-imports — the last derived from the sources themselves, so it covers
+  the `track_callback`, `track_identity`, `path_safety` and `groove` ordering
+  rules without restating them. `constants` is deliberately in
+  `RELOAD_EXEMPT`: the running `OSCServer` has already copied both ports and
+  bound its socket, so a port edit requires a Remote Script restart rather
+  than a reload that falsely reports the old ports as changed. Nothing outside
+  Live can *call* `reload_imports`, so the test proves the shape of the list,
+  not that a reload works; the in-code comments remain the record of why each
+  position is what it is. The list is one upstream also edits, and dropping its
   `abletonosc.track_callback` line is invisible until someone edits the
   wrapper and `/live/api/reload` appears not to take.
 

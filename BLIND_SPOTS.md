@@ -18,7 +18,7 @@ evidence only as far as the Status table below says it is.
 
 | | state |
 |---|---|
-| 1 · report filter drops 90 of 134 walked entries | **fixed** — `tools/lom_gaps.py` renders them in *Walked but not diffed*, with the enum/vector exclusion written down as a named rule |
+| 1 · report filter drops 90 of 134 walked entries | **fixed** — `tools/lom_gaps.py` renders them in *Walked but not diffed*, with the enum/vector exclusion written down as a named rule; `tests_unit/test_lom_gaps.py` pins the exclusions, module tables, signatures, constants and totals |
 | 2 · walker drops module-level members | **fixed and verified** — measured against Live 12.4.5 on 2026-08-30; **7 modules carrying 33 free functions**, none of which had ever appeared in any inventory |
 | 3 · everything outside the `Live` module is unwalked | **open** — no decision recorded |
 

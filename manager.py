@@ -16,8 +16,8 @@ logger = logging.getLogger("abletonosc")
 # reload. tests_unit/test_reload_list.py fails if a module is added to the
 # package and appears in neither this set nor the ordered sequence in
 # reload_imports(), so the two can never drift apart silently again — which
-# they had, twice: `constants` was absent with no record (now reloaded, first,
-# for the reason written at that line) and `introspection` was present in the
+# they had, twice: `constants` was absent with no record (now explicitly
+# restart-only, for the reason below) and `introspection` was present in the
 # sequence but absent from the package until a callback happened to import it,
 # which aborted every reload on a fresh session.
 #
@@ -31,10 +31,17 @@ logger = logging.getLogger("abletonosc")
 #   handler like every other subclass module; nothing prevents that, it is
 #   simply not worth a behaviour change to a module with no such reads.
 #
+# constants: OSCServer copies both port constants into instance state and
+#   binds its socket once, in Manager.__init__. Reloading constants.py and
+#   osc_server.py cannot move that existing socket or change its response
+#   port, so claiming success after a port edit would still be false. A port
+#   change requires a Remote Script restart; keep that limitation explicit
+#   instead of performing a reload that cannot affect running behaviour.
+#
 # __init__ is not listed: the package itself is reloaded last, as
 #   importlib.reload(abletonosc), which is what re-executes __init__.py.
 #--------------------------------------------------------------------------------
-RELOAD_EXEMPT = frozenset(["midimap"])
+RELOAD_EXEMPT = frozenset(["constants", "midimap"])
 
 class Manager(ControlSurface):
     def __init__(self, c_instance):
@@ -210,17 +217,6 @@ class Manager(ControlSurface):
             failed = None
 
         try:
-            #--------------------------------------------------------------------------------
-            # constants before osc_server, which does
-            # `from .constants import OSC_LISTEN_PORT, OSC_RESPONSE_PORT`.
-            # Reloading osc_server re-executes that `from` import against the
-            # already-loaded constants module object — reload never
-            # re-executes constants.py — so without this line an edit to
-            # either port constant logs success and changes nothing. Same
-            # stale-`from`-import failure documented for track_identity,
-            # path_safety and groove below.
-            #--------------------------------------------------------------------------------
-            _reload("constants")
             _reload("osc_server")
             _reload("handler")
             #--------------------------------------------------------------------------------

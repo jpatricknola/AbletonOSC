@@ -646,7 +646,10 @@ unrelated reason noted in its own row above.
    Python in this repository does nothing until it is copied into Live's
    Remote Scripts (Seshat's `mix abletonosc.install` does that), and a reload won't pick up a *new* module either — that
    needs Live restarted, or AbletonOSC toggled off and back on under
-   Preferences > Link/Tempo/MIDI > Control Surface.
+   Preferences > Link/Tempo/MIDI > Control Surface. The two port constants are
+   restart-only too: `OSCServer` copies them into instance state and binds its
+   socket during startup, and a module reload does not replace that running
+   server.
 2. It can take the whole API down. `Manager.clear_api()` unregisters every
    address (`clear_handlers()`) as its first line, *then* tears down each
    handler's listeners. If anything in that teardown or in the re-import that

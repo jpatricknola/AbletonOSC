@@ -103,12 +103,14 @@ the original goal, with no change to `/live/api/reload`'s wire contract.
 `tests_unit/test_reload_list.py` is the Live-free tripwire for the list's
 shape.
 
-**The midimap question is answered:** `abletonosc.midimap` stays unreloaded,
-now recorded as `RELOAD_EXEMPT` in `manager.py` with the reason, rather than
-being absent with a comment pointing here. The same mechanism caught a second,
-undocumented omission — `abletonosc.constants`, which `osc_server.py`
-`from`-imports, so an edit to either port constant used to report success and
-change nothing. It is now reloaded first.
+**The exempt-module question is answered:** `abletonosc.midimap` stays
+unreloaded for the class-identity reason recorded beside `RELOAD_EXEMPT` in
+`manager.py`. `abletonosc.constants` is also explicitly restart-only:
+`OSCServer` copies the listen and response ports into instance state and binds
+its socket in `Manager.__init__`, and `reload_imports()` never replaces that
+server. Reloading `constants` before `osc_server` would update class defaults
+but leave both ports of the running instance unchanged while reporting
+success. A port edit therefore requires a Remote Script restart.
 
 **What remains:** the original goal's first clause — "a reload that raises does
 not activate a partially reloaded module graph". It is **not achievable as

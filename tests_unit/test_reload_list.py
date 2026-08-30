@@ -20,7 +20,8 @@ Two real defects motivated it, both invisible to the other 800 tests:
    had never been fired the reload raised AttributeError on it and skipped
    every module after it.
 2. `abletonosc.constants` was in the package and in nothing else — absent from
-   the sequence with no record that the omission was deliberate.
+   the sequence with no record that a running OSCServer cannot adopt new port
+   constants without a Remote Script restart.
 """
 
 import ast
@@ -100,6 +101,17 @@ def test_exempt_modules_are_not_also_reloaded():
     assert not (_reload_exempt() & set(_reload_sequence()))
 
 
+def test_port_constants_are_restart_only():
+    #--------------------------------------------------------------------------------
+    # OSCServer copies its listen and response ports into instance state and
+    # binds its socket in __init__. reload_imports() never replaces the
+    # Manager's existing server, so reloading constants.py would report a port
+    # edit as live while both ports remained unchanged. Keep the module exempt
+    # until reload_imports() owns a safe server-replacement lifecycle.
+    #--------------------------------------------------------------------------------
+    assert "constants" in _reload_exempt()
+
+
 def _module_scope_from_imports(path):
     """`from .X import name` at module scope -> {X}. `from . import X` is excluded."""
     #--------------------------------------------------------------------------------
@@ -123,8 +135,7 @@ def test_from_imports_are_reloaded_before_their_importers():
     # y` in a handler is checked the day it is written. This is the machine
     # form of every ordering comment in reload_imports(): track_identity before
     # song/track/view, path_safety before clip_slot/device/track, groove before
-    # clip/song, track_callback before track, constants before osc_server,
-    # osc_server before handler.
+    # clip/song, track_callback before track, osc_server before handler.
     #--------------------------------------------------------------------------------
     position = {module: index for index, module in enumerate(_reload_sequence())}
     violations = []
