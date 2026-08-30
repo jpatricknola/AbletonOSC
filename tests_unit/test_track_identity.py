@@ -540,3 +540,87 @@ def test_resolve_device_rejects_the_none_category(track_identity):
 
 def test_category_none_is_declared(track_identity):
     assert track_identity.CATEGORY_NONE == "none"
+
+
+#--------------------------------------------------------------------------------
+# clip_slot_indices — the clip-slot-valued object read behind
+# /live/view/get/highlighted_clip_slot
+#--------------------------------------------------------------------------------
+
+class FakeClipSlot:
+    """A clip slot that knows its track, the way a real one does."""
+
+    def __init__(self, canonical_parent=None):
+        self.canonical_parent = canonical_parent
+
+
+def give_clip_slots(track, count):
+    track.clip_slots = [FakeClipSlot(canonical_parent=track) for _ in range(count)]
+    return track.clip_slots
+
+
+def song_with_clip_slots(scene_count=4, n_tracks=3, n_returns=2):
+    song = build_song(n_tracks=n_tracks, n_returns=n_returns)
+    for track in list(song.tracks) + list(song.return_tracks) + [song.master_track]:
+        give_clip_slots(track, scene_count)
+    return song
+
+
+def test_clip_slot_none_answers_the_none_pair(track_identity):
+    """
+    Live documents Song.View.highlighted_clip_slot as None for the Main and
+    Send tracks. That is this pair, and it is an answer rather than an error.
+    """
+    song = song_with_clip_slots()
+    assert track_identity.clip_slot_indices(song, None) == (-1, -1)
+
+
+@pytest.mark.parametrize("track_index", [0, 1, 2])
+@pytest.mark.parametrize("scene_index", [0, 3])
+def test_a_regular_track_slot_resolves_to_its_coordinate(track_identity, track_index,
+                                                         scene_index):
+    song = song_with_clip_slots()
+    slot = song.tracks[track_index].clip_slots[scene_index]
+    assert track_identity.clip_slot_indices(song, slot) == (track_index, scene_index)
+
+
+@pytest.mark.parametrize("category", ["return_track", "master"])
+def test_a_return_or_master_slot_answers_the_none_pair(track_identity, category):
+    """
+    No (track, scene) coordinate reaches one, so rule 3's "not representable"
+    -1 is the honest answer. Deliberately not a ValueError: unlike
+    group_track_index's raise, this state is only documented-not-expected, and
+    a -1 pair the caller already handles beats an error it does not.
+    """
+    song = song_with_clip_slots()
+    track = song.return_tracks[0] if category == "return_track" else song.master_track
+    assert track_identity.clip_slot_indices(song, track.clip_slots[1]) == (-1, -1)
+
+
+def test_a_slot_absent_from_its_own_tracks_clip_slots(track_identity):
+    """
+    The owning track resolves but the slot is not in its collection: the track
+    half is still an answer, the scene half is the -1. Reached through
+    _index_of, the same way a rack-nested device gets its device_index -1.
+    """
+    song = song_with_clip_slots()
+    orphan = FakeClipSlot(canonical_parent=song.tracks[2])
+    assert track_identity.clip_slot_indices(song, orphan) == (2, -1)
+
+
+def test_a_slot_belonging_to_no_track_raises(track_identity):
+    """
+    Loud, for the same reason owning_track_identity is loud: a sentinel here
+    would make "cannot resolve this at all" indistinguishable from "nothing is
+    highlighted", and those must not collapse onto one reply.
+    """
+    song = song_with_clip_slots()
+    with pytest.raises(ValueError):
+        track_identity.clip_slot_indices(song, FakeClipSlot(canonical_parent=None))
+
+
+def test_the_coordinate_is_plain_ints(track_identity):
+    song = song_with_clip_slots()
+    indices = track_identity.clip_slot_indices(song, song.tracks[1].clip_slots[2])
+    assert all(isinstance(value, int) and not isinstance(value, bool)
+               for value in indices)

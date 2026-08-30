@@ -702,8 +702,11 @@ so treat any merge that reverts one as a regression, not a preference.
   silently goes back to reverting whole conversations.
 
 - **`view.py` — `/live/view/show_view`, `/live/view/hide_view`,
-  `/live/view/get/is_view_visible`, `/live/view/set/detail_clip` and the
-  selected-track identity trio.** The first Seshat addresses to live in an
+  `/live/view/focus_view`, `/live/view/get/is_view_visible`,
+  `/live/view/set/detail_clip`, the selected-track identity trio, A-4's four
+  object-valued `get/` rows, and the focus-and-selection reads
+  (`get/focused_document_view` + its listen pair, `get|set/highlighted_clip_slot`).**
+  The first Seshat addresses to live in an
   upstream file rather than in a handler of our own: they belong to the View
   API by every other measure, and splitting them into a fourth module would
   put two `ViewHandler`s in `manager.py`. Upstream can
@@ -789,6 +792,80 @@ so treat any merge that reverts one as a regression, not a preference.
   silencing it would be a permanent behavioural divergence in an upstream file
   with breakage risk for non-Seshat clients, to remove one datagram. Seshat's
   `FollowCam` ignores it.
+
+  **`focus_view`, and the two focus-and-selection reads that answer it.**
+  `Application.View.focus_view` is *not* `show_view`: `show_view` makes a pane
+  visible, `focus_view` gives it keyboard focus, and Live's menu-command
+  validation reads focus rather than visibility — measured 2026-08-30, when
+  `Create > Convert Melody to New MIDI Track` stayed disabled after
+  `show_view("Session")` plus an OSC clip selection and enabled only once the
+  Session grid was clicked. `FORK_GAPS.md` had dismissed the member as
+  overlapping `show_view`, which is what kept it closed; that note is corrected.
+  The handler is **silent**, like `show_view`/`hide_view`.
+
+  Because `focus_view` is fire-and-forget, two reads exist to check it and the
+  selection it steers, and both are fork-only:
+
+  - **`/live/view/get/focused_document_view`** follows the fork's *getter*
+    rule, not the silent-setter rule: it always replies, `["ok", name]` or
+    `["error", message]`, so silence keeps meaning only "this extension is not
+    installed". ⚠️ **Partial verification.** Live answers `Session` or
+    `Arranger` and nothing else, so it cannot report that the Browser or a
+    Detail pane holds focus — `focus_view("Browser")` left this read unchanged
+    (measured 2026-08-30). It proves focus is on the *wrong* document view; it
+    can never prove focus is right, and `API.md`'s row is the only place that
+    says so.
+  - **Its `start_listen`/`stop_listen` pair is the one pair in `view.py` whose
+    subject is `Application.View`, not `Song.View`**, and it is the reason the
+    two wrappers exist instead of two `partial()`s. `Live` is an *empty stub*
+    under `tests_unit/`, so this file's contract with that suite is that every
+    `Live` dereference happens at **call** time; binding
+    `Live.Application.get_application().view` into a `partial()` at
+    registration time would raise `AttributeError` while constructing the
+    handler and take the whole Live-free suite down.
+    `test_constructing_the_handler_never_touches_live` asserts that contract
+    directly. `_start_listen` itself is untouched — it already takes its target
+    as a parameter, keys on `(prop, params)` and unbinds from the *stored*
+    target, so a subject that is not `Song.View` costs the shared helper
+    nothing. ⚠️ `add_focused_document_view_listener` is **unmeasured**: the
+    inventory's `obs: yes` is the usual evidence, but if Live does not expose
+    the accessor, `start_listen` raises into a `"request"` error. The getter
+    does not depend on it.
+  - **`/live/view/get/highlighted_clip_slot`** is an object-valued read in the
+    A-4 sense — the LOM member is a `ClipSlot` — answered as the ordinary
+    `(track_index, scene_index)` coordinate by the new
+    `track_identity.clip_slot_indices`, with `-1, -1` for none. Live documents
+    the member as `None` for the Main and Send tracks; that is the none-pair,
+    not an error. **No listen pair**: the member is not observable, which makes
+    it the *second* object-valued read that could not have one — `API.md`'s
+    §Object-valued reads used to say `Track.group_track` was the only such
+    member, and now names both. It is a second, independent confirmation that a
+    selection landed: `get/selected_clip` reports the ring, and if the ring and
+    the highlighted slot can ever disagree, a menu press acts on something other
+    than what the caller believes is selected.
+  - **`/live/view/set/highlighted_clip_slot` validates rather than indexes**,
+    which is the A-4 setter rule (`set/appointed_device`, `set/groove`) and
+    deliberately *not* the `set/selected_*` idiom sitting directly above it in
+    the same file. `-1, -1` is exactly what its own getter answers for "nothing
+    highlighted", so a client round-tripping its own snapshot through a
+    subscripting setter would silently highlight the last scene of the last
+    track with nothing on the wire to say so. `-1` is an answer, never an
+    argument, and a new address has no upstream-compatibility reason to inherit
+    the legacy wrap-around. The setter is expected to be redundant with
+    `set/selected_clip` — Live documents the slot as "defined via the selected
+    track and scene" — and is carried as insurance, not as a fix. A merge that
+    replaces the validation with a subscript reverts this **silently**: every
+    address still exists and every good request still works.
+
+  Live-free tripwire for all five: `tests_unit/test_view_focus_reads.py`
+  (`clip_slot_indices` itself is `tests_unit/test_track_identity.py`).
+
+  **Downstream: pin bump only.** Six addresses added, none renamed or removed,
+  no reply shape changed and no listener push gaining fields, so Seshat's
+  `vendored_addresses_test` picks the literals up from `view.py` with no
+  decoding change. The reads are worth *wiring* on the Seshat side — a
+  `focus_view` steer has no other confirmation — but nothing breaks if they
+  are not.
 
 - **`osc_server.py` + `manager.py` — `/live/error` carries the request that
   failed.** Upstream catches a raising callback nowhere near the callback: the
@@ -1027,9 +1104,10 @@ so treat any merge that reverts one as a regression, not a preference.
   comment no longer says "the listen pair only".
 
   All the resolution lives in **`track_identity.py`** (`group_track_index`,
-  `owning_track_identity`, `device_identity`, `parameter_identity`,
-  `chain_identity`, plus the inverse resolvers `resolve_track` /
-  `resolve_device`), so it can be covered exhaustively as plain functions
+  `clip_slot_indices`, `owning_track_identity`, `device_identity`,
+  `parameter_identity`, `chain_identity`, plus the inverse resolvers
+  `resolve_track` / `resolve_device`, which `view.py` now imports too for
+  `set/highlighted_clip_slot`), so it can be covered exhaustively as plain functions
   parameterised on `song`, with no handler or OSC server in the way.
   `owning_track_identity`
   climbs `canonical_parent` with a 16-level cap: the cap is what keeps a
