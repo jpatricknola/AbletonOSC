@@ -66,21 +66,21 @@ exists.
 
 Do not plan a 1,483-member manual campaign. Split it.
 
-### Read half — exhaustive, automatable, one pass
+### Read half — shipped as an exhaustive, automatable pass
 
-Every property read and every getter-shaped method can be exercised in a single
-read-only probe run that records, per member:
+`/live/application/dump_lom_instances` now performs the pass and writes
+`logs/lom_instances.json`. It reads every property and every getter-shaped
+method selected by the documented safety predicate, recording per member:
 
 - the **actual type** of what comes back (`type(v).__name__`, and the element
   type for vectors — this is also what closes the instance-walk inventory hole)
 - a truncated `repr`
 - whether the read **raised**, and with what
 
-This converts the majority of the surface from tier 1 to tier 2 in one run, and
-it is safe: no mutation, no undo step needed. It is the same shape as the probe
-run in this session, just wider. **Do this first** — it is the highest ratio of
-answered questions to Live sessions available, and it subsumes ROADMAP #3's
-inventory half.
+This converts the majority of the surface from tier 1 to tier 2 in one run. It
+is read-only: no mutation and no undo step. Structural collections such as
+tracks, devices, chains and parameters are traversed in full; only large note
+and warp-marker payloads cap recursion, and the dump records that truncation.
 
 Run it once per Live version, and once per edition if licences ever allow;
 diffing two runs is what would finally answer which surface is edition-gated.
@@ -157,16 +157,16 @@ measured and still wrong. So:
   a claim before anything had been called; the probe showed it is not reachable
   from Python at all.
 
-## Open decisions for whoever picks this up
+## Decisions and remaining follow-up
 
-1. **Where does read-half output live?** It is a third artefact next to
-   `lom_dump.json` and `FORK_GAPS.md`, and it is per-Live-version. Deciding
-   whether it merges into the dump or sits beside it also decides whether
-   `tools/lom_gaps.py` and `tests_unit/test_lom_gaps.py` have to move.
-2. **What is the reference set?** Both the read sweep and the instance walk
+1. **Output location — resolved.** It is the separate, set-scoped
+   `logs/lom_instances.json` artefact beside `lom_dump.json`; it is not merged
+   into the per-version class dump. `tools/lom_gaps.py` and
+   `tests_unit/test_lom_gaps.py` therefore do not move.
+2. **Reference set — remaining follow-up.** Both the read sweep and instance walk
    measure whatever set is open. A walk over a working set measures that set,
    not Live. Someone has to build and describe a set holding one of every
    device, and the dump has to record which set produced it.
-3. **How much of the read half is worth doing before the instance walk**, given
-   they overlap heavily — the read sweep answers the instance walk's inventory
-   question as a side effect. They may be one item, not two.
+3. **Item boundary — resolved.** The read sweep and instance walk shipped as
+   one traversal and one artefact because the sweep's value-type record is the
+   instance walk's inventory answer.

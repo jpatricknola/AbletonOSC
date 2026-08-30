@@ -561,7 +561,8 @@ so treat any merge that reverts one as a regression, not a preference.
   The output is **set-scoped**, unlike `lom_dump.json`, and deliberately a
   separate file: `tools/lom_gaps.py` does not read it and `FORK_GAPS.md` is
   not generated from it. `tests_unit/test_instance_walk.py` pins the
-  predicate, the cycle guard, the depth bound, the vector sampling, the
+  predicate, the cycle guard, the depth bound, full traversal of structural
+  vectors, the recursion cap for note/warp-marker payload vectors, the
   never-call-a-listener rule and the record shape.
 
 - **`application.py` — the application-level address table, and the

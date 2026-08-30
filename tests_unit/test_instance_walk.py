@@ -16,6 +16,10 @@ objects behave as modelled. The first real run against Live is what tests that,
 and its error map is the evidence.
 """
 
+import json
+import sys
+import types
+
 import pytest
 
 from .conftest import load_module
@@ -270,6 +274,42 @@ def test_a_vector_records_its_element_type_and_length(introspection):
     assert types["Live.Fake.Track"]["instances"] == 3
 
 
+def test_a_scalar_vector_records_the_actual_builtin_element_type(introspection):
+    @_live
+    class Song(LomObject):
+        scale_intervals = property(lambda self: [0, 2, 4, 5, 7, 9, 11])
+
+    types, _, _, _ = _walk(introspection, Song())
+    record = types["Live.Fake.Song"]["members"]["scale_intervals"]
+
+    assert record["element_types"] == {"int": 1}
+
+
+def test_a_structural_vector_is_walked_past_the_payload_limit(introspection):
+    @_live
+    class Device(LomObject):
+        class_name = property(lambda self: "Wavetable")
+
+    @_live
+    class Track(LomObject):
+        def __init__(self, devices=()):
+            self._devices = devices
+
+        devices = property(lambda self: self._devices)
+
+    tracks = [Track() for _ in range(introspection.VECTOR_RECURSE_LIMIT)]
+    tracks.append(Track([Device()]))
+
+    @_live
+    class Song(LomObject):
+        tracks = property(lambda self: tracks)
+
+    types, _, skipped, _ = _walk(introspection, Song())
+
+    assert "Live.Fake.Device/Wavetable" in types
+    assert skipped["vector_truncations"] == 0
+
+
 def test_two_objects_of_one_type_merge_into_a_single_entry(introspection):
     @_live
     class Track(LomObject):
@@ -441,6 +481,44 @@ def test_a_type_entry_has_the_documented_shape(introspection):
 
     assert set(entry) == {"instances", "example_paths", "members"}
     assert set(entry["members"]["tempo"]) == {"kind", "reads", "types", "repr"}
+
+
+def test_dump_lom_instances_writes_the_documented_top_level_schema(
+        introspection, monkeypatch, tmp_path):
+    @_live
+    class Application(LomObject):
+        def get_major_version(self):
+            return 12
+
+        def get_minor_version(self):
+            return 4
+
+        def get_bugfix_version(self):
+            return 5
+
+    @_live
+    class Song(LomObject):
+        file_path = property(lambda self: "")
+        tracks = property(lambda self: [])
+        return_tracks = property(lambda self: [])
+        scenes = property(lambda self: [])
+
+    application = Application()
+    live = types.SimpleNamespace(
+        Application=types.SimpleNamespace(get_application=lambda: application))
+    monkeypatch.setitem(sys.modules, "Live", live)
+
+    path = tmp_path / "lom_instances.json"
+    result = introspection.dump_lom_instances(str(path), Song())
+    with path.open() as stream:
+        data = json.load(stream)
+
+    assert set(data) == {
+        "schema", "live_version", "provenance", "types", "skipped", "totals",
+    }
+    assert data["schema"] == 1
+    assert data["live_version"] == "12.4.5"
+    assert result == (str(path), 2, 2, 0)
 
 
 #--------------------------------------------------------------------------------

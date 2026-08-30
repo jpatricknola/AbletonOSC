@@ -457,7 +457,7 @@ first. Never bind 11001. This is `API.md` § "The no-probe variant".
 | 2 | `/live/application/dump_lom_instances` | `logs/lom_instances.json` exists, is newer than the reload, and parses. The handler's own summary line appears in the log with the four reply values. |
 | 3 | *(read the file)* | `provenance.song_file_path` names the set that is actually open. `types` contains `Live.Song.Song`, `Live.Track.Track`, `Live.Device.Device/<class_name>` for at least two distinct `class_name`s. |
 | 4 | *(read the file)* | `types["Live.Track.Track"].members.devices.element_types` names `Live.Device.Device` — **the item's whole point**: a property's value type, recorded from an instance, which no static walk could produce. |
-| 5 | *(read the file)* | `skipped.cycle_hits > 0` — proof the `canonical_parent` guard fired rather than the graph happening to be a tree. `depth_truncations` is 0, or the bound is raised and the run repeated. |
+| 5 | *(read the file)* | `skipped.cycle_hits > 0` — proof the `canonical_parent` guard fired rather than the graph happening to be a tree. `depth_truncations` is 0, or the bound is raised and the run repeated. `vector_truncations` may count only named note/warp-marker payload vectors; structural collections (tracks, returns, scenes, devices, chains, pads and parameters) must be traversed in full. |
 | 6 | *(read the file)* | Compare the set of type keys against `lom_dump.json`'s `classes` keys. **Any type present here and absent there is the blind-spot-5 answer** and goes into `BLIND_SPOTS.md`. An empty difference is also a result, and is recorded as one. |
 | 7 | *(grep the log)* | **No `Adding listener` line appears during the run.** The walk must never subscribe. Seshat's live subscriptions — tempo, signature, `is_playing`, `root_note`, `scale_name`, groove/swing, `tracks`, `return_tracks`, master mixer params — must be untouched; `metronome` is the only free one and the walk touches none of them either. |
 | 8 | *(watch Live's UI)* | Live's UI does not freeze audibly or visibly during the walk. See the open question on walk duration. |
@@ -492,6 +492,16 @@ Three runs; the first two found defects in the walker and are written up in
 | 6 | **Empty difference, recorded as a result.** No type reached by the walk is absent from `lom_dump.json`. Three `View` entries differ only in key format — the class walk names a nested class by its owner (`Live.Song.Song.View`), Boost.Python's `__qualname__` is the bare `View` — and are **not** new types. A set with no devices cannot answer this question properly. |
 | 7 | **Pass.** No `Adding listener` line during the run; 1,143 listener members recorded and none called. |
 | 8 | **Pass.** 18–20ms, no visible or audible stall. |
+
+### PR review 2026-08-30 22:40 EEST — skipped by environment
+
+Live was running, but its process started at 20:51:56 while the installed
+`abletonosc/application.py` and `abletonosc/introspection.py` were updated at
+22:12 and 22:19 respectively. Files on disk therefore matched the checkout,
+but Live had not been restarted after that copy was made. Checks 1–8 were all
+**skipped by environment**: without the required restart, a wire observation
+could come from stale in-memory code and would not be review evidence. No OSC
+request was sent and port 11001 was not bound.
 
 **The run's real yield: 21 measured failure contracts**, e.g.
 `Track.mute` → `RuntimeError: Main track has no 'mute' property!`,

@@ -278,13 +278,21 @@ WALK_MAX_DEPTH = 8
 # A vector's element *type* comes from its first element: a 1,000-note vector's
 # elements are all the same type and reading every one is pure cost.
 #
-# Recursion is a separate budget, and it is not 1. Walking only tracks[0] would
-# defeat the walk's own purpose — "which DeviceParameters does a Wavetable
-# carry" is unanswerable if the Wavetable is on track 5. 64 is high enough to
-# reach every track, return, scene and device of a real set and low enough that
-# a long note or warp-marker vector does not dominate the run.
+# Recursion is capped only for payload vectors. Structural collections must be
+# traversed in full: "which DeviceParameters does a Wavetable carry" is
+# unanswerable if the Wavetable happens to be on track 65. Note selections and
+# warp markers can contain thousands of same-shaped value objects, so those
+# named payloads retain a separate recursion budget.
 #--------------------------------------------------------------------------------
 VECTOR_RECURSE_LIMIT = 64
+
+VECTOR_PAYLOAD_MEMBERS = frozenset([
+    "get_all_notes_extended",
+    "get_selected_notes",
+    "get_selected_notes_extended",
+    "notes",
+    "warp_markers",
+])
 
 REPR_LIMIT = 100
 EXAMPLE_PATH_LIMIT = 3
@@ -623,11 +631,16 @@ class _InstanceWalk:
 
         record["length"] = len(elements)
         if elements:
-            _bump(record.setdefault("element_types", {}), _qualname(elements[0]))
+            first = elements[0]
+            element_type = (_qualname(first) if _is_live_object(first)
+                            else type(first).__name__)
+            _bump(record.setdefault("element_types", {}), element_type)
 
-        if len(elements) > VECTOR_RECURSE_LIMIT:
+        recurse_limit = (VECTOR_RECURSE_LIMIT
+                         if name in VECTOR_PAYLOAD_MEMBERS else len(elements))
+        if len(elements) > recurse_limit:
             self.skipped["vector_truncations"] += 1
-        for index, element in enumerate(elements[:VECTOR_RECURSE_LIMIT]):
+        for index, element in enumerate(elements[:recurse_limit]):
             if _is_live_object(element):
                 self.visit(element, "%s.%s[%d]" % (path, name, index), depth + 1)
 
