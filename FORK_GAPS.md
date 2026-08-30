@@ -611,7 +611,7 @@ _Reached under another address:_ `sends` → /live/track/get/send
 | `song_tempo` | ro |  | yes | MainTrack only: Const access to the Song's Tempo. |
 | `track_activator` | ro |  | yes | Const access to the Tracks Activator Device Parameter. |
 
-### `Live.Clip.Clip` — 86 members, 58 exposed, 28 gaps
+### `Live.Clip.Clip` — 86 members, 57 exposed, 29 gaps
 
 _Reached under another address:_ `add_new_notes` → /live/clip/add/notes, /live/clip/add/notes_extended; `get_all_notes_extended` → /live/clip/get/notes, /live/clip/get/notes_extended (no args); `get_notes` → /live/clip/get/notes (this is the deprecated tuple form); `get_notes_extended` → /live/clip/get/notes, /live/clip/get/notes_extended; `get_selected_notes` → /live/clip/get/selected_notes; `get_selected_notes_extended` → /live/clip/get/selected_notes_extended; `remove_notes` → /live/clip/remove/notes (deprecated form); `remove_notes_extended` → /live/clip/remove/notes
 
@@ -627,6 +627,7 @@ _Reached under another address:_ `add_new_notes` → /live/clip/add/notes, /live
 | `create_automation_envelope` | method |  |  | create_automation_envelope( (Clip)arg1, (DeviceParameter)arg2) -> Envelope : |
 | `crop` | method |  | yes | crop( (Clip)arg1) -> None : |
 | `duplicate_region` | method |  | yes | duplicate_region( (Clip)self, (float)region_start, (float)region_length, (float)destination_time [, (int)pitch=-1 [, (int)transposition_amount=0]]) -> None : |
+| `has_envelopes` | ro | yes | yes | Will notify if the clip gets his first envelope or the last envelope is removed. |
 | `is_arrangement_clip` | ro |  | yes | return true if this Clip is an Arrangement Clip. |
 | `is_session_clip` | ro |  |  | return true if this Clip is a Session Clip. |
 | `is_take_lane_clip` | ro |  |  | return true if this Clip is a Take Lane Clip. |
