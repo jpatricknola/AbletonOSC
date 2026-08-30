@@ -20,7 +20,7 @@ evidence only as far as the Status table below says it is.
 |---|---|
 | 1 · report filter drops 90 of 134 walked entries | **fixed** — `tools/lom_gaps.py` renders them in *Walked but not diffed*, with the enum/vector exclusion written down as a named rule; `tests_unit/test_lom_gaps.py` pins the exclusions, module tables, signatures, constants and totals |
 | 2 · walker drops module-level members | **fixed and verified** — measured against Live 12.4.5 on 2026-08-30; **7 modules carrying 33 free functions**, none of which had ever appeared in any inventory |
-| 3 · everything outside the `Live` module is unwalked | **open** — no decision recorded |
+| 3 · everything outside the `Live` module is unwalked | **measured, and re-scoped** — the walker misses no `Live` submodule (43 of 43), and the shipped-script discovery channel is exhausted; what remains is a *reference* read of `_MxDCore`, not a walk |
 
 The counts and tables below are the measurement that motivated the fixes, taken
 before them. They are the record of what was hidden and for how long, not a
@@ -278,7 +278,67 @@ walker: the fix is also the measurement.
 
 Tracked as issue #36, with the audio-to-MIDI surface itself as #34.
 
-## Blind spot 3 — everything outside the `Live` module is unwalked
+## Blind spot 3 — measured, and it is not what this section assumed
+
+The text below is kept as filed. It framed the packages beside `Live` as an
+unmeasured surface of the same kind as blind spots 1 and 2 — "nobody knows what
+declining it would cost". That framing was challenged, correctly, on the
+grounds that it was the last remaining version of the mistake this file
+documents. So it was measured rather than ranked. Two of its three worries
+close, and the residue is a different and smaller thing.
+
+**The walker misses no `Live` submodule.** Live's binary string table carries
+module names in the form `Live.X`, and all 43 walked modules appear in exactly
+that form — which is what validates the method. Grepping for that form yields
+44 candidates; the only one not walked is `Live.BasH`, a garbled `Live.Base`,
+which *is* walked. So `dir(Live)` in a live session shows everything the host
+registers. The caveat in `introspection.py` — "Boost.Python submodules can be
+absent from `dir(Live)` until imported" — is real but is not currently costing
+anything. Evidence, not proof: a module registered under a name that never
+appears as a standalone string would escape this. Every known one does appear.
+
+**The discovery channel that found `Live.Conversions` is exhausted.** Every
+`.pyc` Ableton ships was grepped for `Live.*` references: twelve modules, all
+already walked, nothing new. Note that `Conversions` is itself referenced as a
+bare name (`from Live import Conversions`), so the original find needed a human
+reading Push2's source — a grep would not have produced it. That does not
+weaken the result, but it bounds it.
+
+**And the packages are categorically different from `Live`.** `Live` is the
+host's C++ Boost.Python API — its actual capability surface. `_Framework`,
+`ableton.v2`, `ableton.v3`, `pushbase`, `Push2`, `Push`, `Move`, `_Generic` are
+Python libraries shipped as Remote Scripts: they are *other clients of the same
+API*, not more of it. Everything they do, they do by calling `Live.*`, which is
+walked. Exposing `_Framework.ButtonElement` over OSC would not add a Live
+capability; it would add Ableton's helper classes for writing control surfaces.
+"Walk them like we walk `Live`" is therefore the wrong shape of work, and the
+absence of a walk is not the same defect as blind spots 1 and 2.
+
+### What the look found anyway — `_MxDCore/Conversions/`
+
+`_MxDCore` is the one package that is not a helper library: it is Max for
+Live's bridge, and this fork already reads its `LomTypes` tables. It ships a
+directory that had never been examined:
+
+```
+_MxDCore/Conversions/
+    EnvelopeEvents.pyc   Routings.pyc   TuningSystem.pyc
+    WarpMarkers.pyc      Utils.pyc      __init__.pyc
+```
+
+Converters for exactly the object-valued types this fork has open **shape
+gaps** on — `EnvelopeEvent`, routings, tuning, warp markers. That is not
+capability and does not belong in `FORK_GAPS.md`. It is a **reference
+implementation of how Ableton themselves flatten those objects onto a wire**,
+which is the genuinely hard part of the `Live.Envelope` work identified above,
+and the question the "object-valued members" shape gap has no answer for.
+
+**Read `_MxDCore/Conversions/` before designing the envelope addresses.** That
+is the whole of what remains of this section, and it is a reading task, not a
+tooling one.
+
+### As originally filed
+
 
 `walk_live()` walks `Live` and reads the `_MxDCore.LomTypes` tables. These
 packages ship with Live, are importable from the same interpreter this
@@ -335,13 +395,18 @@ cost.
    header reads `134 Live classes and 7 Live modules walked`. The question this
    item existed to answer — how many other `Live` submodules carry free
    functions — is answered above: six more, 26 further functions.
-4. **Decide on blind spot 3 explicitly** — enumerate the non-`Live`
-   packages once and record the disposition, or record that walking them is
-   out of scope and why. Either is fine; silence is not.
+4. ~~**Decide on blind spot 3 explicitly.**~~ Measured, and re-scoped — see
+   that section. Walking the non-`Live` packages is out of scope, with the
+   reason recorded: they are clients of the `Live` API, not more of it. What
+   replaced it is narrower and concrete: **read `_MxDCore/Conversions/` before
+   designing the `Live.Envelope` addresses**, because it is Ableton's own
+   answer to the object-valued wire-shape question those addresses raise.
 
-Item 4 is what remains. Note that it is the *same* question one level out: the
-`Live` module's free functions were invisible for the same reason the packages
-beside `Live` are — nothing looked.
+All four are now closed or re-scoped. The lesson worth keeping is procedural:
+item 4 was ranked low on an argument, and the argument was sound but incomplete
+— looking took twenty minutes and turned up `_MxDCore/Conversions/`, which the
+argument would have cost. Rank by measurement, not by reasoning about what a
+measurement would show.
 
 ## Documentation obligations
 
