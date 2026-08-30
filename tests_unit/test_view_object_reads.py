@@ -7,9 +7,9 @@ get/selected_parameter, get/mod_mapping_device and get/mod_mapping_parameter
 registrations while the constructor is still running, so the handler is built
 through conftest's `bind_song()` (see test_song_object_reads.py for why), over
 the empty `Live` stub that satisfies view.py's module-scope `import Live` —
-the only dereferences are Live.Application.get_application(), inside
-show_view / get_is_view_visible / hide_view, and no test here dispatches
-those.
+every Live.Application.get_application() in that file happens at call time,
+and no test *here* dispatches an address that reaches one. The tests that do
+supply the application themselves (test_view_focus_reads.py).
 
 What this pins is the glue: the addresses as registered, the *absence* of the
 listen pairs (all four are get-only in this fork), the reply arity and the

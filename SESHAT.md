@@ -803,6 +803,13 @@ so treat any merge that reverts one as a regression, not a preference.
   overlapping `show_view`, which is what kept it closed; that note is corrected.
   The handler is **silent**, like `show_view`/`hide_view`.
 
+  ⚠️ **Its accepted name set is assumed, not measured.** Live's signature is
+  `focus_view((View)arg1, (object)arg2)`, identical to the other two, so the
+  fork passes the same `VIEW_NAMES` through and rejects none itself — but only
+  `Browser` has been seen accepted, and what *focusing* each name does is
+  unmeasured. `hide_view` is the warning: it accepts all six while only
+  `Browser` and `Detail` truly hide.
+
   Because `focus_view` is fire-and-forget, two reads exist to check it and the
   selection it steers, and both are fork-only:
 
@@ -857,8 +864,16 @@ so treat any merge that reverts one as a regression, not a preference.
     replaces the validation with a subscript reverts this **silently**: every
     address still exists and every good request still works.
 
-  Live-free tripwire for all five: `tests_unit/test_view_focus_reads.py`
-  (`clip_slot_indices` itself is `tests_unit/test_track_identity.py`).
+  Live-free tripwires: `tests_unit/test_view_focus_reads.py` for the two reads
+  and the listen pair (`clip_slot_indices` itself is
+  `tests_unit/test_track_identity.py`), and `tests_unit/test_view_panes.py`
+  for `show_view`/`focus_view`/`hide_view`/`get/is_view_visible` — which had
+  none at all until `conftest.install_application` made an address that
+  dereferences `Live.Application` reachable in this suite. That file's
+  load-bearing assertion is that each steering address calls **its own** Live
+  method: all three are silent, so wiring `focus_view` to `show_view` is
+  otherwise invisible, and that conflation is exactly what kept the member
+  closed for months.
 
   **Downstream: pin bump only.** Six addresses added, none renamed or removed,
   no reply shape changed and no listener push gaining fields, so Seshat's

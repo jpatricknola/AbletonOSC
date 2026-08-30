@@ -332,10 +332,19 @@ def load_song_module():
 def load_view_module():
     """
     Import the real `abletonosc.view` beneath the synthetic root, over the
-    empty `Live` stub: view.py's only dereferences are
-    Live.Application.get_application() inside show_view, get_is_view_visible
-    and hide_view, all at call time, and no test in this suite dispatches
-    those addresses.
+    empty `Live` stub: every Live.Application.get_application() in view.py
+    happens at *call* time — inside show_view, focus_view, hide_view,
+    get_is_view_visible and the focused_document_view getter and listen pair —
+    never bound into a partial() during init_api. That is view.py's standing
+    contract with this suite, and
+    test_view_focus_reads.test_constructing_the_handler_never_touches_live
+    asserts it directly: bind one eagerly and constructing the handler raises
+    AttributeError on the empty stub.
+
+    A test that needs one of those addresses supplies the application itself,
+    with monkeypatch, for its own duration — see
+    test_view_focus_reads.install_application. show_view, focus_view,
+    hide_view and get_is_view_visible have no such test yet.
 
     `ViewHandler.init_api` binds `self.song.view` into its four listen
     registrations during construction, so — as for load_song_module() — the
@@ -344,6 +353,27 @@ def load_view_module():
     load_handler_module()
     _install_empty_live_stub()
     return load_module("abletonosc.view")
+
+
+def install_application(monkeypatch, application_view):
+    """
+    Supply `Live.Application.get_application()` on the empty stub for the
+    duration of one test, the way the clip tests supply `Live.Clip`.
+
+    view.py resolves the application inside its handlers, never at
+    registration time, so an address that reaches one is unreachable in this
+    suite until a test puts an application there. monkeypatch removes the
+    attribute at teardown, which is what keeps the stub empty for every other
+    test — including
+    test_view_focus_reads.test_constructing_the_handler_never_touches_live,
+    whose whole assertion is that the stub is still bare.
+
+    Returns the view object passed in, so a test can drive it afterwards.
+    """
+    application = types.SimpleNamespace(view=application_view)
+    namespace = types.SimpleNamespace(get_application=lambda: application)
+    monkeypatch.setattr(sys.modules["Live"], "Application", namespace, raising=False)
+    return application_view
 
 
 def load_application_module():

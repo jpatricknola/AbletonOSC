@@ -25,7 +25,7 @@ import sys
 
 import pytest
 
-from .conftest import bind_song, dispatch, load_view_module
+from .conftest import bind_song, dispatch, install_application, load_view_module
 
 FOCUSED_DOCUMENT_VIEW = "/live/view/get/focused_document_view"
 START_LISTEN_FOCUSED = "/live/view/start_listen/focused_document_view"
@@ -118,21 +118,6 @@ class FakeApplicationView:
         self.focused_document_view = name
         for callback in list(self.listeners):
             callback()
-
-
-def install_application(monkeypatch, application_view):
-    """
-    Supply `Live.Application.get_application()` on the empty stub for the
-    duration of one test, the way test_clip_notes.py supplies `Live.Clip`.
-    monkeypatch removes the attribute at teardown, so the stub is empty again
-    for every other test in the suite.
-    """
-    import types
-
-    application = types.SimpleNamespace(view=application_view)
-    namespace = types.SimpleNamespace(get_application=lambda: application)
-    monkeypatch.setattr(sys.modules["Live"], "Application", namespace, raising=False)
-    return application_view
 
 
 def build_song():
