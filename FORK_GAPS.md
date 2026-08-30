@@ -236,7 +236,15 @@ decision:
 call returns, so that address always answers `-1` and a client must wait for
 the structure change — while `create_midi_track_with_simpler` and
 `create_drum_rack_from_audio_clip` are synchronous and do report the index.
-New tracks were appended last in all three cases, on one sample each.
+`audio_to_midi_clip` inserts the new track **directly after the source track**,
+measured on a layout that can tell that apart from appending last (source on
+track 1 of three, marker track at index 2: the converted track took index 2).
+The converted clip lands in the source's own scene row, and the whole
+asynchronous conversion undoes as a single step. An earlier note here said all
+three appended *last*; that was one sample each on a set whose source clip was
+on the last track, where the two orderings are indistinguishable. The other two
+have still only been measured on that degenerate layout, so their ordering is
+**unknown** rather than "last".
 `sliced_simpler_to_drum_rack` remains unmeasured: it needs a Simpler already in
 Slicing mode, which is exactly the `playback_mode` setter this file lists as
 still to build.

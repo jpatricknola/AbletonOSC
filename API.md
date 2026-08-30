@@ -2014,9 +2014,34 @@ listener, not polling: subscribe with `/live/song/start_listen/tracks`, fire
 `/live/song/get/num_tracks` also works and is what a client without a listener
 should do; either way the answer is "wait for it", not "it failed".
 
-New tracks were appended **last** in all three measured cases. That is one
-observation each, on a set whose source clip was on the last track — treat the
-returned index as "which track appeared", never as a promise about ordering.
+**Where the new track lands.** `audio_to_midi_clip` inserts it **directly after
+the source track**, measured against Live 12.4.5 on 2026-08-30 on a layout that
+can tell the two orderings apart: source clip on track 1 of three, with a
+marker track at index 2. The converted track took index 2 and pushed the marker
+to 3; appending last would have given it index 3.
+
+An earlier note here said all three conversions appended the new track *last*.
+That was one observation each on a set whose source clip was on the **last**
+track, where "appended last" and "inserted after the source" produce the same
+index and cannot be distinguished. `create_midi_track_with_simpler` and
+`create_drum_rack_from_audio_clip` have still only been measured on that
+degenerate layout, so their ordering is **unknown**, not "last" — do not read
+the corrected `audio_to_midi_clip` behaviour onto them either.
+
+Treat the returned index as "which track appeared", never as a promise about
+ordering: a client that resolves the converted track by taking the last index
+gets the wrong track outright whenever the source is not the last track, and
+gets no error to notice it by.
+
+**The converted clip lands in the source's own scene row** — a source in slot 0
+produced the MIDI clip in slot 0 of the new track.
+
+**The whole asynchronous conversion undoes as a single step.** One
+`/live/song/undo` removed the converted track and nothing else, leaving the
+source clip untouched — measured both with the converted track last and with it
+inserted mid-list. Because the conversion completes after the address has
+replied, a client cannot tell from the wire whether Live grouped the later work
+into the caller's undo step; measured, it does, so no second undo is needed.
 
 **Every member takes the Song as its first argument** —
 `audio_to_midi_clip( (Song)song, (Clip)audio_clip, (int)audio_to_midi_type)`.

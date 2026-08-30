@@ -33,9 +33,19 @@ read-back has both a value path and a -1 path:
     create_midi_track_with_simpler     synchronous - read-back returns the index
     create_drum_rack_from_audio_clip   synchronous - read-back returns the index
 
-New tracks were appended **last** in all three cases. One sample each, on a
-two-track set whose source clip was on the last track, so "last" is what was
-observed and not a contract Live states.
+audio_to_midi_clip inserts the new track **directly after the source track**,
+re-measured on a layout that can tell that apart from appending last (source on
+track 1 of three, marker track at index 2; the converted track took index 2).
+The earlier note here said all three appended *last* -- that was one sample
+each on a set whose source clip was on the last track, where the two orderings
+give the same index. The other two are still only measured on that degenerate
+layout, so their ordering is unknown rather than "last".
+
+None of that reaches this handler: _new_track_index() diffs _live_ptr sets and
+is position-independent by construction, which is why the correction is a
+comment change and not a code one. It is recorded here because a future reader
+sizing a change against this docstring would otherwise inherit the wrong
+ordering.
 
 sliced_simpler_to_drum_rack is unmeasured: it needs a Simpler already in
 Slicing mode, which the fork cannot yet set.
