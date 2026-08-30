@@ -357,15 +357,49 @@ def test_the_setter_round_trips_through_the_getter(view_handler, server, receive
 
 
 @pytest.mark.parametrize("track_index, scene_index", [(9, 0), (0, 9)])
-def test_a_bad_index_arrives_as_a_structured_error(view_handler, server, receiver,
-                                                   song, track_index, scene_index):
+def test_an_out_of_range_index_arrives_as_a_structured_error(view_handler, server,
+                                                             receiver, song,
+                                                             track_index, scene_index):
     """
-    Unguarded on purpose, like upstream's set/selected_* — this is not one of
-    view.py's silent setters, so a bad index comes back as a "request" error
-    rather than being logged and dropped.
+    Not one of view.py's silent setters: a rejection comes back as a "request"
+    error rather than being logged and dropped.
     """
     dispatch(server, SET_HIGHLIGHTED, track_index, scene_index)
 
     replies = receiver.drain()
     assert [address for address, _ in replies] == ["/live/error"]
+    assert song.view.highlighted_clip_slot is None
+
+
+@pytest.mark.parametrize("track_index, scene_index", [(-1, 0), (0, -1), (-1, -1)])
+def test_a_negative_index_is_rejected_rather_than_wrapping(view_handler, server,
+                                                           receiver, song,
+                                                           track_index, scene_index):
+    """
+    The regression guard for `-1` is an answer, never an argument.
+
+    `(-1, -1)` is exactly what this address's own getter answers for "nothing
+    highlighted", so it is the value a client round-tripping its own snapshot
+    sends back. Subscripting `song.tracks[-1].clip_slots[-1]` would resolve
+    that to the last scene of the last track and put *nothing* on the wire —
+    a real, wrong highlight the client cannot detect, since the readback would
+    confirm a plausible coordinate. Validation is what makes it loud.
+    """
+    dispatch(server, SET_HIGHLIGHTED, track_index, scene_index)
+
+    replies = receiver.drain()
+    assert [address for address, _ in replies] == ["/live/error"]
+    assert song.view.highlighted_clip_slot is None
+
+
+def test_the_setter_reaches_regular_tracks_only(view_handler, server, receiver, song):
+    """
+    The track half resolves through `resolve_track` under the "track"
+    category, so a return-track index is an index into `song.tracks` like any
+    other — never a reach into `song.return_tracks`. With two regular tracks,
+    index 2 is out of range and says so.
+    """
+    dispatch(server, SET_HIGHLIGHTED, 2, 0)
+
+    assert [address for address, _ in receiver.drain()] == ["/live/error"]
     assert song.view.highlighted_clip_slot is None

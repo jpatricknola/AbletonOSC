@@ -7,7 +7,7 @@ from .handler import AbletonOSCHandler
 from .track_identity import (selected_track_identity, selected_track_index,
                              selected_device_indices, chain_identity,
                              device_identity, parameter_identity,
-                             clip_slot_indices)
+                             clip_slot_indices, resolve_track, CATEGORY_TRACK)
 
 #--------------------------------------------------------------------------------
 # Seventeen addresses in this file are Seshat extensions, added in this fork:
@@ -132,10 +132,18 @@ from .track_identity import (selected_track_identity, selected_track_index,
 # The setter is expected to be redundant — Live's docstring says the slot is
 # "defined via the selected track and scene", which is what
 # `set/selected_clip` already writes — and is carried as insurance and for
-# symmetry, not as a fix. It is *not* one of the silent setters: like
-# upstream's `set/selected_*`, a bad index raises and comes back as a
-# "request" error. No listen pair: the member is not observable (the
-# inventory's obs column is empty for it).
+# symmetry, not as a fix. It is *not* one of the silent setters: a rejection
+# comes back as a structured "request" error, because a selection write is not
+# a steer. It *validates* its two indices rather than subscripting with them,
+# which is the A-4 setter rule (`set/appointed_device`, `set/groove`) and not
+# upstream's `set/selected_*` idiom: `-1, -1` is what this address's own getter
+# answers for "nothing highlighted", and Python's negative indexing would turn
+# a client's own snapshot, sent back, into the last scene of the last track
+# with nothing on the wire to say so. `-1` is an answer, never an argument.
+#
+# No listen pair: the member is not observable (the inventory's obs column is
+# empty for it), which makes it the *second* object-valued read that could not
+# have one even if a consumer asked — `Track.group_track` is no longer alone.
 #--------------------------------------------------------------------------------
 
 #--------------------------------------------------------------------------------
@@ -227,11 +235,26 @@ class ViewHandler(AbletonOSCHandler):
 
         def set_highlighted_clip_slot(params: Optional[Tuple] = ()):
             #--------------------------------------------------------------------------------
-            # Unguarded, like upstream's set/selected_* above: a bad index
-            # raises and comes back as a "request" error. Not one of this
-            # file's silent setters.
+            # Validated, not indexed — the A-4 setter rule (set/appointed_device,
+            # set/groove), deliberately *not* upstream's set/selected_* idiom
+            # directly above. Python's silent negative indexing would make
+            # (-1, -1) mean "the last scene of the last track", and -1 is
+            # exactly what this address's own getter answers for "nothing
+            # highlighted": a client round-tripping its own snapshot would
+            # steer the highlight somewhere real and wrong, with nothing on
+            # the wire to say so. `-1` is an answer, never an argument.
+            #
+            # Not one of this file's silent setters either: a rejection is a
+            # ValueError arriving as a structured "request" error, because a
+            # selection write is not a steer.
             #--------------------------------------------------------------------------------
-            self.song.view.highlighted_clip_slot = self.song.tracks[params[0]].clip_slots[params[1]]
+            track = resolve_track(self.song, CATEGORY_TRACK, params[0])
+            scene_index = params[1]
+            if not 0 <= scene_index < len(track.clip_slots):
+                raise ValueError("Clip slot index out of range for track %s: %s "
+                                 "(this track has %d)"
+                                 % (params[0], scene_index, len(track.clip_slots)))
+            self.song.view.highlighted_clip_slot = track.clip_slots[scene_index]
 
         def set_selected_device(params: Optional[Tuple] = ()):
             device = self.song.tracks[params[0]].devices[params[1]]
@@ -305,6 +328,13 @@ class ViewHandler(AbletonOSCHandler):
                                getter=get_focused_document_view)
 
         def stop_listen_focused_document_view(params: Optional[Tuple] = ()):
+            #--------------------------------------------------------------------------------
+            # The target passed here is not load-bearing: _stop_listen unbinds
+            # from the object stored at subscribe time, falling back to this
+            # one only when the key is unknown (in which case there is nothing
+            # to unbind). It is resolved lazily all the same, for the same
+            # empty-stub reason as start_listen above.
+            #--------------------------------------------------------------------------------
             self._stop_listen(Live.Application.get_application().view,
                               "focused_document_view")
 

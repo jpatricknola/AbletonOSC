@@ -206,12 +206,13 @@ exceptions. See the **Groove API**, "Assignment is one-way".
 
 ⚠️ **Seshat extension.** Every object-valued read is added by this fork; none
 exists in stock AbletonOSC — `track/get/group_track`, `clip_slot/get/clip`, the
-`song/…/appointed_device` trio, the four `view/get/…` rows, and the groove
+`song/…/appointed_device` trio, the five `view/get/…` rows, and the groove
 family (`clip/…/groove`, `song/…/groove_pool`, and `/live/groove/*`; see the
-**Groove API**). `Track.group_track` is the only member of the set that is not
-observable, so it is the only one that could not have a listen pair even if a
-consumer asked. Without the install they are unknown addresses: the getters
-never reply and the setter silently does nothing.
+**Groove API**). `Track.group_track` and `Song.View.highlighted_clip_slot` are
+the two members of the set that are not observable, so they are the only ones
+that could not have a listen pair even if a consumer asked. Without the install
+they are unknown addresses: the getters never reply and the setters silently do
+nothing.
 
 ### Handlers that name a file to read
 
@@ -674,8 +675,11 @@ reply with their own `"error"`-tagged envelopes, and the four fork-added
 `/live/view/...` setters (`show_view`, `focus_view`, `hide_view`, `set/detail_clip`) fail
 silently by design. Upstream's four `/live/view/set/selected_*` setters have no
 guard: a bad index raises and comes back as a `"request"` error like any other
-callback, and the fork-added `set/highlighted_clip_slot` deliberately follows
-them rather than the silent setters — it is a selection write, not a steer.
+callback. The fork-added `set/highlighted_clip_slot` also answers on the
+`"request"` path rather than failing silently — it is a selection write, not a
+steer — but it gets there by *validating* its indices and raising, not by
+subscripting with them: see "`-1` is an answer, never an argument" under
+**Selected-track identity**.
 
 A handler's return value decides how many datagrams a request gets: `None`
 sends nothing, a tuple sends one reply, and a **list of tuples sends one reply
@@ -1110,8 +1114,8 @@ User interface control — selecting tracks, scenes, clips, devices.
 | `/live/view/get/focused_document_view` | | `"ok", view_name` or `"error", message` | ⚠️ **Seshat extension** — which document view has focus. `view_name` is `Session` or `Arranger`, the only two values Live returns. Always replies, so silence means the extension is not installed. ⚠️ **Partial verification only:** it cannot report that the Browser or a Detail pane holds focus — it still answers `Session`. Measured 2026-08-30: `focus_view("Browser")` disabled the Convert commands while this read was unchanged. Use it to prove focus is on the *wrong* document view; never to prove focus is where you need it |
 | `/live/view/start_listen/focused_document_view` | | `"ok", view_name` or `"error", message` | ⚠️ **Seshat extension** — listen for document-view focus changes; pushes the same envelope on the `get` address. The only pair in `/live/view` whose subject is `Application.View` rather than `Song.View` |
 | `/live/view/stop_listen/focused_document_view` | | | ⚠️ **Seshat extension** — stop listening for document-view focus changes |
-| `/live/view/get/highlighted_clip_slot` | | `track_index, scene_index` | ⚠️ **Seshat extension** — the highlighted Session clip slot, as the ordinary (track, scene) coordinate. **No listen pair** — `Song.View.highlighted_clip_slot` is not observable. Live returns `None` for the Main and Send tracks: that is `-1, -1`, not an error. A slot that resolves to a return track or the master answers `-1, -1` too — no coordinate reaches it. See **Object-valued reads** |
-| `/live/view/set/highlighted_clip_slot` | `track_index, scene_index` | | ⚠️ **Seshat extension** — set the highlighted Session clip slot. **Not** one of this file's silent setters: like upstream's `set/selected_*`, a bad index raises and comes back as a `"request"` error. Expected to be redundant with `set/selected_clip` — Live documents the slot as "defined via the selected track and scene" — and carried as insurance, not as a fix |
+| `/live/view/get/highlighted_clip_slot` | | `track_index, scene_index` | ⚠️ **Seshat extension** — the highlighted Session clip slot, as the ordinary (track, scene) coordinate. **No listen pair** — `Song.View.highlighted_clip_slot` is not observable; it and `Track.group_track` are the two object-valued reads that could not have one. Live returns `None` for the Main and Send tracks: that is `-1, -1`, not an error. A slot that resolves to a return track or the master answers `-1, -1` too — no coordinate reaches it. A slot whose owning track resolves but which is absent from that track's `clip_slots` answers `(track_index, -1)`, the same shape `get/selected_device` uses for "the track is known, the second index is not". See **Object-valued reads** |
+| `/live/view/set/highlighted_clip_slot` | `track_index, scene_index` | | ⚠️ **Seshat extension** — set the highlighted Session clip slot. **Not** one of this file's silent setters: a rejection comes back as a `"request"` error. Both indices are **validated, not subscripted** — a negative or out-of-range track or scene index is a `ValueError` on `/live/error`, never a Python wrap-around, so the `-1, -1` the getter answers for "nothing highlighted" cannot be sent back to silently highlight the last scene of the last track. Regular tracks only. Expected to be redundant with `set/selected_clip` — Live documents the slot as "defined via the selected track and scene" — and carried as insurance, not as a fix |
 
 ### Selected-track identity
 
@@ -1146,7 +1150,7 @@ to use next, and the index is already in that family's coordinates.
   unreachable and upstream's getters simply raised `ValueError` on it; they now
   answer instead. `-1` is the same "not in this index space" sentinel used
   elsewhere for object-valued reads — see **Object-valued reads** in
-  *Conventions the address tables don't show*, which is the pattern all nine
+  *Conventions the address tables don't show*, which is the pattern all ten
   of them follow.
 - **`-1` is an answer, never an argument.** None of the three setters
   (`set/selected_track`, `set/selected_clip`, `set/selected_device`) reject
@@ -1160,6 +1164,12 @@ to use next, and the index is already in that family's coordinates.
   `/live/return_track/select` for `"return_track"`, `/live/master/select`
   for `"master"` — i.e. round-trip through `get/selected_track_identity`,
   not the legacy getters.
+
+  The three **legacy** setters are the whole of that hazard. The fork-added
+  `set/highlighted_clip_slot` validates instead: a negative or out-of-range
+  track or scene index is a `ValueError` on `/live/error`, never a wrap-around.
+  New addresses have no upstream-compatibility reason to inherit the legacy
+  behaviour, so none of them do — see `set/appointed_device` and `set/groove`.
 - `get/selected_device` also answers `(track_index, -1)` when a regular track
   is selected but there is no **top-level** device to report — either nothing
   is selected in the device chain, or the selected device is nested inside a
