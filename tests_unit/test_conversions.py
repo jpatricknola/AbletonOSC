@@ -224,9 +224,14 @@ def test_audio_to_midi_replies_with_the_index_of_the_track_that_appeared(
 def test_audio_to_midi_replies_minus_one_when_no_track_appeared(
         handler, server, receiver, live_conversions):
     #--------------------------------------------------------------------------------
-    # The shape a caller sees if Live converts asynchronously — still
-    # unmeasured. -1 is an answer, never an argument (API.md); it is not an
-    # error, and the caller re-reads num_tracks rather than concluding failure.
+    # Not a hypothetical. Measured against Live 12.4.5 on 2026-08-30:
+    # audio_to_midi_clip is asynchronous, the track does not exist when the call
+    # returns, and this address therefore answers -1 *every time* — the new
+    # track appeared about three seconds later. The two Simpler/Drum Rack
+    # conversions are synchronous and do return an index, which is why the
+    # read-back keeps both paths. -1 is an answer, never an argument (API.md);
+    # it is not an error, and a client waits for the structure change rather
+    # than concluding failure.
     #--------------------------------------------------------------------------------
     live_conversions.creates_track = False
     dispatch(server, "/live/clip/audio_to_midi", 0, 0, "drums")

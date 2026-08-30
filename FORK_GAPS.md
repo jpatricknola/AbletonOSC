@@ -231,10 +231,15 @@ decision:
   seven that **returns** anything (`LomObject`), so it wants a reply shape of
   its own rather than being folded into this batch.
 
-**Unmeasured, and carried into `API.md`:** whether any of these conversions is
-synchronous, and where the new track lands. The handlers read the new track
-index back and answer `-1` if none had appeared; nothing has confirmed which
-happens.
+**Measured 2026-08-30 by calling them** against Live 12.4.5:
+`audio_to_midi_clip` is **asynchronous** — the track does not exist when the
+call returns, so that address always answers `-1` and a client must wait for
+the structure change — while `create_midi_track_with_simpler` and
+`create_drum_rack_from_audio_clip` are synchronous and do report the index.
+New tracks were appended last in all three cases, on one sample each.
+`sliced_simpler_to_drum_rack` remains unmeasured: it needs a Simpler already in
+Slicing mode, which is exactly the `playback_mode` setter this file lists as
+still to build.
 
 ## Dispositions (from the July 2026 audit)
 

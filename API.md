@@ -1990,11 +1990,33 @@ Live**. It never raises and always replies.
 members returns `None`, so the handler records the tracks before the call and
 reports the index of the one that appeared. `-1` means the conversion was
 accepted but **no new track had appeared by the time the handler returned** —
-`-1` is an answer, never an argument. It is not a failure: re-read
-`/live/song/get/num_tracks`. Whether Live ever answers this way is
-**unmeasured**: whether these conversions are synchronous, and where the new
-track lands, has not been established. ⚠️ Treat the index as the answer to
-"which track appeared", not as a promise about ordering.
+`-1` is an answer, never an argument, and it is **not** a failure.
+
+⚠️ **`/live/clip/audio_to_midi` is asynchronous and therefore always answers
+`-1`.** Measured against Live 12.4.5 on 2026-08-30 by calling it: the reply
+came back `"ok", -1`, and the new track — named by Live, e.g.
+`3-Melody to MIDI`, carrying a MIDI clip of the extracted notes — appeared
+within about three seconds. **A client that treats `-1` as failure, or that
+reads back immediately, will report a successful conversion as a failed one.**
+The two Simpler/Drum Rack conversions are *not* asynchronous and do return the
+index:
+
+| Address | Behaviour | `new_track_id` |
+|---|---|---|
+| `/live/clip/audio_to_midi` | **asynchronous** | always `-1` |
+| `/live/clip/create_midi_track_with_simpler` | synchronous | the new track's index |
+| `/live/clip/create_drum_rack_from_audio_clip` | synchronous | the new track's index |
+| `/live/device/sliced_simpler_to_drum_rack` | ⚠️ unmeasured | unmeasured |
+
+**The pattern for the asynchronous one** is the fork's existing structure
+listener, not polling: subscribe with `/live/song/start_listen/tracks`, fire
+`/live/clip/audio_to_midi`, and take the new track from the push. Polling
+`/live/song/get/num_tracks` also works and is what a client without a listener
+should do; either way the answer is "wait for it", not "it failed".
+
+New tracks were appended **last** in all three measured cases. That is one
+observation each, on a set whose source clip was on the last track — treat the
+returned index as "which track appeared", never as a promise about ordering.
 
 **Every member takes the Song as its first argument** —
 `audio_to_midi_clip( (Song)song, (Clip)audio_clip, (int)audio_to_midi_type)`.

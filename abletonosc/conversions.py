@@ -22,6 +22,23 @@ string table did not show and which the issue proposing these addresses did not
 assume. Every one of the four exposed here returns None, so a handler that
 wants to tell a client where the new track landed has to read it back itself —
 see _new_track_index().
+
+**Measured against Live 12.4.5 on 2026-08-30, by calling them.** The three
+track-creating conversions do not agree with each other, which is why the
+read-back has both a value path and a -1 path:
+
+    audio_to_midi_clip                 ASYNCHRONOUS - the track does not exist
+                                       when the call returns, so the read-back
+                                       is always -1. It appeared within ~3s.
+    create_midi_track_with_simpler     synchronous - read-back returns the index
+    create_drum_rack_from_audio_clip   synchronous - read-back returns the index
+
+New tracks were appended **last** in all three cases. One sample each, on a
+two-track set whose source clip was on the last track, so "last" is what was
+observed and not a contract Live states.
+
+sliced_simpler_to_drum_rack is unmeasured: it needs a Simpler already in
+Slicing mode, which the fork cannot yet set.
 """
 from typing import Any, Tuple
 
