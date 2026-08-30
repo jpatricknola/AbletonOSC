@@ -311,6 +311,21 @@ def load_clip_module():
     return load_module("abletonosc.clip")
 
 
+def load_conversions_module():
+    """
+    Import the real `abletonosc.conversions` beneath the synthetic root, over
+    the empty `Live` stub. conversions.py does `import Live` at module scope
+    but reaches the module only through `getattr(Live, "Conversions", None)`
+    inside its callbacks, so the empty stub is enough to import it — and a
+    test that dispatches a conversion without supplying a `Conversions`
+    namespace exercises the real "this Live has no Live.Conversions module"
+    branch rather than a fake.
+    """
+    load_handler_module()
+    _install_empty_live_stub()
+    return load_module("abletonosc.conversions")
+
+
 def load_song_module():
     """
     Import the real `abletonosc.song` beneath the synthetic root, over the

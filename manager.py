@@ -162,6 +162,7 @@ class Manager(ControlSurface):
                 abletonosc.GrooveHandler(self),
                 abletonosc.ReturnTrackHandler(self),
                 abletonosc.SongStructureHandler(self),
+                abletonosc.ConversionsHandler(self),
             ]
 
     def clear_api(self):
@@ -279,6 +280,11 @@ class Manager(ControlSurface):
             _reload("browser")
             _reload("return_track")
             _reload("song_structure")
+            #--------------------------------------------------------------------------------
+            # conversions after handler, which it `from`-imports. It imports
+            # nothing else from the package, so its position is otherwise free.
+            #--------------------------------------------------------------------------------
+            _reload("conversions")
             #--------------------------------------------------------------------------------
             # The package itself last, so __init__.py re-executes its own
             # imports over the modules reloaded above. Its

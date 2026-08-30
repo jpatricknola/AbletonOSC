@@ -196,11 +196,45 @@ Remote-Script-only member does what its name suggests.
 - **Fork today:** `/live/device/replace_sample` only — shipped with the
   read-side path rule (`API.md` § "Handlers that name a file to read"), for
   a top-level Simpler on a regular track. No other Simpler-specific address.
-- **Shape to build:** `playback_mode` setter, `slices` getter; Seshat would
-  write the trigger clip itself from the slice times via `write_midi_notes`,
-  standing in for Live's UI-only *Slice to New MIDI Track*.
+- **Shape to build:** `playback_mode` setter, `slices` getter. **Corrected:**
+  this entry used to say Seshat would write the trigger clip itself from the
+  slice times, "standing in for Live's UI-only *Slice to New MIDI Track*".
+  That operation is **not UI-only** — it is
+  `Live.Conversions.sliced_simpler_to_drum_rack(song, simpler)`, a
+  module-level free function that was invisible to the generated inventory
+  until the walker was fixed (see [BLIND_SPOTS.md](BLIND_SPOTS.md)). It has
+  shipped as `/live/device/sliced_simpler_to_drum_rack`, so the client-side
+  reconstruction is unnecessary and the remaining slice work is the
+  `Sample`-side members alone.
 - **Consumers:** "generate audio, keep it editable" output shape
   (`docs/evaluating/generative features/live-native-options.md` §2.4).
+
+### `Live.Conversions` — shipped
+
+Audio-to-MIDI and the Simpler/Drum Rack conversions. Recorded here only to
+close it: the module had **no entry in this file at all** until the LOM walker
+was taught to record module-level members, because nothing in the generated
+inventory could see a Boost.Python free function. Five of its seven members now
+have addresses — `/live/clip/get/is_convertible_to_midi`,
+`/live/clip/audio_to_midi`, `/live/clip/create_midi_track_with_simpler`,
+`/live/clip/create_drum_rack_from_audio_clip` and
+`/live/device/sliced_simpler_to_drum_rack` (see `API.md` § "Conversions").
+
+**Two members remain unexposed**, both for want of a resolver rather than a
+decision:
+
+- `create_midi_track_from_drum_pad( (Song)song, (DrumPad)drum_pad)` — the fork
+  has no drum-pad addressing; it waits on the device path resolver, with the
+  rest of the `DrumPad` surface.
+- `move_devices_on_track_to_new_drum_rack_pad( (Song)song, (int)track_index)`
+  — track-keyed rather than clip- or device-keyed, and the only member of the
+  seven that **returns** anything (`LomObject`), so it wants a reply shape of
+  its own rather than being folded into this batch.
+
+**Unmeasured, and carried into `API.md`:** whether any of these conversions is
+synchronous, and where the new track lands. The handlers read the new track
+index back and answer `-1` if none had appeared; nothing has confirmed which
+happens.
 
 ## Dispositions (from the July 2026 audit)
 

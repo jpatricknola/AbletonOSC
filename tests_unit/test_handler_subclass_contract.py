@@ -69,6 +69,13 @@ EXPECTED_IDENTIFIERS = {
     ("browser.py", "BrowserHandler"): "browser",
     ("clip.py", "ClipHandler"): "clip",
     ("clip_slot.py", "ClipSlotHandler"): "clip_slot",
+    #--------------------------------------------------------------------------------
+    # "clip", not "conversions": every address but one is clip-keyed, and the
+    # handler registers no listener at all — Live.Conversions members are
+    # functions, not observable properties — so the identifier is never used
+    # as a push prefix. Same shape as song_structure.py below.
+    #--------------------------------------------------------------------------------
+    ("conversions.py", "ConversionsHandler"): "clip",
     ("device.py", "DeviceHandler"): "device",
     ("groove.py", "GrooveHandler"): "groove",
     ("midimap.py", "MidiMapHandler"): "midimap",

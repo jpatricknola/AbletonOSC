@@ -21,6 +21,7 @@ from .browser import BrowserHandler
 from .groove import GrooveHandler
 from .return_track import ReturnTrackHandler
 from .song_structure import SongStructureHandler
+from .conversions import ConversionsHandler
 
 #--------------------------------------------------------------------------------
 # introspection exports no handler and registers no address: it is imported

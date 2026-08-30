@@ -1952,6 +1952,59 @@ until its comment was corrected to the measured one):
   wins) and a move that creates a same-pitch overlap **trims** the earlier
   note. `amount` is linear: `new = old + amount × (target − old)`.
 
+### Conversions — audio to MIDI, Simpler and Drum Rack
+
+⚠️ **Seshat extension.** None of these exists in stock AbletonOSC. They wrap
+`Live.Conversions`, a Boost.Python module of module-level free functions —
+Live's *Create → Convert Harmony/Melody/Drums to New MIDI Track*, *Slice to New
+MIDI Track*, and the Simpler/Drum Rack conversions. It was invisible to this
+fork's own gap inventory until the LOM walker was taught to record
+module-level members; see `BLIND_SPOTS.md`.
+
+| Address | Params | Response | Description |
+|---|---|---|---|
+| `/live/clip/get/is_convertible_to_midi` | `track_id, clip_id` | `track_id, clip_id, convertible` | Whether the clip can be converted to MIDI. **Always answers**; see the divergence below |
+| `/live/clip/audio_to_midi` | `track_id, clip_id, type` | `track_id, clip_id, "ok", new_track_id` or `track_id, clip_id, "error", message` | Extract notes from an audio clip into a MIDI clip on a **new MIDI track**. `type` is a name: `harmony`, `melody` or `drums` |
+| `/live/clip/create_midi_track_with_simpler` | `track_id, clip_id` | `track_id, clip_id, "ok", new_track_id` / `"error", message` | New MIDI track carrying a Simpler loaded with the audio clip |
+| `/live/clip/create_drum_rack_from_audio_clip` | `track_id, clip_id` | `track_id, clip_id, "ok", new_track_id` / `"error", message` | New track with a Drum Rack, the audio clip on a Simpler on the first pad |
+| `/live/device/sliced_simpler_to_drum_rack` | `track_id, device_id` | `track_id, device_id, "ok", new_track_id` / `"error", message` | Live's *Slice to New MIDI Track*: converts a **sliced** Simpler into a Drum Rack, one slice per pad. Top-level devices on a regular track only, like every other `/live/device/*` address |
+
+**`type` is a name, never the enum integer.** Live's own signature declares
+`(int)`, so Live would accept a bare positional value — and Boost.Python enum
+values are positional, so a member added in a future Live would silently
+reassign them. `harmony_to_midi`, `melody_to_midi` and `drums_to_midi` (Live's
+own member names) are accepted too; matching is case-insensitive and
+surrounding whitespace is ignored. An unrecognised name, or a missing one, is
+refused with the `"error"` envelope and **Live is not called**.
+
+⚠️ **`is_convertible_to_midi` diverges from the LOM member deliberately.**
+Live's `Live.Conversions.is_convertible_to_midi` **raises** when handed a MIDI
+clip rather than answering false. That makes it useless as the predicate a
+client actually wants — "may I offer this conversion?" is asked *before*
+mutating, and an exception is not an answer. This fork pre-checks
+`Clip.is_audio_clip` and answers `false` for a MIDI clip, for an empty clip
+slot, and on a Live with no `Live.Conversions` module, **without calling
+Live**. It never raises and always replies.
+
+**`new_track_id` is read back, not returned by Live.** Every one of these
+members returns `None`, so the handler records the tracks before the call and
+reports the index of the one that appeared. `-1` means the conversion was
+accepted but **no new track had appeared by the time the handler returned** —
+`-1` is an answer, never an argument. It is not a failure: re-read
+`/live/song/get/num_tracks`. Whether Live ever answers this way is
+**unmeasured**: whether these conversions are synchronous, and where the new
+track lands, has not been established. ⚠️ Treat the index as the answer to
+"which track appeared", not as a promise about ordering.
+
+**Every member takes the Song as its first argument** —
+`audio_to_midi_clip( (Song)song, (Clip)audio_clip, (int)audio_to_midi_type)`.
+Recorded here because it is not visible in Live's binary and was assumed
+otherwise when these addresses were designed; the handlers pass `self.song`.
+
+**On an older Live with no `Live.Conversions`**, the module still imports and
+every address still answers: the mutations reply with the `"error"` envelope
+naming the missing module, and the getter answers `false`.
+
 ---
 
 ## Scene API
