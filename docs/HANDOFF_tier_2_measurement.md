@@ -45,9 +45,10 @@ a running Live. Not called.
 
 The **callable surface is 1,483** (properties + methods). Against that,
 `API.md` ships 559 address rows and carries **129 `⚠️` warning markers**, of
-which 34 lines say "unmeasured" outright — places where a contract on an
-already-shipped address is documented as unknown or unverified. Count them
-again before planning against the number; they move with every address PR.
+which **36** lines say "unmeasured" outright — places where a contract on an
+already-shipped address is documented as unknown or unverified. Recounted
+2026-08-30. Count them again before planning against the number; they move
+with every address PR.
 
 Two facts from this session are what the plan below is built on, because both
 were invisible until something was called:
@@ -109,11 +110,10 @@ Prioritise in this order:
 correct and was exercised successfully on 2026-08-30. Two updates to what it
 says:
 
-- **Issue #35 is closed.** `BLIND_SPOTS.md` still describes the rig as
-  "currently broken on a fresh session (issue #35)" in two places
-  (`:591`, `:620`). It is not; `/live/api/reload` worked repeatedly this
-  session. `API.md` does not carry the claim. Correct those two lines when next
-  touching that file.
+- ~~**Issue #35 is closed.**~~ Done 2026-08-30. `BLIND_SPOTS.md`'s two
+  "currently broken on a fresh session (issue #35)" claims are corrected;
+  `/live/api/reload` worked repeatedly this session and the issue is CLOSED on
+  the fork. `API.md` never carried the claim.
 - Probe output reaches `logs/abletonosc.log` in the **installed** copy *and*
   Live's own `Log.txt`. Prefix every line with something greppable and record
   the log's line count before the run.

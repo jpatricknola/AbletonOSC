@@ -524,6 +524,46 @@ so treat any merge that reverts one as a regression, not a preference.
   module tables and signatures, constant rendering, enum/vector exclusions,
   Markdown escaping and separate totals.
 
+  **`/live/application/dump_lom_instances` — the same module's second half.**
+  Everything above records what Live *declares*. This address holds real
+  objects and reads them, writing `logs/lom_instances.json`: each object's
+  actual type, the value type behind each property, and what every read
+  returned or raised. It is the only channel that can answer the second
+  question — every one of Live's 894 properties has a getter and not one
+  carries a docstring, so a property's value type exists nowhere in the
+  interpreter and no static walk can reach it (`BLIND_SPOTS.md` blind spots 4
+  and 5).
+
+  Three things a merge or a refactor must not undo:
+
+  - **It takes no path from the wire, and that is deliberate.** `dump_lom`
+    above accepts one and is the fork's single outstanding violation of its
+    own write-side rule (`issues.md`, Low; `API.md` § "Handlers that name a
+    file to read"). The two addresses therefore state *different* policies for
+    the same hazard, on purpose. A reader who "fixes" the inconsistency by
+    giving the new address a path argument has doubled the violation rather
+    than removed it; the fix runs the other way.
+  - **It never calls a listener member.** `add_*_listener`,
+    `remove_*_listener` and `*_has_listener` are recorded and skipped. This is
+    what keeps the walk clear of a running consumer: Seshat subscribes to song
+    tempo, signature, `is_playing`, `root_note`, `scale_name`, groove/swing,
+    `tracks`, `return_tracks` and the master mixer params, and a stray
+    `stop_listen` would unsubscribe it silently.
+  - **A method is called only when it is provably argument-free.** The
+    predicate is a `get_`/`is_`/`has_`/`can_` prefix, plus a Boost.Python
+    docstring parsing to a signature that takes only the receiver, plus
+    absence from `READ_METHOD_DENYLIST`. Measured 2026-08-30 against Live
+    12.4.5: 44 of 589 methods carry a prefix, 18 take only the receiver, and
+    three of those 18 are `Live.Licensing.PythonLicensingBridge` methods that
+    this fork's own "reachable is not desirable" rule shuts. The denylist
+    holds *qualified* names for that reason.
+
+  The output is **set-scoped**, unlike `lom_dump.json`, and deliberately a
+  separate file: `tools/lom_gaps.py` does not read it and `FORK_GAPS.md` is
+  not generated from it. `tests_unit/test_instance_walk.py` pins the
+  predicate, the cycle guard, the depth bound, the vector sampling, the
+  never-call-a-listener rule and the record shape.
+
 - **`application.py` — the application-level address table, and the
   `get_application()` seam.** Upstream registers three addresses out of a
   21-member `Live.Application.Application`: `get/version` (major and minor

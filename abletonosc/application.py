@@ -79,6 +79,33 @@ class ApplicationHandler(AbletonOSCHandler):
         self.osc_server.add_handler("/live/application/dump_lom", dump_lom)
 
         #--------------------------------------------------------------------------------
+        # Seshat extension — the instance walk. Holds real Live objects and
+        # reads them, which is the only way to learn what a property's value
+        # type is: every one of Live's 894 properties has a getter and not one
+        # carries a docstring. See introspection.py's second half and
+        # BLIND_SPOTS.md blind spots 4 and 5.
+        #
+        # Takes NO path from the wire, deliberately unlike dump_lom above.
+        # The fork's write-side rule is browser/export's — accept no
+        # destination from a caller, choose one, and reply with what was
+        # actually written — and dump_lom's arbitrary-path argument is the one
+        # known outstanding violation of it (issues.md, Low; API.md
+        # § "Handlers that name a file to read"). A second address repeating
+        # that shape would double the violation while the first is still open,
+        # so this one does not take the argument. `params` is accepted and
+        # ignored because that is the dispatch signature, not an argument
+        # channel; do not "fix" the inconsistency by giving it a path.
+        #
+        # Read-only: no mutation, so no begin_undo_step/end_undo_step pair, and
+        # no listener is ever added or removed by the walk.
+        #--------------------------------------------------------------------------------
+        def dump_lom_instances(params: Tuple[Any] = ()) -> Tuple:
+            module_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+            path = os.path.join(module_path, "logs", "lom_instances.json")
+            return introspection.dump_lom_instances(path, self.song)
+        self.osc_server.add_handler("/live/application/dump_lom_instances", dump_lom_instances)
+
+        #--------------------------------------------------------------------------------
         # Seshat extension — the rest of the application-level surface.
         # See SESHAT.md ("Additions to upstream's code") and API.md
         # § "Application API". Everything here is read-only except the two

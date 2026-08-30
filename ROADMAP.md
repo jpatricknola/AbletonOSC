@@ -135,6 +135,10 @@ that a documented usage pattern rather than a hypothetical one.
 
 ## #3 · Walk a live instance graph, not only the class graph
 
+**Plan:** [docs/PLAN_lom_instance_walk.md](docs/PLAN_lom_instance_walk.md) —
+planned 2026-08-30 as one item merged with the read-half sweep in
+[docs/HANDOFF_tier_2_measurement.md](docs/HANDOFF_tier_2_measurement.md).
+
 **Goal:** a dump taken by traversing real Live objects — from
 `get_application()` and `song` through tracks, devices, chains, drum pads and
 parameters — recording each object's **actual type** and members, against a set

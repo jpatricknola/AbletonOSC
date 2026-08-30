@@ -249,6 +249,9 @@ REGISTERED_ADDRESSES = {
     "/live/application/get/version",
     "/live/application/get/average_process_usage",
     "/live/application/dump_lom",
+    # The instance walk (introspection.py's second half). Takes no wire path,
+    # deliberately unlike dump_lom above — see the handler comment.
+    "/live/application/dump_lom_instances",
     # Generic-loop scalar reads.
     "/live/application/get/open_dialog_count",
     "/live/application/get/current_dialog_message",
