@@ -353,7 +353,12 @@ of what Live provides. Hand-maintained._
 `category` and `attached_object`. The fork resolves by display name when
 setting, so a routing whose display name is not unique (two identically
 named external instruments, two tracks called "Drums") is ambiguous. A
-stable identifier would need the object or its index.
+stable identifier would need the object or its index. Resolution failure is also
+**silent** on `/live/track/set/{input,output}_routing_{type,channel}`: a name
+absent from the available list is logged to Live's Log.txt and nothing goes on
+the wire, so a caller cannot distinguish a rejected name from a lost datagram
+without reading the value back. Recorded in the API.md rows rather than fixed —
+these are conventionally silent setters — but it is a shape gap all the same.
 
 ### `Song.cue_points` — index-keyed, no time/name listen
 
@@ -418,6 +423,24 @@ re-read after every edit it makes, and cannot see an edit made in Live's UI at
 all. The push *shape* is the open question, not the subscription: the
 nine-field flattened group of `/live/clip/get/notes_extended` is large, and
 resending the whole clip on every note edit is the naive answer.
+
+### `Clip` envelopes — the flag ships, the contents do not
+
+`has_envelopes` has shipped, as `/live/clip/get/has_envelopes` plus a listen
+pair. It is the whole of the envelope surface, and deliberately so: the rest of
+the family — `automation_envelope`, `automation_envelopes`,
+`create_automation_envelope`, `clear_envelope`, `clear_all_envelopes` — has no
+address and cannot get one usefully. Every one of them is keyed by a
+`DeviceParameter` *object*, which no address can pass, and `automation_envelope`
+is absent from `_MxDCore/LomTypes.pyc` at 12.4.5 besides. So envelope data can
+be neither authored nor read through this bridge; importing a file through
+`/live/browser/load_item` is the only route by which any reaches a clip, and
+`has_envelopes` is the only way to see that it did. It answers "something is
+there" and nothing about what or where.
+
+(The generated table below still counts `has_envelopes` as a gap: the inventory
+is a `dump_lom` artifact and is not hand-edited. This prose is the record until
+the next dump.)
 
 ### `DeviceParameter` — `re_enable_automation` and three listen pairs
 
@@ -585,7 +608,7 @@ _Reached under another address:_ `sends` → /live/track/get/send
 | `song_tempo` | ro |  | yes | MainTrack only: Const access to the Song's Tempo. |
 | `track_activator` | ro |  | yes | Const access to the Tracks Activator Device Parameter. |
 
-### `Live.Clip.Clip` — 86 members, 57 exposed, 29 gaps
+### `Live.Clip.Clip` — 86 members, 58 exposed, 28 gaps
 
 _Reached under another address:_ `add_new_notes` → /live/clip/add/notes, /live/clip/add/notes_extended; `get_all_notes_extended` → /live/clip/get/notes, /live/clip/get/notes_extended (no args); `get_notes` → /live/clip/get/notes (this is the deprecated tuple form); `get_notes_extended` → /live/clip/get/notes, /live/clip/get/notes_extended; `get_selected_notes` → /live/clip/get/selected_notes; `get_selected_notes_extended` → /live/clip/get/selected_notes_extended; `remove_notes` → /live/clip/remove/notes (deprecated form); `remove_notes_extended` → /live/clip/remove/notes
 
@@ -601,7 +624,6 @@ _Reached under another address:_ `add_new_notes` → /live/clip/add/notes, /live
 | `create_automation_envelope` | method |  |  | create_automation_envelope( (Clip)arg1, (DeviceParameter)arg2) -> Envelope : |
 | `crop` | method |  | yes | crop( (Clip)arg1) -> None : |
 | `duplicate_region` | method |  | yes | duplicate_region( (Clip)self, (float)region_start, (float)region_length, (float)destination_time [, (int)pitch=-1 [, (int)transposition_amount=0]]) -> None : |
-| `has_envelopes` | ro | yes | yes | Will notify if the clip gets his first envelope or the last envelope is removed. |
 | `is_arrangement_clip` | ro |  | yes | return true if this Clip is an Arrangement Clip. |
 | `is_session_clip` | ro |  |  | return true if this Clip is a Session Clip. |
 | `is_take_lane_clip` | ro |  |  | return true if this Clip is a Take Lane Clip. |

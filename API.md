@@ -1500,12 +1500,12 @@ query.** One request, one action per regular track.
 | `/live/track/set/color_index` | `track_id, color_index` | Set color index |
 | `/live/track/set/current_monitoring_state` | `track_id, state` | Set monitoring state: `0` = In, `1` = Auto, `2` = Off (`Live.Track.Track.monitoring_states`) — *not* a boolean |
 | `/live/track/set/fold_state` | `track_id, fold_state` | Set group fold (1=on, 0=off) |
-| `/live/track/set/input_routing_channel` | `track_id, channel` | Set input routing channel |
-| `/live/track/set/input_routing_type` | `track_id, type` | Set input routing type |
+| `/live/track/set/input_routing_channel` | `track_id, channel` | Set input routing channel. A name not present in the track's `/live/track/get/available_input_routing_channels` list is **silently ignored** — no reply, no `/live/error`, no change to the routing, indistinguishable from a dropped datagram or an unloaded extension. Validate against the available list before sending, or read the value back afterwards; there is no other way to notice the set failed. |
+| `/live/track/set/input_routing_type` | `track_id, type` | Set input routing type. A name not present in the track's `/live/track/get/available_input_routing_types` list is **silently ignored** — no reply, no `/live/error`, no change to the routing, indistinguishable from a dropped datagram or an unloaded extension. Validate against the available list before sending, or read the value back afterwards; there is no other way to notice the set failed. |
 | `/live/track/set/mute` | `track_id, mute` | Set mute (1=on, 0=off) |
 | `/live/track/set/name` | `track_id, name` | Set track name |
-| `/live/track/set/output_routing_channel` | `track_id, channel` | Set output routing channel |
-| `/live/track/set/output_routing_type` | `track_id, type` | Set output routing type |
+| `/live/track/set/output_routing_channel` | `track_id, channel` | Set output routing channel. A name not present in the track's `/live/track/get/available_output_routing_channels` list is **silently ignored** — no reply, no `/live/error`, no change to the routing, indistinguishable from a dropped datagram or an unloaded extension. Validate against the available list before sending, or read the value back afterwards; there is no other way to notice the set failed. |
+| `/live/track/set/output_routing_type` | `track_id, type` | Set output routing type. A name not present in the track's `/live/track/get/available_output_routing_types` list is **silently ignored** — no reply, no `/live/error`, no change to the routing, indistinguishable from a dropped datagram or an unloaded extension. Validate against the available list before sending, or read the value back afterwards; there is no other way to notice the set failed. |
 | `/live/track/set/panning` | `track_id, panning` | Set panning (-1.0 to 1.0) |
 | `/live/track/set/send` | `track_id, send_id, value` | Set send level |
 | `/live/track/set/solo` | `track_id, solo` | Set solo (1=on, 0=off) |
@@ -1668,6 +1668,9 @@ ignored**. Sending fewer than two is a malformed request and answers on
 | `/live/clip/set/ram_mode` | `track_id, clip_id, ram_mode` | | Set RAM mode |
 | `/live/clip/get/warp_mode` | `track_id, clip_id` | `track_id, clip_id, warp_mode` | Warp mode (0=Beats, 1=Tones, 2=Texture, 3=Re-Pitch, 4=Complex, 6=Pro) |
 | `/live/clip/set/warp_mode` | `track_id, clip_id, warp_mode` | | Set warp mode |
+| `/live/clip/get/has_envelopes` | `track_id, clip_id` | `track_id, clip_id, has_envelopes` | ⚠️ **Seshat extension** — does this clip carry **any** envelope? (0=False, 1=True). The only way a client can see envelope data at all: no address authors envelopes, and `Clip` exposes no envelope-writing member to the bridge at Live 12.4.5, so importing a file through `/live/browser/load_item` is the only route by which expression data reaches a clip — and notes read back through `/live/clip/get/notes_extended` carry no expression field, so without this the difference between an import that carried pitch bend and one that carried only notes is invisible on the wire. **It says nothing more than "something is there"**: not which parameter owns the envelope, and not its values. Reading or writing contents would need `automation_envelope` / `create_automation_envelope`, which are in the LOM and unexposed (`FORK_GAPS.md`) and take a `DeviceParameter` — device automation, not a MIDI clip's pitch-bend or CC lanes |
+| `/live/clip/start_listen/has_envelopes` | `track_id, clip_id` | | ⚠️ **Seshat extension** — pushes on `/live/clip/get/has_envelopes`. Live's contract is that it notifies when the clip gains its first envelope or loses its last, not on every envelope edit |
+| `/live/clip/stop_listen/has_envelopes` | `track_id, clip_id` | | ⚠️ **Seshat extension** — stop listening |
 | `/live/clip/get/has_groove` | `track_id, clip_id` | `track_id, clip_id, has_groove` | Has groove? (0=False, 1=True). This is the flag `/live/clip/get/groove` is gated on — a clip whose `has_groove` is `0` reads `-1` there |
 | `/live/clip/get/groove` | `track_id, clip_id` | `track_id, clip_id, groove_index` | ⚠️ **Seshat extension** — which Groove Pool groove is assigned to this clip, as its **index into `/live/song/get/groove_pool`**. Answers **`-1` when `Clip.has_groove` is false**, without consulting `Clip.groove` at all — that member always holds an object even for an ungrooved clip, so an `==` scan alone could not tell "no groove" from "pool index `0`". `-1` also if the groove is somehow not a pool member. ⚠️ **Unverified**: that `has_groove` is false for a clip Live's UI shows as ungrooved is Live's documented contract ("Returns true if a groove is associated with this clip", LOM, since Live 11.0), assumed rather than measured by this fork — see the **Groove API** and `FORK_GAPS.md`. See also **Object-valued reads** |
 | `/live/clip/set/groove` | `track_id, clip_id, groove_index` | | ⚠️ **Seshat extension** — assign the groove at `groove_index` in the pool. **`groove_index` must be `>= 0`.** ⚠️ **`-1` is rejected, not a clear**: it answers a structured `/live/error` whose detail carries `cannot be cleared`, and the clip is untouched. **Assignment is one-way** — Live's setter is typed `None(TPyHandle<AClip>, TPyHandle<AAbstractGroove>)` and refuses `NoneType` (measured against Live 12.4.5 on 2026-08-29), and no other spelling for "no groove" is documented in the LOM, so a groove can only be un-assigned in Live's own Clip Groove chooser. `-2` and below, and an index past the end of the pool, answer on `/live/error` naming the pool's real size (`out of range`) and change nothing. See **Object-valued reads** and the **Groove API** |
@@ -2348,6 +2351,30 @@ path — so a query resolves instead of hanging.
 | `/live/browser/get/items` | | `category, filter, 'error', message` | Unknown category, or indexing failed |
 | `/live/browser/load_item` | `track_id, uri` | `track_id, uri, 'ok', device_name, device_index` | Load a browser item onto a track |
 | `/live/browser/load_item` | | `track_id, uri, 'error', message` | Bad track index, unknown uri, or load failed. If `track_id` is missing or not a number the echo is `-1, ""`, not what was sent |
+
+⚠️ **A MIDI file is not loaded like a device.** Measured against Live 12.4.5
+Suite (build `2026-08-19_225ce5e356`) on 2026-08-30, with a `.mid` placed in the
+User Library — it appears in the browser immediately, with no rescan or restart,
+under an ordinary `query:UserLibrary#Clips:<name>.mid` uri:
+
+- **Live creates its own regular MIDI track** for the file, appended after the
+  existing tracks and named by position (`5-MIDI` on a five-track set). The
+  `track_id` argument, the selected track and the selected scene are all
+  ignored — the clip does **not** land in the selected clip slot, and the reply's
+  `device_index` describes nothing that was placed on `track_id`.
+- The clip takes the MIDI file's own internal track name (`Track 1`), not the
+  file name.
+- **Note timing is preserved exactly.** A file whose first note began at beat
+  `3.4818` produced a clip reading `start=3.4818`, with durations and velocities
+  matching field for field.
+- Clip length read `84.0` beats for a file whose last note ended at ~`81.7`.
+- **Pitch-bend data in the file survives as clip envelope(s)**, confirmed on
+  screen. This is currently the only route by which envelope data reaches a
+  clip — no address authors one — and `/live/clip/get/has_envelopes` is how a
+  client sees that it happened.
+
+A caller therefore resolves the created track by counting tracks either side of
+the load, the way it would for any Live command that makes its own track.
 | `/live/browser/load_item_on_return` | `return_index, uri` | `return_index, uri, 'ok', return_name, device_name, device_index` | Load a browser item onto a return track's chain |
 | `/live/browser/load_item_on_return` | | `return_index, uri, 'error', message` | Bad return index, unknown uri, load failed, or the load didn't land on the return. If `return_index` is missing or not a number the echo is `-1, ""` |
 | `/live/browser/load_item_on_master` | `uri` | `uri, 'ok', device_name, device_index` | Load a browser item onto the master track's chain |
@@ -2416,6 +2443,24 @@ path — so a query resolves instead of hanging.
   must be unchanged, and the target's chain must have gained a device — and
   return `'error'` naming the stray track if not. The stray track is **not**
   deleted; the reply names it and leaves removing it to the caller.
+- ⚠️ **A MIDI file loads onto a track Live creates, not the one you named.**
+  Measured 2026-08-30 on Live 12.4.5 Suite (build `2026-08-19_225ce5e356`): a
+  `.mid` dropped in the User Library appears in the browser immediately, with an
+  ordinary URI (`query:UserLibrary#Clips:<name>.mid`), and `load_item` imports
+  it — but **the `track_id` argument, the selected track and the selected scene
+  are all ignored**. Live appends its own regular MIDI track, named by position
+  (`5-MIDI` on a five-track set), and puts the clip there; it does *not* land in
+  the selected clip slot. The clip is named after the **MIDI file's own track
+  name** (`Track 1`), not the file name, so the reply's `device_name` and the
+  clip's name are no guide to which file was loaded. Note timing is preserved
+  exactly (a first note at beat `3.4818` reads back `start=3.4818`), as are
+  durations and velocities; clip length is rounded up to a bar boundary (84.0
+  beats for a file whose last note ended at ~81.7). **Pitch-bend data in the file
+  survives the import as clip envelope(s)** — read
+  `/live/clip/get/has_envelopes` to see that it arrived. This is the only way to
+  get expression data into a clip: no address authors envelopes. A caller that
+  needs the clip somewhere specific must find the new track (the set's track
+  count grows by one) and move the clip itself.
 
 ### `/live/browser/export`
 
