@@ -48,7 +48,53 @@ work; add to it when rejecting a proposal.
 
 ---
 
-## #1 · One `/live/song/undo` does not revert an OSC-created scene
+## #1 · Stop masking Remote Script import failures
+
+**Goal:** a failed import of `Manager` inside Live surfaces the original
+exception at startup, and the Live-free test layer imports what it needs
+without a blanket `ImportError` guard in the Remote Script entry point.
+
+**Why:** the package root swallows every `ImportError` so pytest can import it
+without Live's modules; in Live the same guard hides a real missing dependency
+or programming error, and `create_instance()` then fails with a `NameError` on
+the undefined `Manager` instead of the actionable cause. Every handler PR here
+is debugged through that startup path.
+
+**Moved to the head of the queue on 2026-08-30, on a measured cost rather than
+an argument.** An interrupted `mix abletonosc.install` left the install missing
+`manager.py` and all of `pythonosc/`. Live's only report, across three restarts
+and two distinct missing pieces, was:
+
+```
+error: RemoteScriptError:   File ".../AbletonOSC/__init__.py", line 9, in create_instance
+error: RemoteScriptError: NameError: name 'Manager' is not defined
+```
+
+The same six words for a missing module and for a missing vendored package.
+Both were found by diffing the install against the repo, never from the error.
+The guard discards the one line that names the file, and the failure it hides
+is not hypothetical — it is the ordinary outcome of an install that stops
+part-way, which is a thing that now demonstrably happens.
+
+**Planner notes:**
+- Source: `issues.md`, "Stop masking Remote Script import failures" (Medium),
+  plus the 2026-08-30 incident above.
+- Small: root `__init__.py` plus whatever `tests_unit/conftest.py` needs to
+  keep loading modules without Live. Check how the loader there imports today
+  before choosing the guard's replacement.
+- The guard exists for pytest, and that need is real — do not simply delete it.
+  What it must stop doing is discarding the exception: log or re-raise with the
+  original message and the module that failed, so the two cases above read
+  differently.
+- **A partial install is worth detecting on its own**, and cheaply: `manager.py`
+  and `pythonosc/` are the last things `mix abletonosc.install` copies, so
+  their absence is the signature of an interrupted run. A startup check that
+  names them beats any improvement to the traceback. The install task's lack of
+  atomicity is a Seshat defect and belongs in that repository, not here — but
+  the bridge should still fail legibly when handed a half-installed tree.
+- No dependencies.
+
+## #2 · One `/live/song/undo` does not revert an OSC-created scene
 
 **Goal:** establish how many undo steps an OSC-driven mutation actually
 registers in Live, document the real contract for `/live/song/undo` and
@@ -87,7 +133,66 @@ that a documented usage pattern rather than a hypothetical one.
   a test that asserts the measured step count with the reason written down --
   not a silent bump from one `undo` to two.
 
-## #2 · Make a failed live code reload safe and reported
+## #3 · Walk a live instance graph, not only the class graph
+
+**Goal:** a dump taken by traversing real Live objects — from
+`get_application()` and `song` through tracks, devices, chains, drum pads and
+parameters — recording each object's **actual type** and members, against a set
+holding one of every device. Its output answers two questions the class walk
+cannot: which classes appear only as some property's value type, and what
+surface a given device type actually carries.
+
+**Why:** `dir(cls)` returns the static Boost.Python registration. Two things
+this repository needs are not in it.
+
+**First, it is now the only remaining check on the walked class list.** Every
+static channel is exhausted: `dir(Live)` was read from a running Live 12.4.5 on
+2026-08-30 and is exactly the 43 modules the walk covers; method signature
+types resolve 56 of 61; and the shipped binary turned out to be a *superset* of
+the Python API rather than a source of missed surface. The one hole none of
+those can reach is a class reachable only as a **property's** value type —
+because properties carry no type information anywhere in the interpreter
+(`Q1 properties=894 with_fget=894 fget_doc=0`). `Song.tracks` documents itself
+as *"Const access to a list of all Player Tracks"*: prose, no type. The only
+way to learn what it holds is to hold a `Song` and look.
+
+**Second, member-level coverage is not object-level coverage.**
+`Live.Device.Device` being fully covered does not make every device fully
+reachable, and the coverage goal is stated in terms of the second. Which
+`DeviceParameter`s a Wavetable carries, which `View` members a given device
+type exposes, which racks have chains or drum pads, and the value set of
+`class_name` — the list of device types Live ships — appear nowhere in any
+inventory this repository generates.
+
+**Planner notes:**
+- Source: BLIND_SPOTS.md blind spot 5, which carries the probe output and
+  records blind spot 4's unanswered half migrating here.
+- **The curated set is the deliverable's precondition, and it is the expensive
+  part.** A walk over the user's working set measures that set, not Live.
+  Decide what "one of every device" means, how the set is version-controlled or
+  described, and what the dump records about which set produced it — a dump
+  that does not name its set cannot be compared against the next one.
+- Read-only by construction and it must stay that way: `type()`, `dir()` and
+  attribute reads only, no instantiation, no loading devices from the browser
+  mid-walk. Reading `master_track.mute` raises `RuntimeError` rather than
+  returning falsy, so every read needs its own `try`/`except` — `hasattr` is
+  not a safe feature test on LOM objects. That rule is in API.md's measurement
+  section and this walk will hit it constantly.
+- Recursion needs a cycle guard on `id()` and a depth bound: the object graph
+  has `canonical_parent` back-edges the class walk never had to handle.
+- Output has to merge with the existing inventory rather than replace it —
+  `tools/lom_gaps.py` and `tests_unit/test_lom_gaps.py` both key off the
+  current dump shape, and the walked totals move again.
+- The probe rig in API.md § "Measuring the Live API without building the
+  feature first" is the delivery channel for the first run. Note issue #35 on
+  its state, and note that a broken or partial install reports as
+  `NameError: name 'Manager' is not defined` and nothing more — see the item on
+  masked import failures.
+- Depends on nothing, but is worth far more after the masked-import item lands,
+  because this is the item most likely to be developed through repeated
+  install-and-reload cycles.
+
+## #4 · Make a failed live code reload safe and reported
 
 **Mostly shipped.** The reporting half landed with the `introspection` reload
 abort fix; what remains is narrow and is recorded below rather than deleted.
@@ -133,26 +238,7 @@ describes. Decide whether that is worth doing; if not, close the item.
   development; move this up if a future one hits it.
 - No dependencies.
 
-## #3 · Stop masking Remote Script import failures
-
-**Goal:** a failed import of `Manager` inside Live surfaces the original
-exception at startup, and the Live-free test layer imports what it needs
-without a blanket `ImportError` guard in the Remote Script entry point.
-
-**Why:** the package root swallows every `ImportError` so pytest can import it
-without Live's modules; in Live the same guard hides a real missing dependency
-or programming error, and `create_instance()` then fails with a `NameError` on
-the undefined `Manager` instead of the actionable cause. Every handler PR
-above is debugged through that startup path.
-
-**Planner notes:**
-- Source: `issues.md`, "Stop masking Remote Script import failures" (Medium).
-- Small: root `__init__.py` plus whatever `tests_unit/conftest.py` needs to
-  keep loading modules without Live. Check how the loader there imports today
-  before choosing the guard's replacement.
-- No dependencies.
-
-## #4 · Remove the process-global and shared-file risks from song structure export
+## #5 · Remove the process-global and shared-file risks from song structure export
 
 **Goal:** `/live/song/export/structure` has a private, collision-safe export
 contract — or is deleted if nothing consumes it.
@@ -174,7 +260,7 @@ browser exporter was hardened against.
   five-line PR that can go any time.
 - Depends on that consumer audit only.
 
-## #5 · Add bounded log retention
+## #6 · Add bounded log retention
 
 **Goal:** the installed `logs/abletonosc.log` has an explicit size ceiling
 with documented rotation, and `/live/api/reload` and disconnect neither stack
@@ -191,7 +277,7 @@ without limit (≈855 KB at the time of the audit, still growing).
   reviewer is reading; name the rotated filenames in `API.md`.
 - No dependencies.
 
-## #6 · Document `song` in the handler constructor contract
+## #7 · Document `song` in the handler constructor contract
 
 **Goal:** `abletonosc/handler.py`'s `AbletonOSCHandler` "Constructor
 contract" docstring lists `song` alongside the other invariants (`logger`,
@@ -216,7 +302,7 @@ Comment-only; no behaviour changes.
   no non-comment line, same as the A-4 `track_identity.py` precedent.
 - No dependencies.
 
-## #7 · Verify wildcard fan-out against Seshat's `/live/device/` usage
+## #8 · Verify wildcard fan-out against Seshat's `/live/device/` usage
 
 **Goal:** confirm whether Seshat ever sends an OSC address *pattern* (not a
 literal address) under `/live/device/`, and if so, record what changes for
@@ -258,7 +344,7 @@ could the nit-triage pass that declined fixing it inline.
 - No dependencies; verification-only, and may resolve to "no action" without
   ever becoming a Python change here.
 
-## #8 · `stop_listen` can leave a listener stranded when its collection shrinks
+## #9 · `stop_listen` can leave a listener stranded when its collection shrinks
 
 **Goal:** stopping a listen on an indexed family (`/live/groove/stop_listen/*`,
 `/live/scene/stop_listen/*`, and any future one built the same way) always
@@ -294,6 +380,69 @@ Groove PR that surfaced it.
   never-started case, which should still be a no-op or an error as today.
 - No dependencies.
 
+## #10 · Recover Live's argument names from the shipped binary
+
+**Goal:** a tool that extracts the `arg()` name literals from Live's
+Boost.Python registration table in the shipped binary, and a decision, per
+address this fork already ships, about which of them belong in `API.md`.
+
+**Why:** Boost.Python synthesises its signatures at runtime from C++ type info,
+and the argument names are not in them. The dump therefore renders
+`events_in_range( (Envelope), (float), (float) )` — three anonymous floats — for
+a call whose parameters Live's own source names `from_time`, `from_pitch`,
+`time_span`, `pitch_span`. The binary keeps those literals. This is the one
+category of API information measured to exist in the binary and **not** to be
+recoverable from a running Live, which is the whole of what is left of this
+item.
+
+**It is ranked last deliberately, and the measurement is why.** This entry
+began as the #2 item, on the argument that a second inventory built by an
+unrelated method could find surface the walk cannot reach. The prototype found
+three candidates — a `TestUtilities` module with 43 free functions,
+`last_played_level` with a full listener triplet, and
+`can_select_scene_on_launch` — and a probe against Live 12.4.5 on 2026-08-30
+found that **none of the three is reachable from Python**:
+
+```
+Q2 'TestUtilities' in dir(Live): False
+Q2 import Live.TestUtilities FAILED: ModuleNotFoundError
+Q3 last_played_level hits: NONE in any walked class
+Q4 hasattr(Scene, 'can_select_scene_on_launch'): False
+```
+
+The registration table contains names Live does not expose to the Python API.
+The premise "a name in the binary that the walk missed is a hole in the walk"
+is therefore false in the general case, and the yield of a binary diff is much
+lower than it appeared. Argument names survive as a real result because they
+are about addresses the fork already ships, not about reaching new ones.
+
+**Planner notes:**
+- Source: BLIND_SPOTS.md blind spot 3 and its 2026-08-30 correction, which
+  carries the probe output and the prototype's method.
+- Method that worked, and its numbers: `strings -a` over
+  `/Applications/Ableton Live 12 Suite.app/Contents/MacOS/Live` (universal
+  binary — every string appears twice). Segmenting on `Live.X` markers fails;
+  there are 30 markers for 43 modules and the big blocks over-absorb, yielding
+  9,350 names of Python-stdlib and OpenSSL noise. Locality-anchoring works:
+  anchor on the 2,354 lines matching a name the walk already knows, grow
+  regions while anchors stay within 25 lines, report unknown identifiers
+  inside. 16 regions, 173 names, most of them the `arg()` literals this item
+  now exists to harvest.
+- The 25-line gap and 40-line region floor were picked to make the output
+  readable. Sweep them and report what changes rather than shipping the first
+  values that produced a tidy list.
+- **Attribution is the hard part and adjacency does not give it.** The block
+  ending at the `Live.WavetableDevice` marker holds names that are plainly not
+  Wavetable's; Boost.Python string layout is per-translation-unit, not
+  per-module. Any name this tool emits must be tied to an address by a human
+  reading the surrounding docstrings, which is why the deliverable is a review
+  queue and a set of `API.md` edits, not a generated table.
+- Everything it emits is tier 1 and must be confirmed against a running Live
+  before it reaches `API.md` — the three findings above are the standing
+  demonstration of why.
+- No dependencies. Small, and worth doing only when someone is already editing
+  the argument documentation for a family of addresses.
+
 ---
 
 ## Deliberately not planned
@@ -305,6 +454,23 @@ the device path resolver (alone, no scalar padding), then the Arrangement and
 take-lane clip resolver. A bucket appears in this file as a numbered item when
 it is picked up, not before.
 
+- **Walk the type graph, not the namespace.** Proposed 2026-08-30 as the head
+  of this queue, on the argument that the walker reaches types by name and so
+  cannot see a class Live only ever returns or accepts. Measured before
+  planning, and declined on the measurement. Two channels, both empty:
+  **methods** — Live names 61 distinct types in its signatures, 56 already
+  resolve to a walked entry, and 4 of the remaining 5 are parse artefacts
+  (`note`, `tb`, `un`, `StartupDialogServes`); **properties** — the hypothesis
+  was that Boost.Python keeps the getter's return type on `fget.__doc__`, where
+  `_classify()` never looks. A probe against Live 12.4.5 on 2026-08-30 killed
+  it outright: `Q1 properties=894 with_fget=894 fget_doc=0 fget_signature=0`.
+  Every property has a getter and **not one carries a docstring**, so there is
+  no type edge to follow for the 894 members that make up most of the LOM
+  surface. There is nothing for a closure to close. **Reopens when** a Live
+  version ships property getters that carry docstrings — re-run the same four
+  counts to check — or when a class is found that is genuinely reachable only
+  through a return value, which would be evidence the method channel is not as
+  closed as the 56-of-61 says.
 - **`Application.press_current_dialog_button`** — the one piece of Live API
   surface held out of the coverage goal, and held out on safety: a dialog on
   screen may be guarding unsaved work, and pressing its buttons blind is not

@@ -9,10 +9,22 @@ cannot report**, so that absence from FORK_GAPS.md is never again read as
 absence from Live._
 
 **The rule this file exists to state:** FORK_GAPS.md is authoritative for
-what it reports and silent — not negative — everywhere else. Three categories
-of Live surface could not appear in it at all, no matter how much of Live they
-carried. Two are now fixed and one is open, so "it is not in FORK_GAPS.md" is
-evidence only as far as the Status table below says it is.
+what it reports and silent — not negative — everywhere else. Six categories of
+Live surface could not appear in it at all, no matter how much of Live they
+carried. Three are fixed or re-scoped, one is half shut and half migrated, and
+two are open, so "it is not in FORK_GAPS.md" is evidence only as far as the
+Status table below says it is.
+
+Blind spots 1–3 were found by reading the reporting pipeline. Blind spots 4–6
+were found by asking the next question — *why is the walk not exhaustive?* —
+and measuring each answer rather than ranking it. **The walk is exhaustive of
+`dir(Live)`, and `dir(Live)` was read from a running Live and is exactly the 43
+modules the walk covers.** Blind spot 4's method channel is measured shut; its
+property channel turned out to be statically unanswerable and moved into blind
+spot 5. What is left open is 5 and 6, and neither is a defect in the walker —
+one is below it (instance shape) and one is the other side of it (what Live
+calls on us). **Every static channel is now exhausted**, so 5 is the only
+remaining way to check the walked class list for completeness.
 
 ## Status
 
@@ -20,7 +32,10 @@ evidence only as far as the Status table below says it is.
 |---|---|
 | 1 · report filter drops 90 of 134 walked entries | **fixed** — `tools/lom_gaps.py` renders them in *Walked but not diffed*, with the enum/vector exclusion written down as a named rule; `tests_unit/test_lom_gaps.py` pins the exclusions, module tables, signatures, constants and totals |
 | 2 · walker drops module-level members | **fixed and verified** — measured against Live 12.4.5 on 2026-08-30; **7 modules carrying 33 free functions**, none of which had ever appeared in any inventory |
-| 3 · everything outside the `Live` module is unwalked | **measured, and re-scoped** — the walker misses no `Live` submodule (43 of 43), and the shipped-script discovery channel is exhausted; what remains is a *reference* read of `_MxDCore`, not a walk |
+| 3 · everything outside the `Live` module is unwalked | **re-scoped; its conclusion now verified directly, its original method retired** — "the walker misses no `Live` submodule" is **true**: `dir(Live)` was read from a running Live 12.4.5 on 2026-08-30 and is exactly the 43 walked modules, zero difference either way. The `Live.X` grep that first produced that number could not have proved it, and a binary-only module (`TestUtilities`) shows why. See the correction below |
+| 4 · the walk follows names, not types | **half closed, half migrated** — the *method* channel is measured shut (61 type names, 56 walked, 4 of the 5 remaining are parse noise). The *property* channel is not closed, it is **statically unanswerable**: all 894 have a getter and none carries a docstring, so a class reachable only as some property's value type stays invisible to any static walk. That question is now blind spot 5's |
+| 5 · a class walk cannot see an instance | **open, ranked** — `dir(cls)` is the static registration; which parameters *this* Wavetable carries, which `View` *this* device type has, and **which classes appear only as a property's value type**, are runtime facts no class walk holds. Now the only remaining channel for the type question blind spot 4 could not answer |
+| 6 · the inbound Remote Script contract is not walkable | **open, and not a walking problem** — the walk sees what a client calls on Live. What Live calls on the script (`create_instance`, `build_midi_map`, `receive_midi`, `suggest_input_port`) is real capability and is structurally invisible to any `dir(Live)` |
 
 The counts and tables below are the measurement that motivated the fixes, taken
 before them. They are the record of what was hidden and for how long, not a
@@ -314,6 +329,72 @@ capability; it would add Ableton's helper classes for writing control surfaces.
 "Walk them like we walk `Live`" is therefore the wrong shape of work, and the
 absence of a walk is not the same defect as blind spots 1 and 2.
 
+### Correction, 2026-08-30 — `TestUtilities`, and what "43 of 43" was worth
+
+This section is a correction twice over: first of blind spot 3's method, then
+of the correction itself. Both halves are kept, because the second is the more
+useful one.
+
+**What the binary holds.** Live's registration table contains a module the walk
+has never produced. Between the `Live.TakeLane` marker and the next class
+block:
+
+```
+TestUtilities
+get_base_reference          Returns the given object as base reference.
+get_song_reference          Returns the given object as a song reference.
+get_track_reference         Returns the given object as a track reference.
+…
+get_automation_envelope_reference
+                            Returns the given object as an automation envelope reference.
+```
+
+43 free functions, one per LOM type, each documented. The module name appears
+only as the bare string `TestUtilities`, never as `Live.TestUtilities`, so the
+`Live.X` grep that produced "43 of 43" could not have seen it. Two further
+names turned up the same way: `last_played_level`, with a full
+`add_`/`remove_`/`_has_listener` triplet, and `can_select_scene_on_launch`, in
+the `Live.Scene` block between `fire` and `fire_as_selected`.
+
+**This was first written up here as falsifying the "43 of 43" claim. It does
+not.** A probe against a running Live 12.4.5, the same day:
+
+```
+Q2 'TestUtilities' in dir(Live): False
+Q2 import Live.TestUtilities FAILED: ModuleNotFoundError("No module named 'Live.TestUtilities'")
+Q3 last_played_level hits: NONE in any walked class
+Q4 hasattr(Scene, 'can_select_scene_on_launch'): False
+Q2 dir(Live) submodules: 43 names
+```
+
+`dir(Live)` is **exactly** the 43 modules the walk covers — no module in
+`dir(Live)` is unwalked, and no walked module is absent from `dir(Live)`. The
+conclusion blind spot 3 reached is correct, and is now held on direct evidence
+from the interpreter rather than on a grep over a string table.
+
+**What was actually wrong was the method, and separately, this file's first
+reading of the result.** The `Live.X` grep could only ever confirm modules that
+name themselves in the form it searched for; it happened to reach the right
+answer. Then the binary find was written up here as a falsification before
+anything had been called — tier 1 evidence read as a conclusion, which is the
+exact error the closing section of this file warns about, committed inside the
+document that warns about it.
+
+**The finding worth keeping is the one neither draft set out to make: Live's
+registration table is a superset of Live's Python API.** The binary carries
+names — a whole module, an observable member, an argument literal — that the
+interpreter does not expose. So "present in the binary, absent from the walk"
+is not evidence of a hole in the walk; it is, on the only three cases yet
+tested, evidence of something Live chose not to expose. That result is what
+demoted the binary-inventory item from the head of ROADMAP.md to its tail, and
+it is a better reason for confidence in `FORK_GAPS.md` than either draft of
+this section provided: the walk's boundary was checked from outside and held.
+
+What survives as work is narrow and is about addresses already shipped:
+Boost.Python synthesises signatures at runtime and drops the `arg()` names, so
+the binary is the only source for them. ROADMAP.md, "Recover Live's argument
+names from the shipped binary".
+
 ### What the look found anyway — `_MxDCore/Conversions/`
 
 `_MxDCore` is the one package that is not a helper library: it is Max for
@@ -356,6 +437,171 @@ in this repository reads them systematically.
 No claim is made here that any of it should be exposed. The claim is only
 that it has never been enumerated, so nobody knows what declining it would
 cost.
+
+## Blind spot 4 — the walk follows names, not types
+
+`_visit_module` iterates `dir(mod)` and recurses into submodules and classes;
+`_visit_class` iterates `dir(cls)` and recurses into nested classes. Both are
+**reachability from a namespace**. Nothing follows a *type* edge.
+
+So a Boost.Python class that Live only ever hands back from a method, or only
+ever accepts as an argument, and never binds as an attribute of a `Live`
+module, is not reachable by any path the walker takes. It has no row, no count
+and no note — the same silence blind spot 1 existed to end, arriving through a
+different door.
+
+Live declares these types, in the dump we already take. The Boost.Python
+docstrings carry the signature, and the signature names the type:
+
+```
+move_devices_on_track_to_new_drum_rack_pad( (Song)song, (int)track_index) -> LomObject
+events_in_range( (Envelope), (float), (float) ) -> EnvelopeEventVector
+create_event( (Envelope), (EnvelopeEvent) ) -> None
+create_midi_track_from_drum_pad( (Song)song, (DrumPad)drum_pad) -> None
+```
+
+Every one of those type names is an edge, sitting in `lom_dump.json` as an
+unparsed string. A closure over them — parse, resolve, walk anything new,
+repeat to a fixed point — is the difference between "every type bound to a
+name" and "every type the API can hand a client".
+
+**The `_MxDCore.LomTypes` sweep in `walk_live()` is a partial patch on this
+hole, and its limit is already documented above.** It walks
+`AVAILABLE_TYPE_PROPERTIES`, which is Max for Live's exposure table — and blind
+spot 1 is the record of that table dropping real surface:
+`Live.CcControlDevice.CcControlDevice`, 41 members, absent for exactly the
+reason that Ableton did not choose to expose it to M4L. A patch built from
+someone else's inclusion list cannot be the general answer.
+
+#### Measured 2026-08-30, and it closed the item
+
+The closure was prototyped before being planned, on this file's own rule. **It
+has nothing to work with.** Both channels were measured; both are empty.
+
+**Methods.** Of the type names Live puts in its signatures:
+
+| | |
+|---|---|
+| distinct type names | 61 |
+| already resolve to a walked entry | 56 |
+| do not resolve | 5 — `RGB`, and four parse artefacts (`note`, `tb`, `un`, `StartupDialogServes`) |
+
+**Properties — where the hypothesis was, and where it died.** Signatures exist
+for 329 methods and for none of the 894 properties, which are the majority of
+the LOM surface and where every object-valued member lives. `Song.tracks`
+documents itself as *"Const access to a list of all Player Tracks in the Live
+Song"*: prose, no type. The hypothesis was that the type is one attribute away
+— that `_classify()` reads `attr.__doc__` while Boost.Python keeps the getter's
+signature on `attr.fget.__doc__`. A probe against a running Live 12.4.5
+answered it:
+
+```
+Q1 properties=894 with_fget=894 fget_doc=0 fget_signature=0
+```
+
+Every property has a getter and **not one of them carries a docstring**. There
+is no hidden type edge; the type information simply is not in the running
+interpreter for a property. A walker cannot follow an edge that Boost.Python
+never wrote down.
+
+**What that closes, and what it does not.** It closes the *method* channel: the
+edges exist, they were followed, and 56 of 61 were already walked. It does not
+close the question the property channel was asked to answer. `fget_doc=0` means
+**statically unanswerable**, not *nothing there* — a class that appears only as
+the value of some property, and is never bound as a module attribute, remains
+invisible, and no amount of work on the static walker can find it, because the
+information is not in the interpreter to be read.
+
+That question does not disappear; it **migrates to blind spot 5**. The only way
+to learn the type of `Song.tracks`' elements is to hold a `Song` and look at
+what comes back. So the static form of this item is declined in ROADMAP.md
+under "Walk the type graph, not the namespace", with the reopen condition
+there, and the live form is ranked as the instance walk.
+
+An earlier draft of this section recorded blind spot 4 as "closed by
+measurement — no action". That was an overstatement of a real negative result,
+and this paragraph is the correction.
+
+## Blind spot 5 — a class walk cannot see an instance
+
+`dir(cls)` returns the static Boost.Python registration. A large part of what
+Live can do is not in the registration; it is in the object graph at runtime.
+
+- Which `DeviceParameter`s a device carries is a property of *that* device.
+  `Live.Device.Device.parameters` is one walked member; the parameter set of a
+  Wavetable, an Operator and a third-party VST are three different capability
+  surfaces reachable through it, and the walk holds none of them.
+- `View` is registered per class, but which device types have which view
+  members, and which racks expose chains or drum pads, is instance shape.
+- `class_name` is a walked member whose *values* — the set of device types Live
+  ships — never appear anywhere in the inventory.
+
+FORK_GAPS.md is a member-level diff and this is not member-level surface, so
+this is not an argument that the inventory is wrong. It is the boundary of what
+a member-level inventory can mean: **`Live.Device.Device` being fully covered
+does not make every device fully reachable**, and the coverage goal is stated
+in terms of the second.
+
+**Blind spot 4's unanswered half now lands here too.** Properties carry no type
+information anywhere in the running interpreter, so the only way to learn what
+`Song.tracks` holds, or whether some class exists that is reachable *only* as a
+property's value, is to hold a real object and read `type()` off what comes
+back. That makes this the last channel through which the walked class list can
+be checked for completeness at all — the static ones are now all exhausted.
+
+Closing it means a **runtime instance walk** — traverse from
+`get_application()` and `song` through tracks, devices, chains, drum pads and
+parameters, recording each object's actual type and members — run against a set
+containing one of every device. That needs Live and a curated set. Ranked in
+ROADMAP.md as "Walk a live instance graph, not only the class graph".
+
+## Blind spot 6 — the inbound contract is not a walkable surface
+
+Every blind spot above is about what a client can call on Live. The Remote
+Script interface runs in the other direction: `create_instance`,
+`build_midi_map`, `receive_midi`, `suggest_input_port`, `can_lock_to_devices`
+and the rest are functions **Live calls on us**. They are capability — MIDI
+mapping, port suggestion, control grabbing — and no `dir(Live)` walk can ever
+produce one of them, because they are not members of `Live`.
+
+Blind spot 3 concluded that the non-`Live` packages are "clients of the same
+API, not more of it". That is right for `_Framework.ButtonElement` and it is
+the reason walking those packages stays out of scope. It is **not** right for
+the base-class contract inside them: `_Framework` and `ableton.v3` are also
+where the inbound protocol is written down, and reading them for that is the
+only channel there is. This fork already implements part of the contract in
+`manager.py` and `abletonosc/midimap.py`, discovered by need rather than by
+enumeration.
+
+This is a reading task with a written output, like the `_MxDCore/Conversions/`
+item blind spot 3 ended on — not a tooling one, and not a walk. It is filed
+here so that the absence of these functions from every inventory is on the
+record as a known category rather than an oversight.
+
+## Two standing limits, which no tool closes
+
+**Everything is tier 1.** Names, kinds and docstrings, read from a running
+Live. A declared signature is not behaviour, and this has already cost
+something concrete: `audio_to_midi_clip` declares `-> None`, and that it is
+*asynchronous* — which decides the entire shape of any handler built on it —
+was learnt only by calling it. Argument domains, which enum values are legal in
+which context, what raises, and what a call does to the undo stack are all
+outside every inventory this repository generates. The probe rig in `API.md` §
+"Measuring the Live API without building the feature first" is the channel for
+that, and it is currently broken on a fresh session (issue #35).
+
+**One build, one edition.** Every measurement in this file is Live 12.4.5
+Suite, macOS. Intro, Lite and Standard gate features; other Live versions add
+and remove members. The inventory is a snapshot presented as if it were the
+API, and nothing in the pipeline records which parts are edition-gated. Closing
+this is a matrix run — the same `dump_lom` against other editions and one older
+version, diffed — and it is bounded by licences rather than by work.
+
+**And the ceiling above all of it:** Live's GUI does more than its Python
+binding exposes. No introspection makes an unbound feature appear. *Exhaustive
+of Live's Python API* is reachable and is what blind spots 4–6 are for.
+*Exhaustive of what Live can do* is not reachable from this direction at all,
+and any claim in that form should be read as the first thing.
 
 ## What this file does not claim
 
@@ -402,11 +648,37 @@ cost.
    designing the `Live.Envelope` addresses**, because it is Ableton's own
    answer to the object-valued wire-shape question those addresses raise.
 
-All four are now closed or re-scoped. The lesson worth keeping is procedural:
-item 4 was ranked low on an argument, and the argument was sound but incomplete
-— looking took twenty minutes and turned up `_MxDCore/Conversions/`, which the
-argument would have cost. Rank by measurement, not by reasoning about what a
-measurement would show.
+5. ~~**Close the reachability gap by following type edges (blind spot 4).**~~
+   Measured and declined for the method channel — 56 of 61 types already
+   walked. The property channel has no edges to follow at all
+   (`fget_doc=0`), so it is not a walker change; it became item 7.
+6. ~~**Check the walk against something that is not the walk.**~~ Done, and it
+   returned the opposite of what was expected: the binary's registration table
+   is a **superset** of Live's Python API, carrying a module, a member and
+   argument literals the interpreter does not expose. The walk's boundary was
+   checked from outside and held. What survives is argument-name recovery,
+   ranked last in ROADMAP.md.
+7. **Walk a live instance graph, not only the class graph (blind spot 5).**
+   Ranked in ROADMAP.md. Now carries blind spot 4's unanswered half as well:
+   with every static channel exhausted, this is the only remaining way to test
+   whether the walked class list is complete.
+8. **Read and write down the inbound Remote Script contract (blind spot 6).**
+   Unranked; a reading task in `_Framework` / `ableton.v3`, with `manager.py`
+   and `abletonosc/midimap.py` as the partial implementation to check against.
+
+Items 1–6 are closed, declined or answered; 7 is ranked in ROADMAP.md; 8 is
+open and unranked.
+
+The lesson worth keeping is procedural, and items 5–8 exist because it was
+applied a second time: item 4 was ranked low on an argument, and the argument
+was sound but incomplete — looking took twenty minutes and turned up
+`_MxDCore/Conversions/`, which the argument would have cost. Rank by
+measurement, not by reasoning about what a measurement would show. **The
+closing of items 1–4 was then read as "the walk is now exhaustive", which it
+never was and which no item here had claimed.** That reading is what blind
+spots 4–6 are on the record to prevent: a fixed pipeline is not a complete one,
+and this file is closed only when something outside the walk has confirmed the
+walk.
 
 ## Documentation obligations
 
@@ -418,3 +690,8 @@ measurement would show.
   learns its boundary before trusting a silence.
 - Any member promoted out of this file into a shipped address leaves here
   and enters `API.md` and the normal FORK_GAPS lifecycle in the same commit.
+- **`ROADMAP.md` items #1 and #2 restate these counts when they land.** Both
+  change the walked total, and the totals in this file and the pinned counts in
+  `tests_unit/test_lom_gaps.py` must move with them in the same commit — a
+  restated count is how a reader tells a measured inventory from a remembered
+  one.
