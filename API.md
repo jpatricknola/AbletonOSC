@@ -539,7 +539,7 @@ Consequences, all of them load-bearing:
 | `/live/application/show_message` | `text` | `result` | Seshat extension. Raises a Live dialog carrying `text`. **OK-only**: every other Live parameter keeps its default, including `buttons` — see the note below. ⚠️ Whether the call blocks, and what the returned int means, are unmeasured; it is passed through opaquely |
 | `/live/application/show_on_the_fly_message` | `text` | `result` | Seshat extension. The transient variant, same shape and same OK-only rule. ⚠️ Where it appears with no Push connected is unmeasured |
 | `/live/application/dump_lom` | `[path]` | `path, num_classes, num_addresses` | Seshat extension. Walks the installed Live API (every class and member reachable from the `Live` module, plus the Max-for-Live device tables) and this server's registered addresses, and writes both to a JSON file — `path` if given, else `logs/lom_dump.json` next to the Remote Script. `tools/lom_gaps.py` diffs the two; `FORK_GAPS.md` is maintained from that diff. ⚠️ Takes an arbitrary path from the wire and writes it with Live's privileges — the opposite of `browser/export`'s policy; see `issues.md`, "Bound `/live/application/dump_lom`'s output path" |
-| `/live/api/reload` | | | Live reload of AbletonOSC server code (dev only — see the warning below) |
+| `/live/api/reload` | | | Live reload of AbletonOSC server code (dev only — see the warning below). Sends no reply on success. A reload that **fails part-way** logs at `error` level and therefore arrives as `/live/error` `"log", ...` naming the module it stopped at — the only signal the caller gets, and the reason a silent success is no longer evidence the edit is live |
 | `/live/api/get/log_level` | | `log_level` | Current log level (default: `info`) |
 | `/live/api/set/log_level` | `log_level` | | Set log level: `debug`, `info`, `warning`, `error`, `critical` |
 | `/live/api/show_message` | `message` | | Show message in Live's status bar |
@@ -656,6 +656,18 @@ unrelated reason noted in its own row above.
    restarted or the control surface is toggled. (Observed once as a `KeyError`
    from a listener on a deleted track; the fork's `_stop_listen` now guards
    that path, so the current trigger is unknown — the failure mode isn't.)
+
+A third problem is **fixed**, and is recorded here because the probe rig above
+depended on it. `reload_imports` used to abort on `abletonosc.introspection` —
+imported only inside the `/live/application/dump_lom` callback, so on any
+session where that address had never been fired the attribute did not exist —
+and then log `Reloaded code` anyway. Every handler module after it was skipped,
+so a probe handler added to `return_track.py` never registered and its address
+answered `Unknown OSC address`. The reload now (a) imports `introspection`
+eagerly, (b) names the module it stopped at, and (c) logs a partial reload at
+`error`, which reaches the client as `/live/error` `"log", ...` rather than
+sitting in the log file above an unconditional success line. Step 2 of the
+probe rig works on a fresh session as written.
 
 ### Status Messages (sent automatically)
 

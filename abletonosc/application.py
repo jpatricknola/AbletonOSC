@@ -4,6 +4,17 @@ import string
 from functools import partial
 from typing import Any, Tuple
 from .handler import AbletonOSCHandler
+#--------------------------------------------------------------------------------
+# Module scope, not inside the dump_lom callback. A submodule becomes an
+# attribute of its package only once something imports it, and while this was
+# the only import of introspection anywhere it existed only after
+# /live/application/dump_lom had been fired at least once — so on a fresh
+# session manager.reload_imports() raised AttributeError on it and skipped
+# every module after it while still logging "Reloaded code". introspection
+# imports nothing from Live at module scope (both `import Live` statements are
+# inside its functions), so importing it here costs nothing at startup.
+#--------------------------------------------------------------------------------
+from . import introspection
 
 #--------------------------------------------------------------------------------
 # Seshat extension — the module seam.
@@ -59,7 +70,6 @@ class ApplicationHandler(AbletonOSCHandler):
         # file (default logs/lom_dump.json). client/lom_gaps.py diffs the two.
         #--------------------------------------------------------------------------------
         def dump_lom(params: Tuple[Any] = ()) -> Tuple:
-            from . import introspection
             if len(params) >= 1 and params[0]:
                 path = params[0]
             else:
