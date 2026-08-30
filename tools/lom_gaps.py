@@ -361,9 +361,9 @@ def render(dump):
     for name in extra:
         ms = members(classes[name])
         extra_members += len(ms)
-        lines.append("### `%s` — %d members (%s)"
-                     % (name, len(ms), "module" if classes[name].get("kind") == "module"
-                        else "class"))
+        lines.append("### `%s` — %d member%s (%s)"
+                     % (name, len(ms), "" if len(ms) == 1 else "s",
+                        "module" if classes[name].get("kind") == "module" else "class"))
         lines.append("")
         doc = classes[name].get("doc", "")
         if doc:
@@ -371,6 +371,23 @@ def render(dump):
             lines.append("")
         if not ms:
             lines.append("_No readable members on the object itself._")
+            lines.append("")
+            continue
+        if classes[name].get("kind") == "module":
+            #--------------------------------------------------------------------------------
+            # Module entries get the full table rather than the compact list.
+            # A Boost.Python free function's docstring *is* its signature —
+            # argument names, types and return type — and for these members
+            # nothing else records it: they are absent from the apiref and from
+            # Max for Live's tables alike. Dropping it would report that the
+            # member exists while withholding the only thing that says how to
+            # call it.
+            #--------------------------------------------------------------------------------
+            lines.append("| member | kind | Live docstring |")
+            lines.append("|---|---|---|")
+            for member_name, (kind, obs, doc) in ms.items():
+                lines.append("| `%s%s` | %s | %s |"
+                             % (member_name, "*" if obs else "", kind, esc(doc)))
             lines.append("")
             continue
         by_kind = {}

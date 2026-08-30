@@ -9,25 +9,67 @@ cannot report**, so that absence from FORK_GAPS.md is never again read as
 absence from Live._
 
 **The rule this file exists to state:** FORK_GAPS.md is authoritative for
-the classes it reports and silent — not negative — everywhere else. Three
-categories of Live surface can never appear in it, no matter how much of
-Live they carry. Until the fixes below land, "it is not in FORK_GAPS.md" is
-not evidence of anything.
+what it reports and silent — not negative — everywhere else. Three categories
+of Live surface could not appear in it at all, no matter how much of Live they
+carried. Two are now fixed and one is open, so "it is not in FORK_GAPS.md" is
+evidence only as far as the Status table below says it is.
 
 ## Status
 
 | | state |
 |---|---|
 | 1 · report filter drops 90 of 134 walked entries | **fixed** — `tools/lom_gaps.py` renders them in *Walked but not diffed*, with the enum/vector exclusion written down as a named rule |
-| 2 · walker drops module-level members | **fixed in code, unverified against Live** — `_visit_module` records them; proving it needs a fresh `dump_lom` from a running Live |
+| 2 · walker drops module-level members | **fixed and verified** — measured against Live 12.4.5 on 2026-08-30; **7 modules carrying 33 free functions**, none of which had ever appeared in any inventory |
 | 3 · everything outside the `Live` module is unwalked | **open** — no decision recorded |
 
 The counts and tables below are the measurement that motivated the fixes, taken
 before them. They are the record of what was hidden and for how long, not a
 description of the tool's present behaviour: entries described here as
-"never reported" are now reported. Item 2 is why the numbers are not simply
-regenerated — the next dump taken inside Live will move them, and that dump is
-the acceptance test for the walker fix.
+"never reported" are now reported.
+
+## What the fixed walker found
+
+Measured 2026-08-30 against the same running Live 12.4.5, with the fixed walker
+installed: **141 entries — 134 classes and 7 modules** where the old walker saw
+134 classes and no modules. The seven modules carry **33 free functions**, none
+of which had ever appeared in `lom_dump.json`, `FORK_GAPS.md`, the apiref, or
+Max for Live's `LomTypes` tables. They are now in the generated inventory, with
+their signatures, which for a Boost.Python free function is the whole of the
+documentation.
+
+| module | free functions | what it is |
+|---|---|---|
+| `Live.MidiMap` | 10 | The MIDI mapping API — `map_midi_cc`, `map_midi_note`, `map_midi_pitchbend`, each with a `_with_feedback_map` variant, plus `forward_midi_cc` / `_note` / `_pitchbend` and `send_feedback_for_parameter` |
+| `Live.Conversions` | 7 | Audio-to-MIDI and the Simpler/Drum Rack conversions. See below |
+| `Live.Licensing` | 6 | URLs, unlock directory, `launch_web_browser`. **Safety exclusion**, rule 5 |
+| `Live.Application` | 5 | `get_application` (already used), `get_random_int`, `combine_apcs`, two dongle-challenge functions |
+| `Live.Base` | 3 | `log`, `get_text`, `subst_args` — Live's own logging and localisation |
+| `Live.SimplerDevice` | 1 | `get_available_voice_numbers() -> IntVector` |
+| `Live.Song` | 1 | `get_all_scales_ordered() -> tuple` — the full ordered scale list |
+
+**The signatures corrected an assumption.** Every `Live.Conversions` function
+takes the `Song` as its first argument, which nothing in the binary's string
+table showed and which the issue proposing these addresses did not assume:
+
+```
+audio_to_midi_clip( (Song)song, (Clip)audio_clip, (int)audio_to_midi_type) -> None
+is_convertible_to_midi( (Song)song, (Clip)audio_clip) -> bool
+sliced_simpler_to_drum_rack( (Song)song, (SimplerDevice)simpler) -> None
+create_midi_track_with_simpler( (Song)song, (Clip)audio_clip) -> None
+create_drum_rack_from_audio_clip( (Song)song, (Clip)audio_clip) -> None
+create_midi_track_from_drum_pad( (Song)song, (DrumPad)drum_pad) -> None
+move_devices_on_track_to_new_drum_rack_pad( (Song)song, (int)track_index) -> LomObject
+```
+
+`audio_to_midi_clip` returns `None`, so a handler that wants to tell a client
+where the new track landed must read it back itself; `audio_to_midi_type` is
+declared `int`, not the enum type; and `move_devices_on_track_to_new_drum_rack_pad`
+is the only member of the seven that returns anything at all.
+
+This is what "the fix is also the measurement" meant. Still tier 1 — read from
+the running interpreter, **nothing has been called**. A declared signature is
+not proof of behaviour: whether `audio_to_midi_clip` is synchronous, and where
+the track it creates lands, remain unmeasured and need a probe.
 
 **Measured 2026-08-30, Live 12.4.5 Suite, macOS, fork at `58ac7f0`,** from a
 `/live/application/dump_lom` taken against a running Live: 545 KB,
@@ -287,29 +329,25 @@ cost.
    so `tests_unit/test_introspection_walk.py` drives them over synthetic
    modules without Live; a module that carries members of its own is recorded
    under its qualname with `"kind": "module"`.
-3. **Regenerate and re-read** — **outstanding, and Live-gated.** The dump in
-   hand was taken with the old walker, so the inventory currently reports
-   `0 Live modules walked` and `Live.Conversions` is still absent from
-   `FORK_GAPS.md`. Send `/live/application/dump_lom` in a Live running the
-   installed copy of this branch, rerun `tools/lom_gaps.py --write`, and
-   confirm `Live.Conversions` appears with `audio_to_midi_clip` and
-   `is_convertible_to_midi`. That is the acceptance test for item 2, and it is
-   also a measurement: how many other of the 43 walked `Live` submodules carry
-   free functions is still unknown.
+3. ~~**Regenerate and re-read.**~~ Done, 2026-08-30, against a running Live
+   12.4.5 with this branch installed. `Live.Conversions` appears in
+   `FORK_GAPS.md` with all seven members and their signatures; the inventory
+   header reads `134 Live classes and 7 Live modules walked`. The question this
+   item existed to answer — how many other `Live` submodules carry free
+   functions — is answered above: six more, 26 further functions.
 4. **Decide on blind spot 3 explicitly** — enumerate the non-`Live`
    packages once and record the disposition, or record that walking them is
    out of scope and why. Either is fine; silence is not.
 
-Item 3 needs the script reloaded into a running Live. That is now safe to do
-from a fresh session: the reload abort this file's companion issue described is
-fixed, so `/live/api/reload` no longer stops before `introspection`.
+Item 4 is what remains. Note that it is the *same* question one level out: the
+`Live` module's free functions were invisible for the same reason the packages
+beside `Live` are — nothing looked.
 
 ## Documentation obligations
 
-- The counts (134 / 44 / 90 / 31) describe the pre-fix report and the dump in
-  hand. Re-take them from the first dump produced by the fixed walker, and
-  when they are re-taken say so — the interesting number is how many *modules*
-  turn out to carry free functions, which no measurement has ever produced.
+- The counts (134 / 44 / 90 / 31) describe the pre-fix report. The post-fix
+  inventory is 141 entries, 44 reported in the two diffed sections and 38 in
+  *Walked but not diffed* after the enum and vector exclusions.
 - `FORK_GAPS.md` should carry one line near its "Three kinds of gap"
   framing pointing here, so a reader reaching for the generated inventory
   learns its boundary before trusting a silence.
